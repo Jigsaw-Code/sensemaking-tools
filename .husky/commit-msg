@@ -1,0 +1,8 @@
+# Run local hook if it exists.
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+
+if [ -e "$PROJECT_ROOT/.git/hooks/commit-msg" ]; then
+  $PROJECT_ROOT/.git/hooks/commit-msg "$@"
+else
+  exit 0
+fi

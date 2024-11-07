@@ -1,0 +1,6 @@
+{
+    "entryPoints": ["./src/sensemaker.ts", "./src/types.ts", "./src/models/model.ts"],
+    "includeVersion": true,
+    "name": "Participation Project Documentation",
+    "out": "./docs"
+  }
