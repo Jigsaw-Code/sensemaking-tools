@@ -23,7 +23,7 @@ gcloud config set project <your project name here>
 gcloud auth application-default login
 ```
 
-## Development
+# Development
 
 ### Testing
 
@@ -32,3 +32,4 @@ Unit tests can be run with the following command:
 ```
 npm test
 ```
+
