@@ -14,8 +14,7 @@ npm install
 
 ### GCloud setup
 
-* For external installation: <https://cloud.google.com/sdk/docs/install-sdk#deb>
-* For Google internal: <go/gcloudcli>
+- For installation: <https://cloud.google.com/sdk/docs/install-sdk#deb>
 
 ```
 sudo apt install -y google-cloud-cli
@@ -23,3 +22,14 @@ sudo apt install -y google-cloud-cli
 gcloud config set project <your project name here>
 gcloud auth application-default login
 ```
+
+# Development
+
+### Testing
+
+Unit tests can be run with the following command:
+
+```
+npm test
+```
+
