@@ -36,7 +36,7 @@ Includes a background on the report, and the number of statements and votes with
 
 ### Identifying “common ground” and “differences of opinion”
 
-[Computational metrics](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/src/stats_util.ts) are used to select statements corresponding to points of “common ground” and “differences of opinion”. The metrics used rely on the participant body being partitioned into *opinion groups* (for example, the outputs of a clustering algorithm in the Polis software). These clusters represent groups of participants who tend to vote more similarly to each other than to those from other groups. 
+[Computational metrics](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/src/stats/stats_util.ts) are used to select statements corresponding to points of “common ground” and “differences of opinion”. The metrics used rely on the participant body being partitioned into *opinion groups* (for example, the outputs of a clustering algorithm in the Polis software). These clusters represent groups of participants who tend to vote more similarly to each other than to those from other groups. 
 
 Based on these opinion groups, “common ground” statements are defined as those having broad support across groups. To qualify as a point of common ground, each group has to be in agreement with a statement by at least 60%. Statements are then ranked by *group informed consensus*, defined as the product of each group’s agreement rate. This is highest when all groups agree strongly on a statement, thereby respecting minority dissent.
 
