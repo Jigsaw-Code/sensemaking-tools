@@ -16,6 +16,7 @@ import { Sensemaker } from "./sensemaker";
 import { Comment } from "./types";
 import { VertexModel } from "./models/vertex_model";
 import { ModelSettings } from "./models/model";
+import { ProgressReport } from "./types";
 
 // mock retry timeout
 jest.mock("./models/model_util", () => {
@@ -233,6 +234,110 @@ describe("SensemakerTest", () => {
 
       expect(mockGenerateData).toHaveBeenCalledTimes(4);
       expect(commentRecords).toEqual(validResponse);
+    });
+  });
+
+  describe("ProgressReportingTest", () => {
+    it("should report progress during topic identification", async () => {
+      const progressReports: ProgressReport[] = [];
+      const sensemaker = new Sensemaker(TEST_MODEL_SETTINGS);
+      sensemaker.setProgressCallback((report) => progressReports.push(report));
+
+      const comments: Comment[] = [
+        { id: "1", text: "Comment about Roads" },
+        { id: "2", text: "Another comment about Roads" },
+      ];
+
+      mockGenerateData
+        .mockReturnValueOnce(
+          Promise.resolve([
+            {
+              name: "Infrastructure",
+              subtopics: [{ name: "Roads" }],
+            },
+          ])
+        )
+        .mockReturnValueOnce(
+          Promise.resolve([
+            { id: "1", text: "Comment about Roads", topics: [{ name: "Infrastructure" }] },
+            { id: "2", text: "Another comment about Roads", topics: [{ name: "Infrastructure" }] },
+          ])
+        );
+
+      await sensemaker.learnTopics(comments, true);
+
+      expect(progressReports).toHaveLength(3);
+      expect(progressReports[0]).toEqual({
+        operation: "topic_identification",
+        currentStep: 1,
+        totalSteps: 3,
+        message: "Starting topic identification...",
+        percentage: 0,
+      });
+      expect(progressReports[1]).toEqual({
+        operation: "topic_identification",
+        currentStep: 2,
+        totalSteps: 3,
+        message: "Identifying subtopics...",
+        percentage: 33,
+      });
+      expect(progressReports[2]).toEqual({
+        operation: "topic_identification",
+        currentStep: 3,
+        totalSteps: 3,
+        message: "Topic identification complete",
+        percentage: 100,
+      });
+    });
+
+    it("should report progress during statement categorization", async () => {
+      const progressReports: ProgressReport[] = [];
+      const sensemaker = new Sensemaker(TEST_MODEL_SETTINGS);
+      sensemaker.setProgressCallback((report) => progressReports.push(report));
+
+      const comments: Comment[] = Array.from({ length: 30 }, (_, i) => ({
+        id: `${i}`,
+        text: `Comment ${i}`,
+      }));
+      const topics = [{ name: "Topic 1" }];
+
+      mockGenerateData
+        .mockReturnValueOnce(
+          Promise.resolve(
+            comments.slice(0, 10).map((comment) => ({
+              ...comment,
+              topics: [{ name: "Topic 1" }],
+            }))
+          )
+        )
+        .mockReturnValueOnce(
+          Promise.resolve(
+            comments.slice(10, 20).map((comment) => ({
+              ...comment,
+              topics: [{ name: "Topic 1" }],
+            }))
+          )
+        )
+        .mockReturnValueOnce(
+          Promise.resolve(
+            comments.slice(20).map((comment) => ({
+              ...comment,
+              topics: [{ name: "Topic 1" }],
+            }))
+          )
+        );
+
+      await sensemaker.categorizeComments(comments, false, topics);
+
+      expect(progressReports.length).toBeGreaterThan(0);
+      expect(progressReports[0]).toEqual({
+        operation: "statement_categorization",
+        currentStep: 0,
+        totalSteps: 3,
+        message: "Starting statement categorization...",
+        percentage: 0,
+      });
+      expect(progressReports[progressReports.length - 1].percentage).toBe(100);
     });
   });
 });
