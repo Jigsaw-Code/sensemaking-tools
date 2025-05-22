@@ -67,6 +67,8 @@ class HallucinationAutorater:
             comments = summary_data["source"]
 
             formatted_summary = format_summary(statement)
+
+            # TODO: pass comments context so we don't need to ask model to ignore claims like 'broad support', 'common ground' and potentially miss some hallucinations
             formatted_comments = format_comments(comments)
 
             prompt = f"""
@@ -88,7 +90,8 @@ b. For each unit of information, determine if it is mentioned in any of the prov
  * If the unit of information is supported by one or more comments, list the number(s) of the supporting comment(s) in square brackets after the unit. For example:  "improving educational opportunities[2]" (if supported by comment 2).  If multiple comments support the unit, list all of them: "environment[1,3]".
  * If the unit of information is supported by the additional context, mark it with "context" in square brackets. For example:  "conversation in Kentucky[context]"
  * If the unit of information is NOT mentioned in *any* of the comments, mark it with an "X" in square brackets to indicate hallucination.  For example:  "supporting local businesses[X]"
- * If a statement contains claims that there was 'disagreement among participants', don't flag it as this is intentional.
+ * If a summary statement contains the following claims: 'disagreement among participants', 'broad support', 'common ground' or 'A participant stated', don't flag it as fabrication as those claims were added on purpose and are not a part of evaluation.
+ * Having valid acronyms is fine, do not flag acronyms if they are present, but the full name is not mentioned in the input. And vice versa.
 c. Present the complete statement with the bracketed evidence tags. Example: "High consensus was reached on topics such as preserving green spaces[1], supporting local businesses[X], and improving educational opportunities[2]."
 
 Step 2. Answer the following question with "YES", "NO" or "MAYBE", followed by a *brief* explanation of the reasoning behind why this answer was given:

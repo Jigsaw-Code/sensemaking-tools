@@ -21,6 +21,7 @@ import {
   HarmBlockThreshold,
   HarmCategory,
   ModelParams,
+  RequestOptions,
   Schema,
   VertexAI,
 } from "@google-cloud/vertexai";
@@ -45,7 +46,11 @@ export class VertexModel extends Model {
    * @param modelName - the name of the model from Vertex AI's Model Garden to connect with, see
    * the full list here: https://cloud.google.com/model-garden
    */
-  constructor(project: string, location: string, modelName: string = "gemini-1.5-pro-002") {
+  constructor(
+    project: string,
+    location: string,
+    modelName: string = "gemini-2.5-pro-preview-03-25"
+  ) {
     super();
     this.vertexAI = new VertexAI({
       project: project,
@@ -61,7 +66,8 @@ export class VertexModel extends Model {
    * Get generative model corresponding to structured data output specification as a JSON Schema specification.
    */
   getGenerativeModel(schema?: TSchema): GenerativeModel {
-    return this.vertexAI.getGenerativeModel(getModelParams(this.modelName, schema));
+    const requestOptions: RequestOptions = { timeout: 150000 }; // 2.5 min (overrides current default of 5 mins)
+    return this.vertexAI.getGenerativeModel(getModelParams(this.modelName, schema), requestOptions);
   }
 
   /**

@@ -62,7 +62,7 @@ export async function retryCall<T>(
     }
 
     // Exponential backoff calculation
-    const backoffGrowthRate = 2.5; // controls how quickly delay increases b/w retries (higher value = faster increase)
+    const backoffGrowthRate = 1; // controls how quickly delay increases b/w retries (higher value = faster increase)
     const delay = retryDelayMS * Math.pow(backoffGrowthRate, attempt - 1);
     console.log(`Retrying in ${delay / 1000} seconds (attempt ${attempt})`);
     await new Promise((resolve) => setTimeout(resolve, delay));

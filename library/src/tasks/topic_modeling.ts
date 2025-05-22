@@ -23,30 +23,28 @@ import { Comment, FlatTopic, NestedTopic, Topic } from "../types";
  */
 
 export const LEARN_TOPICS_PROMPT = `
-Identify a 1-tiered hierarchical topic modeling of the following comments.
-
-Important Considerations:
-- Use Title Case for topic names.
-- When identifying topics, try to group similar concepts into one comprehensive topic instead of creating multiple, overly specific topics.
-- Create as few topics as possible while covering all the comments.
-- Example topic names are: "Education", "Environmental Sustainability", "Transportation"
-- Bad topic names are like "Community" which is too vague
+Analyze the following comments and identify common topics.
+Consider the granularity of topics: too few topics may oversimplify the content and miss important nuances, while too many topics may lead to redundancy and make the overall structure less clear.
+Aim for a balanced number of topics that effectively summarizes the key themes without excessive detail.
+After analysis of the comments, determine the optimal number of topics to represent the content effectively.
+Justify why having fewer topics would be less optimal (potentially oversimplifying and missing key nuances), and why having more topics would also be less optimal (potentially leading to redundancy and a less clear overall structure).
+After determining the optimal number of topics, identify those topics.
 `;
 
 export function learnSubtopicsForOneTopicPrompt(parentTopic: Topic, otherTopics?: Topic[]): string {
   const otherTopicNames = otherTopics?.map((topic) => topic.name).join(", ") ?? "";
 
   return `
-Analyze the following comments and identify relevant subtopics within the following topic:
-"${parentTopic.name}"
+Analyze the following comments and identify common subtopics within the following overarching topic: "${parentTopic.name}".
+Consider the granularity of subtopics: too few subtopics may oversimplify the content and miss important nuances, while too many subtopics may lead to redundancy and make the overall structure less clear.
+Aim for a balanced number of subtopics that effectively summarizes the key themes without excessive detail.
+After analysis of the comments, determine the optimal number of subtopics to represent the content effectively.
+Justify why having fewer subtopics would be less optimal (potentially oversimplifying and missing key nuances), and why having more subtopics would also be less optimal (potentially leading to redundancy and a less clear overall structure).
+After determining the optimal number of subtopics, identify those subtopics.
 
 Important Considerations:
-- Use Title Case for topic and subtopic names. Do not use capital case like "name": "INFRASTRUCTURE".
-- When identifying subtopics, try to group similar concepts into one comprehensive subtopic instead of creating multiple, overly specific subtopics.
-- Try to create as few subtopics as possible
-- No subtopic should have the same name as the main topic.
-- Do not change the name of the main topic ("${parentTopic.name}").
-- There are other topics that are being used on different sets of comments, do not use these topic names as subtopic names: ${otherTopicNames}
+- No subtopics should have the same name as the overarching topic.
+- There are other overarching topics that are being used on different sets of comments, do not use these overarching topic names as identified subtopics names: ${otherTopicNames}
 
 Example of Incorrect Output:
 

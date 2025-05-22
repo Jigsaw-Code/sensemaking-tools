@@ -40,7 +40,7 @@ export class TopSubtopicsSummary extends RecursiveSummary<SummaryStats> {
     console.log(`Generating PROMINENT THEMES for top 5 subtopics: "${st.name}"`);
     const text = await this.model.generateText(
       getPrompt(
-        `Please generate a concise bulleted list identifying up to 5 prominent themes across all statements. Each theme should be less than 10 words long.  Do not use bold text.  These statements are all about ${st.name}`,
+        `Please generate a concise bulleted list identifying up to 5 prominent themes across all statements. Each theme should be less than 10 words long.  Do not use bold text. Do not preface the bulleted list with any text. These statements are all about ${st.name}`,
         subtopicComments.map((comment: Comment): string => comment.text),
         this.additionalContext
       )

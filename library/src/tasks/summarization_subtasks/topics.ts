@@ -332,7 +332,7 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
     console.log(`Generating PROMINENT THEMES for subtopic: "${this.topicStat.name}"`);
     const text = await this.model.generateText(
       getPrompt(
-        `Please write a concise bulleted list identifying up to 5 prominent themes across all statements. These statements are all about ${this.topicStat.name}. For each theme, begin with a short theme description written in bold text, followed by a colon, then followed by a SINGLE sentence explaining the theme. Your list should meet the below Criteria and STRICTLY follow the Output Format.
+        `Please write a concise bulleted list identifying up to 5 prominent themes across all statements. These statements are all about ${this.topicStat.name}. For each theme, begin with a short theme description written in bold text, followed by a colon, then followed by a SINGLE sentence explaining the theme. Your list should meet the below Criteria and STRICTLY follow the Output Format. Do not preface the bulleted list with any text.
 
       <criteria format="markdown">
       * Impartiality: Do not express your own opinion or pass normative judgments on the statements, like agreement, disagreement, or alarm.
