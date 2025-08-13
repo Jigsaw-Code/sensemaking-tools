@@ -126,14 +126,16 @@ export function writeSummaryToGroundedCSV(summary: Summary, outputFilePath: stri
  * Identify topics and subtopics when input data has not already been categorized.
  * @param project The Vertex GCloud project name
  * @param comments The comments from which topics need to be identified
+ * @param modelName Optional name of the model to use (defaults to gemini-2.5-pro-preview-06-05)
  * @returns Promise resolving to a Topic collection containing the newly discovered topics and subtopics for the given comments
  */
 export async function getTopicsAndSubtopics(
   project: string,
-  comments: Comment[]
+  comments: Comment[],
+  modelName?: string
 ): Promise<Topic[]> {
   const sensemaker = new Sensemaker({
-    defaultModel: new VertexModel(project, "global"),
+    defaultModel: new VertexModel(project, "global", modelName),
   });
   return await sensemaker.learnTopics(comments, true);
 }
@@ -144,16 +146,18 @@ export async function getTopicsAndSubtopics(
  * @param comments The comments to summarize
  * @param topics The input topics to categorize against
  * @param additionalContext Additional context about the conversation to pass through
+ * @param modelName Optional name of the model to use (defaults to gemini-2.5-pro-preview-06-05)
  * @returns Promise resolving to a Summary object containing the summary of the comments
  */
 export async function getSummary(
   project: string,
   comments: Comment[],
   topics?: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  modelName?: string
 ): Promise<Summary> {
   const sensemaker = new Sensemaker({
-    defaultModel: new VertexModel(project, "global"),
+    defaultModel: new VertexModel(project, "global", modelName),
   });
   // TODO: Make the summariation type an argument and add it as a flag in runner.ts. The data
   // requirements (like requiring votes) would also need updated.
