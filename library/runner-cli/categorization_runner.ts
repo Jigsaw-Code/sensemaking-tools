@@ -48,6 +48,7 @@ async function main(): Promise<void> {
     .option("-o, --outputFile <file>", "The output file name.")
     .option("-i, --inputFile <file>", "The input file name.")
     .option("-t, --topics <comma separated list>", "Optional list of top-level topics.")
+    .option("-m, --modelName <model>", "The name of the model to use (defaults to gemini-2.5-pro-preview-06-05).")
     .option(
       "-d, --topicDepth [number]",
       "If set, will learn only topics (1), topics and subtopics (2), or topics, subtopics, and subsubtopics (3). The default is 2.",
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
 
   // Learn topics and categorize comments.
   const sensemaker = new Sensemaker({
-    defaultModel: new VertexModel(options.vertexProject, "global"),
+    defaultModel: new VertexModel(options.vertexProject, "global", options.modelName),
   });
   const topics = options.topics ? getTopics(options.topics) : undefined;
   const categorizedComments = await sensemaker.categorizeComments(
