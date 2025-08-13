@@ -61,7 +61,8 @@ async function main(): Promise<void> {
     .option(
       "-f, --forceRerun",
       "Force rerun of categorization, ignoring existing topics in the input file."
-    );
+    )
+    .option("-k, --keyFilename <file>", "Path to the service account key file for authentication.");
   program.parse(process.argv);
   const options = program.opts();
   options.topicDepth = parseInt(options.topicDepth);
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
 
   // Learn topics and categorize comments.
   const sensemaker = new Sensemaker({
-    defaultModel: new VertexModel(options.vertexProject, "global"),
+    defaultModel: new VertexModel(options.vertexProject, "global", "gemini-2.5-flash-lite", options.keyFilename),
   });
   const topics = options.topics ? getTopics(options.topics) : undefined;
   const categorizedComments = await sensemaker.categorizeComments(
