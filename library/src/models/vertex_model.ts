@@ -49,7 +49,8 @@ export class VertexModel extends Model {
   constructor(
     project: string,
     location: string,
-    modelName: string = "gemini-2.5-pro-preview-06-05"
+    modelName: string = "gemini-2.5-pro-preview-06-05",
+    keyFilename?: string
   ) {
     super();
     if (modelName === "gemini-2.5-pro-preview-06-05" && location != "global") {
@@ -58,11 +59,28 @@ export class VertexModel extends Model {
           "https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro for more information."
       );
     }
-    this.vertexAI = new VertexAI({
+
+    const vertexOptions: {
+      project: string;
+      location: string;
+      apiEndpoint: string;
+      googleAuthOptions?: {
+        keyFilename?: string;
+      };
+    } = {
       project: project,
       location: location,
       apiEndpoint: "aiplatform.googleapis.com",
-    });
+    };
+
+    if (keyFilename) {
+      vertexOptions.googleAuthOptions = {
+        keyFilename: keyFilename
+      };
+      console.log(`Using service account key from: ${keyFilename}`);
+    }
+
+    this.vertexAI = new VertexAI(vertexOptions);
     this.modelName = modelName;
 
     console.log("Creating VertexModel with ", DEFAULT_VERTEX_PARALLELISM, " parallel workers...");

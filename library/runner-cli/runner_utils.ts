@@ -130,10 +130,11 @@ export function writeSummaryToGroundedCSV(summary: Summary, outputFilePath: stri
  */
 export async function getTopicsAndSubtopics(
   project: string,
-  comments: Comment[]
+  comments: Comment[],
+  keyFilename?: string
 ): Promise<Topic[]> {
   const sensemaker = new Sensemaker({
-    defaultModel: new VertexModel(project, "global"),
+    defaultModel: new VertexModel(project, "global", "gemini-2.5-pro-preview-06-05", keyFilename),
   });
   return await sensemaker.learnTopics(comments, true);
 }
@@ -150,10 +151,11 @@ export async function getSummary(
   project: string,
   comments: Comment[],
   topics?: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  keyFilename?: string
 ): Promise<Summary> {
   const sensemaker = new Sensemaker({
-    defaultModel: new VertexModel(project, "global"),
+    defaultModel: new VertexModel(project, "global", "gemini-2.5-pro-preview-06-05", keyFilename),
   });
   // TODO: Make the summariation type an argument and add it as a flag in runner.ts. The data
   // requirements (like requiring votes) would also need updated.

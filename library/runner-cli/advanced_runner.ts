@@ -157,7 +157,8 @@ async function main(): Promise<void> {
       "-a, --additionalContext <context>",
       "A short description of the conversation to add context."
     )
-    .option("-v, --vertexProject <project>", "The Vertex Project name.");
+    .option("-v, --vertexProject <project>", "The Vertex Project name.")
+    .option("-k, --keyFilename <file>", "Path to the service account key file for authentication.");
   program.parse(process.argv);
   const options = program.opts();
 
@@ -187,7 +188,8 @@ async function main(): Promise<void> {
     options.vertexProject,
     comments,
     undefined,
-    options.additionalContext
+    options.additionalContext,
+    options.keyFilename
   );
   writeFileSync(options.outputBasename + "-summary.json", JSON.stringify(summary, null, 2));
 }
