@@ -9,7 +9,7 @@ repos:
     hooks:
       - id: pyink
         types: [python]
-        language_version: python3.12
+        language_version: python3
   - repo: local
     hooks:
       - id: pytest
