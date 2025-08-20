@@ -141,17 +141,17 @@ class GenaiModel:
           )
           if not resp:
             raise Exception("Error happened in the _call_gemini method")
-          if resp["error"]:
-            finish_reason = resp["error"]
-            finish_message = resp["finish_message"]
-            token_count = resp["token_count"]
-            exception_str = f"Error reason: {finish_reason}"
+          error_reason = resp["error"]
+          if error_reason:
+            finish_message = resp.get("finish_message")
+            token_count = resp.get("token_count")
+            exception_str = f"Error reason: {error_reason!r}"
             if finish_message and token_count:
               exception_str += (
                   f", token_count: {token_count}, message: {finish_message}"
               )
             raise Exception(exception_str)
-          if not resp["text"]:
+          if not resp.get("text"):
             raise Exception("Empty response from API")
 
           extracted_statements_df = response_parser(resp["text"])
@@ -180,7 +180,8 @@ class GenaiModel:
         except Exception as e:
           logging.error(
               f"❌ [T#{topic_num} Worker-{worker_id}] Error on topic '{topic}',"
-              f" input_token: {combined_tokens}, attempt {attempt + 1}: {e}"
+              f" input_token: {combined_tokens}, attempt {attempt + 1}:"
+              f" {repr(e)}"
           )
           if attempt < retry_attempts - 1:
             logging.info(f"Retrying in {initial_retry_delay:.2f} seconds...")
@@ -328,10 +329,11 @@ class GenaiModel:
       return {
           "text": candidate.content.parts[0].text,
           "input_token_count": response.usage_metadata.total_token_count,
+          "error": None,
       }
     except Exception as e:
       logging.error(
-          "An unexpected error occurred during content generation: %s", e
+          "An unexpected error occurred during content generation: %s", repr(e)
       )
       return {"error": e}
 
@@ -358,7 +360,9 @@ class GenaiModel:
       return None
 
   def calculate_token_count_needed(
-      self, prompt: str, temperature: float = 0.0
+      self,
+      prompt: str,
+      temperature: float = 0.0,
   ) -> int:
     """Calculates the number of tokens needed for a given prompt.
 
