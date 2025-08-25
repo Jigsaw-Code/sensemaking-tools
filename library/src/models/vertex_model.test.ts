@@ -93,7 +93,7 @@ describe("VertexAI test", () => {
       const expectedText = "This is some text.";
       mockSingleModelResponse(generateContentStreamMock, expectedText);
 
-      const result = await model.generateText("Some instructions");
+      const result = await model.generateText("Some instructions", "en");
 
       expect(generateContentStreamMock).toHaveBeenCalledTimes(1);
 
@@ -110,7 +110,7 @@ describe("VertexAI test", () => {
 
       mockSingleModelResponse(generateContentStreamMock, JSON.stringify(expectedStructuredData));
 
-      const result = await model.generateData("Some instructions", schema);
+      const result = await model.generateData("Some instructions", schema, "en");
 
       expect(generateContentStreamMock).toHaveBeenCalledTimes(1);
 
@@ -126,11 +126,16 @@ describe("VertexAI test", () => {
       });
 
       mockSingleModelResponse(generateContentStreamMock, JSON.stringify(expectedStructuredData));
-      await expect(async () => {
-        await model.generateData("Some instructions", schema);
-      }).rejects.toThrow(
-        `Failed after ${MAX_LLM_RETRIES} attempts: Failed to get a valid model response.`
-      );
+      
+      let error: Error | undefined;
+      try {
+        await model.generateData("Some instructions", schema, "en");
+      } catch (e) {
+        error = e as Error;
+      }
+      
+      expect(error).toBeDefined();
+      expect(error?.message).toContain(`Failed after ${MAX_LLM_RETRIES} attempts: Failed to get a valid model response.`);
     });
   });
 });

@@ -12,10 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { getPrompt, executeConcurrently } from "../../sensemaker_utils";
-import { GroupStats, GroupedSummaryStats } from "../../stats/group_informed";
+// Functions for different ways to summarize Comment and Vote data.
+
 import { RecursiveSummary } from "./recursive_summarization";
-import { Comment, SummaryContent } from "../../types";
+import { GroupedSummaryStats, GroupStats } from "../../stats/group_informed";
+import { SummaryContent, Comment } from "../../types";
+import { getPrompt } from "../../sensemaker_utils";
+
+// Import localization system
+import { 
+  getReportSectionTitle, 
+  getReportContent 
+} from "../../../templates/l10n";
 
 /**
  * Format a list of strings to be a human readable list ending with "and"
@@ -39,119 +47,46 @@ function formatStringList(items: string[]): string {
   return `${items.join(", ")} and ${lastItem}`;
 }
 
-/**
- * A summary section that describes the groups in the data and the similarities/differences between
- * them.
- */
 export class GroupsSummary extends RecursiveSummary<GroupedSummaryStats> {
-  /**
-   * Describes what makes the groups similar and different.
-   * @returns a two sentence description of similarities and differences.
-   */
-  private getGroupComparison(groupNames: string[]): (() => Promise<SummaryContent>)[] {
-    const topAgreeCommentsAcrossGroups = this.input.getCommonGroundComments();
-    const groupComparisonSimilar = this.model.generateText(
-      getPrompt(
-        `Write one sentence describing the views of the ${groupNames.length} different opinion ` +
-          "groups that had high inter group agreement on this subset of comments. Frame it in " +
-          "terms of what the groups largely agree on.",
-        topAgreeCommentsAcrossGroups.map((comment: Comment) => comment.text),
-        this.additionalContext
-      )
-    );
-
-    const topDisagreeCommentsAcrossGroups = this.input.getDifferenceOfOpinionComments();
-    const groupComparisonDifferent = this.model.generateText(
-      getPrompt(
-        "The following are comments that different groups had different opinions on. Write one sentence describing " +
-          "what groups had different opinions on. Frame it in terms of what differs between the " +
-          "groups. Do not suggest the groups agree on these issues. Include every comment in the summary.",
-        topDisagreeCommentsAcrossGroups.map((comment: Comment) => comment.text),
-        this.additionalContext
-      )
-    );
-
-    // Combine the descriptions and add the comments used for summarization as citations.
-    return [
-      () =>
-        groupComparisonSimilar.then((result: string) => {
-          return {
-            // Hack to force these two sections to be on a new line.
-            title: "\n",
-            text: result,
-            citations: topAgreeCommentsAcrossGroups.map((comment) => comment.id),
-          };
-        }),
-      () =>
-        groupComparisonDifferent.then((result: string) => {
-          return {
-            text: result,
-            citations: topDisagreeCommentsAcrossGroups.map((comment) => comment.id),
-          };
-        }),
-    ];
-  }
-
-  /**
-   * Returns a short description of all groups and a comparison of them.
-   * @param groupNames the names of the groups to describe and compare
-   * @returns text containing the description of each group and a compare and contrast section
-   */
-  private async getGroupDescriptions(groupNames: string[]): Promise<SummaryContent[]> {
-    const groupDescriptions: (() => Promise<SummaryContent>)[] = [];
-    for (const groupName of groupNames) {
-      const topCommentsForGroup = this.input.getGroupRepresentativeComments(groupName);
-      groupDescriptions.push(() =>
-        this.model
-          .generateText(
-            getPrompt(
-              `Write a two sentence summary of ${groupName}. Focus on the groups' expressed` +
-                ` views and opinions as reflected in the comments and votes, without speculating ` +
-                `about demographics. Avoid politically charged language (e.g., "conservative," ` +
-                `"liberal", or "progressive"). Instead, describe the group based on their ` +
-                `demonstrated preferences within the conversation.`,
-              topCommentsForGroup.map((comment: Comment) => comment.text),
-              this.additionalContext
-            )
-          )
-          .then((result: string) => {
-            return {
-              title: `__${groupName}__: `,
-              text: result,
-              citations: topCommentsForGroup.map((comment) => comment.id),
-            };
-          })
-      );
-    }
-
-    // Join the individual group descriptions whenever they finish, and when that's done wait for
-    // the group comparison to be created and combine them all together.
-    console.log(
-      `Generating group DESCRIPTION, SIMILARITY and DIFFERENCE comparison for ${groupNames.length} groups`
-    );
-    return executeConcurrently([...groupDescriptions, ...this.getGroupComparison(groupNames)]);
-  }
-
   async getSummary(): Promise<SummaryContent> {
     const groupStats = this.input.getStatsByGroup();
     const groupCount = groupStats.length;
-    const groupNamesWithQuotes = groupStats.map((stat: GroupStats) => {
-      return `"${stat.name}"`;
+    const groupNamesWithQuotes = groupStats.map((stat: GroupStats) => { return `"${stat.name}"`; });
+    const groupNames = groupStats.map((stat: GroupStats) => { return stat.name; });
+    
+    // Get localized title and text from localization system
+    const title = getReportSectionTitle("opinionGroups", this.output_lang);
+    const text = getReportContent("opinionGroups", "text", this.output_lang, {
+      groupCount,
+      groupNames: formatStringList(groupNamesWithQuotes)
     });
-    const groupNames = groupStats.map((stat: GroupStats) => {
-      return stat.name;
-    });
-
-    const content: SummaryContent = {
-      title: "## Opinion Groups",
-      text:
-        `${groupCount} distinct groups (named here as ${formatStringList(groupNamesWithQuotes)}) ` +
-        `emerged with differing viewpoints in relation to the submitted statements. The groups are ` +
-        `based on people who tend to vote more similarly to each other than to those outside the group. ` +
-        "However there are points of common ground where the groups voted similarly.\n\n",
-      subContents: await this.getGroupDescriptions(groupNames),
-    };
-
+    
+    const content: SummaryContent = { title: title, text: text, subContents: await this.getGroupDescriptions(groupNames), };
     return content;
+  }
+
+  async getGroupDescriptions(groupNames: string[]): Promise<SummaryContent[]> {
+    const groupDescriptions: SummaryContent[] = [];
+    for (const groupName of groupNames) {
+      const groupStats = this.input.getStatsByGroup().find((stat: GroupStats) => stat.name === groupName);
+      if (groupStats) {
+        const groupDescription = await this.getGroupDescription(groupStats);
+        groupDescriptions.push(groupDescription);
+      }
+    }
+    return groupDescriptions;
+  }
+
+  async getGroupDescription(groupStats: GroupStats): Promise<SummaryContent> {
+    // Get representative comments for this group
+    const groupComments = this.input.getGroupRepresentativeComments(groupStats.name);
+    const prompt = getPrompt(
+      `Please write a concise summary of the key viewpoints and perspectives of the group "${groupStats.name}". This summary should be based on the statements submitted by members of this group and should reflect their common viewpoints and concerns. The summary should be at least one sentence and at most three sentences long. Do not pretend that you hold any of these opinions. You are not a participant in this discussion.`,
+      groupComments.map((comment: Comment) => comment.text),
+      this.additionalContext,
+      this.output_lang
+    );
+    const groupDescription = await this.model.generateText(prompt, this.output_lang);
+    return { title: `### ${groupStats.name}`, text: groupDescription };
   }
 }

@@ -27,6 +27,7 @@ import {
   Topic,
   SummaryContent,
   VoteInfo,
+  SupportedLanguage,
 } from "../src/types";
 import * as path from "path";
 import * as fs from "fs";
@@ -150,7 +151,8 @@ export async function getSummary(
   project: string,
   comments: Comment[],
   topics?: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  output_lang: SupportedLanguage = "en"
 ): Promise<Summary> {
   const sensemaker = new Sensemaker({
     defaultModel: new VertexModel(project, "global"),
@@ -161,7 +163,8 @@ export async function getSummary(
     comments,
     SummarizationType.AGGREGATE_VOTE,
     topics,
-    additionalContext
+    additionalContext,
+    output_lang
   );
   // For now, remove all Common Ground, Difference of Opinion, or TopicSummary sections
   return summary.withoutContents((sc) => sc.type === "TopicSummary");
