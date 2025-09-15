@@ -25,28 +25,32 @@ import pandas as pd
 
 
 class Job(TypedDict, total=False):
-  topic_num: Optional[int]
-  topic: Optional[str]
-  prompt: str
+  """A TypedDict for representing a job to be processed by the LLM."""
+
   allocations: Optional[Any]
-  stats: Optional[Dict[str, Any]]
-  retry_attempts: int
-  initial_retry_delay: int
   delay_between_calls_seconds: int
-  system_prompt: Optional[str]
+  initial_retry_delay: int
+  job_id: int
+  opinion: Optional[str]
+  opinion_num: Optional[int]
+  prompt: str
   response_mime_type: Optional[str]
   response_schema: Optional[Dict[str, Any]]
+  retry_attempts: int
+  stats: Optional[Dict[str, Any]]
+  system_prompt: Optional[str]
+  topic: Optional[str]
 
 
 # The maximum number of times an LLM call should be retried.
-MAX_LLM_RETRIES = 4
+MAX_LLM_RETRIES = 6
 # How long in seconds to wait between LLM calls. This is needed due to per
 # minute limits Vertex AI imposes.
 RETRY_DELAY_SEC = 60
 # How long in seconds to wait before first LLM calls.
 INITIAL_RETRY_DELAY = 60
 # Maximum number of concurrent API calls. By default Genai limits to 10.
-MAX_CONCURRENT_CALLS = 5
+MAX_CONCURRENT_CALLS = 10
 
 
 class GenaiModel:
@@ -56,7 +60,6 @@ class GenaiModel:
       self,
       api_key: str,
       model_name: str,
-      embedding_model_name: str,
       safety_filters_on: bool = False,
   ):
     """Initializes the GenaiModel.
@@ -64,11 +67,10 @@ class GenaiModel:
     Args:
       api_key: The Google Generative AI API key.
       model_name: The name of the model to use.
-      embedding_model_name: The name of the embedding model to use.
+      safety_filters_on: Whether to enable safety filters. Defaults to False.
     """
     self.client = genai.Client(api_key=api_key)
     self.model = model_name
-    self.embedding_model = embedding_model_name
     self.safety_settings = (
         [
             genai.types.SafetySetting(
@@ -135,34 +137,38 @@ class GenaiModel:
         break
 
       job_id = job.get("job_id")
-      topic_num = job.get("topic_num")
+      opinion_num = job.get("opinion_num")
       topic = job.get("topic")
-      prompt = job["prompt"]
+      prompt = job.get("prompt")
+      opinion = job.get("opinion")
       allocations = job.get("allocations")
       stats = job.get("stats")
-      data_row = job.get("data_row")
       combined_tokens = stats.get("combined_tokens") if stats else None
-      retry_attempts = job["retry_attempts"]
-      initial_retry_delay = job["initial_retry_delay"]
-      delay_between_calls_seconds = job["delay_between_calls_seconds"]
+      retry_attempts = job.get("retry_attempts")
+      initial_retry_delay = job.get("initial_retry_delay")
+      delay_between_calls_seconds = job.get("delay_between_calls_seconds")
       system_prompt = job.get("system_prompt")
       response_mime_type = job.get("response_mime_type")
       response_schema = job.get("response_schema")
 
       # Prepare logging prefix
       log_prefix = f"[Worker-{worker_id}]"
-      if topic_num is not None:
-        log_prefix = f"[T#{topic_num} {log_prefix}]"
-      if topic is not None:
-        log_prefix = f"{log_prefix} Processing topic '{topic}'"
+
+      if opinion_num is not None:
+        log_prefix = f"[O#{opinion_num} {log_prefix[1:-1]}]"
+      if opinion is not None:
+        log_prefix += f" Processing opinion '{opinion[:20]}'"
+      elif topic is not None:
+        log_prefix += f" Processing topic '{topic}'"
       else:
-        log_prefix = f"{log_prefix} Processing job"
+        log_prefix += f" Processing job"
       # This list tracks failures for this job, to be included in the final
       # results for debugging. It is not part of the retry logic itself.
       failed_tries = []
       # The main retry loop. This will continue until the job succeeds or is
       # stopped, at which point the loop will `break`.
       for attempt in range(retry_attempts):
+        resp = None  # Initialize resp for this attempt
         if stop_event.is_set():
           logging.info(f"{log_prefix} Stop event received, terminating.")
           break
@@ -173,7 +179,7 @@ class GenaiModel:
           # Make the actual API call
           resp = await self._call_gemini(
               prompt=prompt,
-              topic=topic,
+              run_name=opinion,
               system_prompt=system_prompt,
               response_mime_type=response_mime_type,
               response_schema=response_schema,
@@ -196,6 +202,7 @@ class GenaiModel:
           result_data = {
               "result": result,
               "propositions": result,  # For backward compatibility
+              "allocations": allocations,
               "token_used": resp["input_token_count"],
               "failed_tries": pd.DataFrame(failed_tries),
           }
@@ -215,7 +222,9 @@ class GenaiModel:
           break
 
         except Exception as e:
-          error_msg = f"❌ {log_prefix} Error on attempt {attempt + 1}: {e}"
+          error_msg = f"❌ {log_prefix} Error on opinion '{opinion[:20]}',"
+          f" input_token: {combined_tokens}, attempt"
+          f" {attempt + 1}: {repr(e)}"
           if combined_tokens is not None:
             error_msg = f"{error_msg}, input_token: {combined_tokens}"
           logging.error(error_msg)
@@ -234,7 +243,8 @@ class GenaiModel:
             await asyncio.sleep(delay)
           else:
             logging.error(
-                f"Failed to process job after {retry_attempts} attempts."
+                f"Failed to process opinion '{opinion[:20]}' after"
+                f" {retry_attempts} attempts."
             )
 
       queue.task_done()
@@ -283,9 +293,11 @@ class GenaiModel:
 
       job: Job = prompt_data.copy()
       job["job_id"] = i  # Add a unique identifier
+      job["opinion_num"] = i + 1
       job["retry_attempts"] = retry_attempts
       job["initial_retry_delay"] = initial_retry_delay
       job["delay_between_calls_seconds"] = delay_between_calls_seconds
+
       await queue.put(job)
 
     # --- Signal workers to stop once the queue is empty ---
@@ -337,7 +349,7 @@ class GenaiModel:
   async def _call_gemini(
       self,
       prompt: str,
-      topic: str,
+      run_name: str,
       temperature: float = 0.0,
       system_prompt: Optional[str] = None,
       response_mime_type: Optional[str] = None,
@@ -347,8 +359,11 @@ class GenaiModel:
 
     Args:
       prompt: The prompt to send to the model.
-      topic: The topic for logging purposes.
+      run_name: The topic or opinion name for logging purposes.
       temperature: The temperature to use for the model.
+      system_prompt: The system prompt to use for the model.
+      response_mime_type: The response mime type to use for the model.
+      response_schema: The response schema to use for the model.
 
     Returns:
       A dictionary containing the model's response and token count,
@@ -367,6 +382,9 @@ class GenaiModel:
               safety_settings=self.safety_settings,
               response_mime_type=response_mime_type,
               response_schema=response_schema,
+              automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
+                  maximum_remote_calls=MAX_CONCURRENT_CALLS
+              ),
           ),
       )
       if not response.candidates:
@@ -378,9 +396,9 @@ class GenaiModel:
 
       if candidate.finish_reason.name != "STOP":
         logging.error(
-            "The model stopped generating for a reason: '%s' for topic: %s",
+            "The model stopped generating for a reason: '%s' for: %s",
             candidate.finish_reason.name,
-            topic,
+            run_name,
         )
         logging.error(f"Safety Ratings: {candidate.safety_ratings}")
         return {
@@ -400,32 +418,10 @@ class GenaiModel:
       )
       return {"error": e}
 
-  def call_gemini_embedding(
-      self,
-      texts: List[str],
-  ) -> Optional[List[List[float]]]:
-    """Calls the Gemini embedding model with the given texts.
-
-    Args:
-      texts: A list of strings to embed.
-
-    Returns:
-      A list of embeddings, or None if an error occurred.
-    """
-    try:
-      response = self.client.embed_content(
-          model=self.embedding_model, content=texts
-      )
-      return response["embeddings"][0]
-    except Exception as e:
-      logging.error(
-          "An unexpected error occurred during embedding generation: %s", e
-      )
-      return None
-
   def calculate_token_count_needed(
       self,
       prompt: str,
+      run_name: str = "",
       temperature: float = 0.0,
   ) -> int:
     """Calculates the number of tokens needed for a given prompt.
@@ -436,10 +432,18 @@ class GenaiModel:
     Returns:
       The number of tokens needed for the prompt.
     """
-    return self.client.models.count_tokens(
+    token_count = self.client.models.count_tokens(
         model=self.model,
         contents=prompt,
         config=genai.types.GenerateContentConfig(
-            temperature=temperature, safety_settings=self.safety_settings
+            temperature=temperature,
+            safety_settings=self.safety_settings,
+            automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
+                maximum_remote_calls=MAX_CONCURRENT_CALLS
+            ),
         ),
     ).total_tokens
+    logging.info(
+        f"Token count for prompt of the run '{run_name}': {token_count}"
+    )
+    return token_count
