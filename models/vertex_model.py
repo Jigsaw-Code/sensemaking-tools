@@ -102,18 +102,16 @@ class VertexModel(BaseModelClass):
       return adapter.validate_json(response_text)
 
     except ValidationError as e:  # Catches Pydantic validation errors
-      logging.error(
+      logging.debug(
           f"Model response failed Pydantic validation for schema {schema}:"
           f" {response_text}.\nError: {e}"
       )
-      raise ValueError(
-          f"Model response failed Pydantic validation: {response_text}."
-      ) from e
+      raise ValueError(f"Model response failed Pydantic validation") from e
     except (
         json.JSONDecodeError
     ) as e:  # Catches errors if response_text is not valid JSON
-      logging.error(f"Model returned invalid JSON: {response_text}.")
-      raise ValueError(f"Model returned invalid JSON: {response_text}.") from e
+      logging.debug(f"Model returned invalid JSON: {response_text}.")
+      raise ValueError(f"Model returned invalid JSON") from e
     except Exception as e:  # Catches any other unexpected errors during parsing
       logging.error(
           f"Failed to parse or validate model response against schema {schema}:"
@@ -143,7 +141,7 @@ class VertexModel(BaseModelClass):
         logging.error(f"Model returned an incomplete response: {response}")
         return False
 
-      logging.info(
+      logging.debug(
           "✓ Completed LLM call (input:"
           f" {response.usage_metadata.prompt_token_count} tokens, output:"
           f" {response.usage_metadata.candidates_token_count} tokens)"
