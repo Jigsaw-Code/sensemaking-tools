@@ -347,6 +347,29 @@ export function getCommentVoteCount(comment: Comment, includePasses: boolean): n
   if (!comment.voteInfo) {
     return 0;
   }
+  
+  // 檢查是否是 VoteTally 實例（具有 getTotalCount 方法）
+  if (typeof comment.voteInfo.getTotalCount === 'function') {
+    return comment.voteInfo.getTotalCount(includePasses);
+  }
+  
+  // 檢查是否是普通的 JavaScript 對象
+  if (typeof comment.voteInfo === 'object' && comment.voteInfo !== null) {
+    const voteInfo = comment.voteInfo as any;
+    if ('agreeCount' in voteInfo && 'disagreeCount' in voteInfo) {
+      const agreeCount = voteInfo.agreeCount || 0;
+      const disagreeCount = voteInfo.disagreeCount || 0;
+      const passCount = voteInfo.passCount || 0;
+      
+      if (includePasses) {
+        return agreeCount + disagreeCount + passCount;
+      } else {
+        return agreeCount + disagreeCount;
+      }
+    }
+  }
+  
+  // 如果是 GroupVoteTallies 類型
   if (isVoteTallyType(comment.voteInfo)) {
     return comment.voteInfo.getTotalCount(includePasses);
   } else {

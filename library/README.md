@@ -1,8 +1,90 @@
-# **Sensemaker by Jigsaw \- A Google AI Proof of Concept**
+# **Sensemaker by Jigsaw - A Google AI Proof of Concept**
 
 This repository shares tools developed by [Jigsaw](http://jigsaw.google.com) as a proof of concept to help make sense of large-scale online conversations. It demonstrates how Large Language Models (LLMs) like Gemini can be leveraged for such tasks. This library offers a transparent look into Jigsaw's methods for categorization, summarization, and identifying agreement/disagreement in complex text. Our goal in sharing this is to inspire others and provide a potential starting point or useful elements for those tackling similar challenges.
 
-# **Overview**
+## **NPM Package Usage for Cloudflare Workers**
+
+This library is now available as an npm package optimized for Cloudflare Workers environment. You can use it directly in your Cloudflare Workers projects.
+
+### **Installation**
+
+```bash
+npm install sensemaking-tools
+```
+
+### **Quick Start in Cloudflare Workers**
+
+```typescript
+import { Sensemaker, OpenRouterModel } from 'sensemaking-tools';
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Configure your models - OpenRouter for easy setup
+    const modelSettings = {
+      defaultModel: new OpenRouterModel({
+        apiKey: env.OPENROUTER_API_KEY,
+        baseUrl: env.OPENROUTER_BASE_URL,
+        model: env.OPENROUTER_MODEL
+      })
+    };
+
+    // Create sensemaker instance
+    const sensemaker = new Sensemaker(modelSettings);
+
+    // Example: Analyze comments from request body
+    const { comments } = await request.json();
+    
+    // Categorize comments by topics
+    const categorizedComments = await sensemaker.categorizeComments(comments);
+    
+    // Generate summary
+    const summary = await sensemaker.summarize(
+      categorizedComments,
+      'AGGREGATE_VOTE'
+    );
+
+    return new Response(JSON.stringify(summary), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+};
+```
+
+### **Environment Variables for Cloudflare Workers**
+
+Set these in your Cloudflare Worker's environment variables:
+
+```bash
+# For OpenRouter (easy setup)
+OPENROUTER_API_KEY=your_api_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openai/gpt-oss-120b
+```
+
+### **Available Exports**
+
+```typescript
+// Core classes
+import { Sensemaker } from 'sensemaking-tools';
+
+// Model implementations
+import { VertexModel, OpenRouterModel } from 'sensemaking-tools';
+
+// Types and utilities
+import { Comment, Topic, Summary, SummarizationType } from 'sensemaking-tools';
+```
+
+### **Building for Production**
+
+```bash
+npm run build:worker
+```
+
+This generates optimized JavaScript files in the `dist/` directory.
+
+---
+
+## **Overview**
 
 Effectively understanding large-scale public input is a significant challenge, as traditional methods struggle to translate thousands of diverse opinions into actionable insights. ‘Sensemaker’ showcases how Google's Gemini models can be used to transform massive volumes of raw community feedback into clear, digestible insights, aiding the analysis of these complex discussions.
 
@@ -130,6 +212,21 @@ Then to log in locally run:
 `gcloud config set project <your project name here>`  
 `gcloud auth application-default login`
 
+
+## **Example Usage(Open Router) \- Javascript**
+
+1. Register an OpenRouter account, obtain an API key, and set it in the `.env` file.
+2. Copy `polist_report.csv` into the `/files` directory and rename it to `comments.csv`.
+
+3. Run:
+
+```bash
+npx ts-node ./library/examples/tutorial.ts
+```
+
+You can get the output in Markdown format from console.
+
+
 ## **Example Usage \- Javascript**
 
 Summarize Seattle’s $15 Minimum Wage Conversation.
@@ -176,7 +273,48 @@ CLI Usage
 There is also a simple CLI set up for testing. There are three  tools:
 
 * [./library/runner-cli/runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/runner.ts): takes in a CSV representing a conversation and outputs an HTML file containing the summary. The summary is best viewed as an HTML file so that the included citations can be hovered over to see the original comment and votes.  
+
+* [.library/runner-cli/runner_openrouter.ts](https://github.com/bestian/sensemaking-tools/blob/new-feature-open-router/library/runner-cli/runner_openrouter.ts)
+
+Same usage as above, but use open router model. 
+To use open router model, you have to set up envivronment varibles as bellow:
+
+```bash
+# OpenRouter API Configuration
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openai/gpt-oss-120b
+
+# Optional: Custom headers for OpenRouter
+OPENROUTER_X_TITLE=Sensemaking Tools
+```
+
+then run
+
+```bash
+npx ts-node ./library/runner-cli/runner_openrouter.ts \
+  --outputBasename out \
+  --inputFile "./files/comments.csv" \
+  --additionalContext "請摘要描述此公共討論" \
+  --output_lang zh-TW
+```
+
+The `--output_lang` parameter supports:
+- `en` (default): English output
+- `zh-TW`: Traditional Chinese output
+
 * [./library/runner-cli/categorization\_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/categorization_runner.ts): takes in a CSV representing a conversation and outputs another CSV with the comments categorized into topics and subtopics.  
+
+* [./library/runner-cli/categorization\_runner\_openrouter.ts](https://github.com/bestian/sensemaking-tools/blob/new-feature-open-router/library/runner-cli/categorization_runner_openrouter.ts): 使用 OpenRouter 模型來對話題進行分類。
+
+```bash
+# 基本用法
+npx ts-node ./library/runner-cli/categorization_runner_openrouter.ts \
+  --inputFile "./files/comments.csv" \
+  --outputFile "./files/categorized_comments.csv"
+
+
+
 * [./library/runner-cli/advanced\_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/advanced_runner.ts): takes in a CSV representing a conversation and outputs three files for an advanced user more interested in the statistics. The first is a JSON of topics, their sizes, and their subtopics. The second is a JSON with all of the comments and their alignment scores and values. Third is the summary object as a JSON which can be used for additional processing.
 
 These tools process CSV input files.  These must contain the columns `comment_text` and `comment-id`.  For deliberations without group information, vote counts should be set in columns titled `agrees`, `disagrees` and `passes`.  If you do not have vote information, these can be set to 0. For deliberations with group breakdowns, you can set the columns `{group_name}-agree-count`, `{group_name}-disagree-count`, `{group_name}-pass-count`.
