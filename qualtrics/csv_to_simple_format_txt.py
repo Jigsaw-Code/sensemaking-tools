@@ -24,7 +24,7 @@ from typing import TextIO
 
 
 def write_question(output: TextIO, id: str, text: str, separator: str):
-  clean_test = text.replace(':', ';')
+  clean_text = text.replace(':', ';')
   output.write(separator)
   output.write(id + '. ' + clean_text + '\n')
   output.write('\n')
