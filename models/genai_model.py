@@ -50,7 +50,7 @@ RETRY_DELAY_SEC = 60
 # How long in seconds to wait before first LLM calls.
 INITIAL_RETRY_DELAY = 60
 # Maximum number of concurrent API calls. By default Genai limits to 10.
-MAX_CONCURRENT_CALLS = 10
+MAX_CONCURRENT_CALLS = 100
 
 
 class GenaiModel:
