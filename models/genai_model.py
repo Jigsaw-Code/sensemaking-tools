@@ -124,7 +124,6 @@ class GenaiModel:
     Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
     """
-    logging.info(f"[Worker-{worker_id}] Started.")
     while not stop_event.is_set():
       try:
         # Use a timeout to periodically check the stop_event
@@ -224,11 +223,18 @@ class GenaiModel:
           break
 
         except Exception as e:
-          error_msg = f"❌ {log_prefix} Error on opinion '{opinion[:20]}',"
-          f" input_token: {combined_tokens}, attempt"
-          f" {attempt + 1}: {repr(e)}"
+          # Build a more robust error message
+          error_parts = [f"❌ {log_prefix}"]
+          if opinion:
+            error_parts.append(f"Error on opinion '{opinion[:20]}'")
+          elif topic:
+            error_parts.append(f"Error on topic '{topic}'")
+
           if combined_tokens is not None:
-            error_msg = f"{error_msg}, input_token: {combined_tokens}"
+            error_parts.append(f"input_token: {combined_tokens}")
+
+          error_parts.append(f"attempt {attempt + 1}: {repr(e)}")
+          error_msg = ", ".join(error_parts)
           logging.error(error_msg)
 
           failed_tries.append({
@@ -248,14 +254,19 @@ class GenaiModel:
             logging.info(f"   Retrying in {delay:.2f} seconds...")
             await asyncio.sleep(delay)
           else:
+            log_identifier = ""
+            if opinion:
+              log_identifier = f"opinion '{opinion[:20]}'"
+            elif topic:
+              log_identifier = f"topic '{topic}'"
+            else:
+              log_identifier = f"job {job_id}"
             logging.error(
-                f"Failed to process opinion '{opinion[:20]}' after"
+                f"Failed to process {log_identifier} after"
                 f" {retry_attempts} attempts."
             )
 
       queue.task_done()
-
-    logging.info(f"[Worker-{worker_id}] Finished.")
 
   async def process_prompts_concurrently(
       self,
