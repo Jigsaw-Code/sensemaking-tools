@@ -173,6 +173,8 @@ class GenaiModel:
           logging.info(f"{log_prefix} Stop event received, terminating.")
           break
 
+        API_ERROR = 'API Error'
+
         try:
           logging.info(f"{log_prefix} (Attempt {attempt + 1})...")
 
@@ -186,7 +188,7 @@ class GenaiModel:
           )
 
           if resp.get("error"):
-            error_message = f"API Error: {resp['error']}"
+            error_message = f"{API_ERROR}: {resp['error']}"
             if resp.get("finish_message"):
               error_message += f" - {resp['finish_message']}"
             if resp.get("token_count"):
@@ -237,8 +239,12 @@ class GenaiModel:
           })
 
           if attempt < retry_attempts - 1:
-            # Exponential backoff with a bit of randomness (jitter)
-            delay = (initial_retry_delay**attempt) + random.uniform(0, 1)
+            # Initialize delay to < 1s, with randomness (jitter)
+            delay = random.uniform(0, 1)
+            if str(e).startswith(API_ERROR):
+              # If error we got an API error (e.g. quota, MAX_TOKENS)
+              # add exponential backoff
+              delay = (initial_retry_delay**attempt)
             logging.info(f"   Retrying in {delay:.2f} seconds...")
             await asyncio.sleep(delay)
           else:
