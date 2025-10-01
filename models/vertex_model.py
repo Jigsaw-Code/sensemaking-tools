@@ -28,6 +28,7 @@ from google.auth.transport.requests import Request as AuthRequest
 from requests.adapters import HTTPAdapter
 import requests
 from pydantic import ValidationError, TypeAdapter
+import re
 
 from .model import Model as BaseModelClass, SchemaType, ListSchemaType
 from .model_util import MAX_LLM_RETRIES, DEFAULT_VERTEX_PARALLELISM, RETRY_DELAY_SEC, MAX_RETRIES
@@ -89,36 +90,44 @@ class VertexModel(BaseModelClass):
   ) -> SchemaType | ListSchemaType:
     response_text = await self._call_llm_with_retry(prompt)
 
+    json_text = response_text
+
     # Drop markdown code block delimiters if present
-    if response_text.startswith("```json"):
-      response_text = response_text[7:]  # Remove ```json
-    if response_text.endswith("```"):
-      response_text = response_text[:-3]  # Remove ```
+    if json_text.startswith("```json"):
+      json_text = json_text[7:]  # Remove ```json
+    if json_text.endswith("```"):
+      json_text = json_text[:-3]  # Remove ```
+
+    # Find the first occurrence of '{' or '[', and drop everything in front of it as not expected.
+    match = re.search(r"[\[{]", json_text)
+    if match:
+      first_brace_index = match.start()
+      json_text = json_text[first_brace_index:]
 
     try:
       # Use TypeAdapter for robust parsing of schema
       # The schema argument itself is the type hint, e.g. Topic or List[Topic]
       adapter = TypeAdapter(schema)
-      return adapter.validate_json(response_text)
+      return adapter.validate_json(json_text)
 
     except ValidationError as e:  # Catches Pydantic validation errors
       logging.debug(
           f"Model response failed Pydantic validation for schema {schema}:"
-          f" {response_text}.\nError: {e}"
+          f" {json_text}.\nError: {e}"
       )
       raise ValueError(f"Model response failed Pydantic validation") from e
     except (
         json.JSONDecodeError
-    ) as e:  # Catches errors if response_text is not valid JSON
-      logging.debug(f"Model returned invalid JSON: {response_text}.")
+    ) as e:  # Catches errors if json_text is not valid JSON
+      logging.debug(f"Model returned invalid JSON: {json_text}.")
       raise ValueError(f"Model returned invalid JSON") from e
     except Exception as e:  # Catches any other unexpected errors during parsing
       logging.error(
           f"Failed to parse or validate model response against schema {schema}:"
-          f" {response_text}.\nError: {e}"
+          f" {json_text}.\nError: {e}"
       )
       raise ValueError(
-          f"Failed to parse or validate model response: {response_text}."
+          f"Failed to parse or validate model response: {json_text}."
       ) from e
 
   async def _call_llm_with_retry(self, prompt: str) -> str:
