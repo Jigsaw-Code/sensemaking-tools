@@ -22,7 +22,7 @@
     "@angular/material": "18.2.13",
     "@angular/platform-browser": "18.2.13",
     "@angular/platform-browser-dynamic": "18.2.13",
-    "@angular/platform-server": "18.2.13",
+    "@angular/platform-server": "18.2.14",
     "@angular/router": "18.2.13",
     "@angular/ssr": "18.2.13",
     "@conversationai/sensemaker-visualizations": "^1.0.46",
