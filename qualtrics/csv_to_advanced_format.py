@@ -27,16 +27,15 @@ def _create_survey(filename: str, output: str):
   with open(output, 'w') as output_file:
     output_file.write('[[AdvancedFormat]]\n\n')
     output_file.write('[[Block:GOVBlock]]\n\n')
-    separator = ''
+    output_file.write('[[Question:Text]]\nPLACEHOLDER FOR INSTRUCTIONS\n')
     for index, row in props.iterrows():
-      output_file.write(separator)
+      output_file.write('\n')
       output_file.write('[[Question:TextEntry:Essay]]\n')
       output_file.write(f'[[ID:GOV{index + 1}]]\n')
-      output_file.write(f'<div class="topic-line"><strong>Topic:</strong> {row["topic"]}</div>\n')
-      output_file.write(f'<div class="opinion-line"><strong>Opinion:</strong> {row["opinion"]}</div>\n')
-      output_file.write(f'<div class="quote-line">&ldquo;{row["comment"]}&rdquo;</div>\n')
+      output_file.write(f'<div class="topic-line"><strong>Topic:</strong> {row["topic"]}</div>\n<br/>\n')
+      output_file.write(f'<div class="opinion-line"><strong>Opinion:</strong> {row["opinion"]}</div>\n<br/>\n')
+      output_file.write(f'<div class="quote-line">&ldquo;{row["representative_text"]}&rdquo;</div>\n<br/>\n')
       output_file.write('<div class="instruction-line">What do you think about this quote?</div>\n')
-      separator = '\n\n'
 
 
 def main():
