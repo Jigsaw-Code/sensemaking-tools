@@ -72,6 +72,10 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     mock_candidate.content.parts[0].text = 'Success response'
     mock_response.candidates = [mock_candidate]
     mock_response.usage_metadata.total_token_count = 456
+    mock_response.usage_metadata.prompt_token_count = 7
+    mock_response.usage_metadata.candidates_token_count = 1
+    mock_response.usage_metadata.tool_use_prompt_token_count = 1
+    mock_response.usage_metadata.thoughts_token_count = 1
     mock_client_instance.aio.models.generate_content.return_value = (
         mock_response
     )
@@ -80,7 +84,11 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     result = asyncio.run(model._call_gemini(prompt='test', run_name='test_run'))
 
     self.assertEqual(result['text'], 'Success response')
-    self.assertEqual(result['input_token_count'], 456)
+    self.assertEqual(result['total_token_count'], 456)
+    self.assertEqual(result['prompt_token_count'], 7)
+    self.assertEqual(result['candidates_token_count'], 1)
+    self.assertEqual(result['tool_use_prompt_token_count'], 1)
+    self.assertEqual(result['thoughts_token_count'], 1)
     self.assertIsNone(result['error'])
 
   def test_call_gemini_safety_failure(self, mock_genai_client):
@@ -132,7 +140,11 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     """Tests when all jobs succeed on the first attempt."""
     mock_call_gemini.return_value = {
         'text': 'parsed',
-        'input_token_count': 10,
+        'total_token_count': 10,
+        'prompt_token_count': 7,
+        'candidates_token_count': 1,
+        'tool_use_prompt_token_count': 1,
+        'thoughts_token_count': 1,
         'error': None,
     }
 
@@ -159,12 +171,32 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     """Tests when one job succeeds after a retry."""
     # Fail for Opinion 2 on the first call, then succeed
     mock_call_gemini.side_effect = [
-        {'text': 'parsed', 'input_token_count': 10, 'error': None},  # Job 1
+        {
+            'text': 'parsed',
+            'total_token_count': 10,
+            'prompt_token_count': 7,
+            'candidates_token_count': 1,
+            'tool_use_prompt_token_count': 1,
+            'thoughts_token_count': 1,
+            'error': None,
+        },  # Job 1
         Exception('API Error'),  # Job 2, Attempt 1
-        {'text': 'parsed', 'input_token_count': 10, 'error': None},  # Job 3
+        {
+            'text': 'parsed',
+            'total_token_count': 10,
+            'prompt_token_count': 7,
+            'candidates_token_count': 1,
+            'tool_use_prompt_token_count': 1,
+            'thoughts_token_count': 1,
+            'error': None,
+        },  # Job 3
         {
             'text': 'parsed_retry',
-            'input_token_count': 10,
+            'total_token_count': 10,
+            'prompt_token_count': 7,
+            'candidates_token_count': 1,
+            'tool_use_prompt_token_count': 1,
+            'thoughts_token_count': 1,
             'error': None,
         },  # Job 2, Attempt 2
     ]
@@ -196,9 +228,25 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
   ):
     """Tests when one job fails all retry attempts."""
     mock_call_gemini.side_effect = [
-        {'text': 'parsed', 'input_token_count': 10, 'error': None},  # Job 1
+        {
+            'text': 'parsed',
+            'total_token_count': 10,
+            'prompt_token_count': 7,
+            'candidates_token_count': 1,
+            'tool_use_prompt_token_count': 1,
+            'thoughts_token_count': 1,
+            'error': None,
+        },  # Job 1
         Exception('API Error 1'),  # Job 2, Attempt 1
-        {'text': 'parsed', 'input_token_count': 10, 'error': None},  # Job 3
+        {
+            'text': 'parsed',
+            'total_token_count': 10,
+            'prompt_token_count': 7,
+            'candidates_token_count': 1,
+            'tool_use_prompt_token_count': 1,
+            'thoughts_token_count': 1,
+            'error': None,
+        },  # Job 3
         Exception('API Error 2'),  # Job 2, Attempt 2
     ]
 

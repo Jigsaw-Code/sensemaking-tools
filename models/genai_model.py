@@ -172,7 +172,7 @@ class GenaiModel:
           logging.info(f"{log_prefix} Stop event received, terminating.")
           break
 
-        API_ERROR = 'API Error'
+        API_ERROR = "API Error"
 
         try:
           logging.info(f"{log_prefix} (Attempt {attempt + 1})...")
@@ -204,7 +204,13 @@ class GenaiModel:
               "result": result,
               "propositions": result,  # For backward compatibility
               "allocations": allocations,
-              "token_used": resp["input_token_count"],
+              "total_token_used": resp["total_token_count"],
+              "prompt_token_count": resp["prompt_token_count"],
+              "candidates_token_count": resp["candidates_token_count"],
+              "tool_use_prompt_token_count": resp[
+                  "tool_use_prompt_token_count"
+              ],
+              "thoughts_token_count": resp["thoughts_token_count"],
               "failed_tries": pd.DataFrame(failed_tries),
           }
           # Merge the original job data into the result
@@ -250,7 +256,7 @@ class GenaiModel:
             if str(e).startswith(API_ERROR):
               # If error we got an API error (e.g. quota, MAX_TOKENS)
               # add exponential backoff
-              delay = (initial_retry_delay**attempt)
+              delay = initial_retry_delay**attempt
             logging.info(f"   Retrying in {delay:.2f} seconds...")
             await asyncio.sleep(delay)
           else:
@@ -426,7 +432,15 @@ class GenaiModel:
 
       return {
           "text": candidate.content.parts[0].text,
-          "input_token_count": response.usage_metadata.total_token_count,
+          "total_token_count": response.usage_metadata.total_token_count,
+          "prompt_token_count": response.usage_metadata.prompt_token_count,
+          "candidates_token_count": (
+              response.usage_metadata.candidates_token_count
+          ),
+          "tool_use_prompt_token_count": (
+              response.usage_metadata.tool_use_prompt_token_count
+          ),
+          "thoughts_token_count": response.usage_metadata.thoughts_token_count,
           "error": None,
       }
     except Exception as e:
