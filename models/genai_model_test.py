@@ -36,6 +36,15 @@ class GenaiModelInitTest(unittest.TestCase):
     for setting in settings:
       self.assertEqual(setting.threshold.name, 'BLOCK_ONLY_HIGH')
 
+  def test_parse_duration(self, mock_genai_client):
+    """Tests that duration strings are correctly parsed into seconds."""
+    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    self.assertEqual(model._parse_duration('18s'), 18)
+    self.assertEqual(model._parse_duration('60s'), 60)
+    self.assertEqual(model._parse_duration('0s'), 0)
+    # Test with fractional seconds, which should be truncated
+    self.assertEqual(model._parse_duration('12.345s'), 12)
+
 
 @patch('google.genai.Client')
 class GenaiModelAsyncMethodsTest(unittest.TestCase):

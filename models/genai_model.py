@@ -19,8 +19,12 @@ This module provides a wrapper around the Google Generative AI API.
 import asyncio
 import logging
 import random
+import re
 from typing import Any, Callable, Tuple, Dict, List, Optional, TypedDict
 from google import genai
+from google.genai import errors as google_genai_errors
+from google.api_core import exceptions as google_exceptions
+from google.protobuf import duration_pb2, json_format
 import pandas as pd
 
 
@@ -110,6 +114,25 @@ class GenaiModel:
             ),
         ]
     )
+    # Event to signal a global pause for all workers, e.g., for quota limits.
+    # It's set by default, meaning workers can proceed.
+    self._quota_pause_event = asyncio.Event()
+    self._quota_pause_event.set()
+    # Lock to ensure only one worker handles a quota error at a time.
+    self._quota_pause_lock = asyncio.Lock()
+
+  def _parse_duration(self, duration_str: str) -> int:
+    """Parses a duration string (e.g., '18s') into seconds."""
+    duration_proto = duration_pb2.Duration()
+    json_format.Parse(f'"{duration_str}"', duration_proto)
+    return duration_proto.seconds
+
+  async def _handle_quota_pause(self, delay: int):
+    """Sleeps for a specified duration and then resumes all workers."""
+    logging.info(f"   Global pause for {delay} seconds...")
+    await asyncio.sleep(delay)
+    logging.info("   Resuming all workers.")
+    self._quota_pause_event.set()
 
   async def _api_worker_with_retry(
       self,
@@ -166,7 +189,11 @@ class GenaiModel:
       failed_tries = []
       # The main retry loop. This will continue until the job succeeds or is
       # stopped, at which point the loop will `break`.
-      for attempt in range(retry_attempts):
+      attempt = 0
+      while attempt < retry_attempts:
+        # Wait here if a global pause is in effect.
+        await self._quota_pause_event.wait()
+
         resp = None  # Initialize resp for this attempt
         if stop_event.is_set():
           logging.info(f"{log_prefix} Stop event received, terminating.")
@@ -187,12 +214,8 @@ class GenaiModel:
           )
 
           if resp.get("error"):
-            error_message = f"{API_ERROR}: {resp['error']}"
-            if resp.get("finish_message"):
-              error_message += f" - {resp['finish_message']}"
-            if resp.get("token_count"):
-              error_message += f" (Tokens: {resp['token_count']})"
-            raise Exception(error_message)
+            # Raise the error to be handled by the common exception block
+            raise resp["error"]
 
           try:
             result = response_parser(resp["text"], job)
@@ -229,7 +252,49 @@ class GenaiModel:
           break
 
         except Exception as e:
-          # Build a more robust error message
+          # --- Universal Error Handling ---
+
+          # Check if this is a Resource Exhausted error
+          is_quota_error = (
+              isinstance(e, google_genai_errors.ClientError)
+              and e.response.status == 429
+          )
+
+          if is_quota_error:
+            async with self._quota_pause_lock:
+              if self._quota_pause_event.is_set():
+                logging.warning(
+                    f"{log_prefix} Quota limit hit. Initiating global pause."
+                )
+                self._quota_pause_event.clear()
+                logging.info(
+                    f"{log_prefix} I am the leader. Pausing all workers."
+                )
+
+                delay = 60  # Default delay
+                try:
+                  # Extract the dictionary from the error message
+                  error_details = await e.response.json()
+                  # Find the retryDelay in the details
+                  for detail in error_details.get("error", {}).get(
+                      "details", []
+                  ):
+                    if (
+                        detail.get("@type")
+                        == "type.googleapis.com/google.rpc.RetryInfo"
+                    ):
+                      retry_delay_str = detail.get("retryDelay", "60s")
+                      delay = self._parse_duration(retry_delay_str) + 1
+                      break
+                except (ValueError, AttributeError, TypeError, IndexError):
+                  pass
+
+                asyncio.create_task(self._handle_quota_pause(delay))
+
+            # Do NOT increment attempt counter for quota errors, just restart the loop
+            continue
+
+          # --- Generic Error Handling ---
           error_parts = [f"❌ {log_prefix}"]
           if opinion:
             error_parts.append(f"Error on opinion '{opinion[:20]}'")
@@ -250,7 +315,8 @@ class GenaiModel:
               "prompt": prompt,
           })
 
-          if attempt < retry_attempts - 1:
+          attempt += 1
+          if attempt < retry_attempts:
             # Initialize delay to < 1s, with randomness (jitter)
             delay = random.uniform(0, 1)
             if str(e).startswith(API_ERROR):
