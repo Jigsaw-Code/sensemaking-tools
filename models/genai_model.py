@@ -28,6 +28,11 @@ from google.protobuf import duration_pb2, json_format
 import pandas as pd
 
 
+class GenaiModelError(Exception):
+  """Base exception for errors in the GenaiModel."""
+  pass
+
+
 class Job(TypedDict, total=False):
   """A TypedDict for representing a job to be processed by the LLM."""
 
@@ -215,7 +220,10 @@ class GenaiModel:
 
           if resp.get("error"):
             # Raise the error to be handled by the common exception block
-            raise resp["error"]
+            error = resp["error"]
+            if isinstance(error, BaseException):
+              raise error
+            raise GenaiModelError(error)
 
           try:
             result = response_parser(resp["text"], job)
