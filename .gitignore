@@ -11,3 +11,4 @@ GEMINI.md
 todo.md
 *.env
 .vscode
+*.pkl
