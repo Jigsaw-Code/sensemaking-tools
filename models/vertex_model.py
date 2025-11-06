@@ -131,6 +131,15 @@ class VertexModel(BaseModelClass):
       ) from e
 
   async def _call_llm_with_retry(self, prompt: str) -> str:
+    # Gemini can take minutes to error on very long prompts.
+    # To avoid this, we check the prompt length before making an API call.
+    # We don't use the token count API as it can fail at the HTTP level.
+    # 10M chars = ~2.5M tokens (2.5x more than current Gemini 1M token limit)
+    ten_millions = 10000000
+    if len(prompt) > ten_millions:
+      raise TokenLimitExceededError(
+          "Prompt length significantly exceeds model's max input token limit"
+      )
 
     async def call_llm_inner() -> GenerationResponse:
       return await self.llm.generate_content_async(
@@ -189,9 +198,8 @@ async def _retry_call(
 
       logging.error(f"Attempt {attempt} failed. Invalid response: {response}")
     except Exception as error:
-      if "exceeds the maximum number of tokens allowed" in str(error):
-        logging.warning("Input token limit exceeded. Not retrying.")
-        raise TokenLimitExceededError(error) from error
+      if isinstance(error, TokenLimitExceededError):
+        raise  # Re-raise the proactively caught token limit error
       logging.error(f"Attempt {attempt} failed: {error}")
 
     # Exponential backoff calculation

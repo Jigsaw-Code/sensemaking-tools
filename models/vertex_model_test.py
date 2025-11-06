@@ -13,20 +13,21 @@
 # limitations under the License.
 
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from models import vertex_model
+from models.vertex_model import TokenLimitExceededError
 
 
 class VertexModelTest(unittest.IsolatedAsyncioTestCase):
 
   async def test_retry_call_token_limit_exceeded(self):
     mock_func = AsyncMock()
-    mock_func.side_effect = Exception(
+    mock_func.side_effect = TokenLimitExceededError(
         "exceeds the maximum number of tokens allowed"
     )
 
-    with self.assertRaises(Exception) as context:
+    with self.assertRaises(TokenLimitExceededError) as context:
       await vertex_model._retry_call(mock_func, lambda x: True, 3, "error", 1)
 
     self.assertIn(
