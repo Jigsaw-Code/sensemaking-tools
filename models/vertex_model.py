@@ -200,11 +200,17 @@ async def _retry_call(
     except Exception as error:
       if isinstance(error, TokenLimitExceededError):
         raise  # Re-raise the proactively caught token limit error
-      logging.error(f"Attempt {attempt} failed: {error}")
+      error_message = str(error)
+      # Don't pollute the logs with the long 429 error messages
+      # Extract the relevant part of the error message
+      match = re.search(r"429 Resource exhausted.*", error_message)
+      if match:
+        error_message = match.group(0).split(".")[0]
+      logging.error(f"Attempt {attempt} failed: {error_message}")
 
     # Exponential backoff calculation
     delay = retry_delay_sec * (backoff_growth_rate ** (attempt - 1))
-    logging.info(f"Retrying in {delay} seconds (attempt {attempt})")
+    logging.info(f"Retrying in {int(delay)} seconds (attempt {attempt})")
     await asyncio.sleep(delay)
 
   raise Exception(f"Failed after {max_retries} attempts: {error_message}")
