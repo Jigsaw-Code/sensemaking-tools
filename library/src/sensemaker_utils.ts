@@ -17,6 +17,7 @@
 import { Comment, CommentRecord, SummaryContent, Topic } from "./types";
 import { RETRY_DELAY_MS } from "./models/model_util";
 import { voteInfoToString } from "./tasks/utils/citation_utils";
+import { runRpmLimited, with429Retry, RetryOpts } from "./rate_limiter_with_retries";
 
 /**
  * Rerun a function multiple times.
@@ -332,11 +333,24 @@ export function commentTableMarkdown(
  * @returns A Promise that resolves to an array containing the resolved values of the
  * promises returned by the callbacks, in the same order as the callbacks.
  */
-export async function executeConcurrently<T>(callbacks: (() => Promise<T>)[]): Promise<T[]> {
-  // NOTE: if a least one callback fails, the entire batch fails.
-  // Because of that, we should aim to retry any failed callbacks down the call stack,
-  // and avoid retries higher up the stack, as it will retry entire batch from scratch, including completed callbacks.
-  return await Promise.all(callbacks.map((callback) => callback()));
+export async function executeConcurrently<T>(
+  callbacks: (() => Promise<T>)[],
+  opts?: { rpm?: number; maxConcurrency?: number; retryOpts?: RetryOpts; enableRetry?: boolean }
+): Promise<T[]> {
+  // If RPM and concurrency limits are provided, schedule via the limiter with 429-aware retries.
+  if (opts?.rpm && opts?.maxConcurrency) {
+    return runRpmLimited(callbacks, {
+      rpm: opts.rpm,
+      maxConcurrency: opts.maxConcurrency,
+      retryOpts: opts.retryOpts,
+    });
+  }
+  // Legacy default: parallel execution without changing behavior.
+  if (!opts?.enableRetry) {
+    return await Promise.all(callbacks.map((cb) => cb()));
+  }
+  // Optional: enable per-call retry with exponential backoff.
+  return await Promise.all(callbacks.map((cb) => with429Retry(cb, opts?.retryOpts)));
 }
 
 /**
