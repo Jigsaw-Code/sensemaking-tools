@@ -198,6 +198,9 @@ async def _retry_call(
 
       logging.error(f"Attempt {attempt} failed. Invalid response: {response}")
     except Exception as error:
+      # catch input tokens limit error in case our check for prompt length was not enough
+      if "exceeds the maximum number of tokens allowed" in str(error):
+        raise TokenLimitExceededError(error) from error
       if isinstance(error, TokenLimitExceededError):
         raise  # Re-raise the proactively caught token limit error
       error_message = str(error)

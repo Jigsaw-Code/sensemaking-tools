@@ -35,6 +35,20 @@ class VertexModelTest(unittest.IsolatedAsyncioTestCase):
     )
     self.assertEqual(mock_func.call_count, 1)
 
+  async def test_retry_call_token_exceeds_error_raises_token_limit_exceeded(
+      self,
+  ):
+    mock_func = AsyncMock()
+    mock_func.side_effect = Exception(
+        "The input token count (1974986) exceeds the maximum number of tokens"
+        " allowed (1048576)."
+    )
+
+    with self.assertRaises(TokenLimitExceededError):
+      await vertex_model._retry_call(mock_func, lambda x: True, 3, "error", 1)
+
+    self.assertEqual(mock_func.call_count, 1)
+
 
 if __name__ == "__main__":
   unittest.main()
