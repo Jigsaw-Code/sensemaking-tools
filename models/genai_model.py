@@ -19,17 +19,18 @@ This module provides a wrapper around the Google Generative AI API.
 import asyncio
 import logging
 import random
-import re
+import os
+import time
 from typing import Any, Callable, Tuple, Dict, List, Optional, TypedDict
 from google import genai
 from google.genai import errors as google_genai_errors
-from google.api_core import exceptions as google_exceptions
 from google.protobuf import duration_pb2, json_format
 import pandas as pd
 
 
 class GenaiModelError(Exception):
   """Base exception for errors in the GenaiModel."""
+
   pass
 
 
@@ -67,17 +68,26 @@ class GenaiModel:
 
   def __init__(
       self,
-      api_key: str,
       model_name: str,
+      api_key: str | None = None,
       safety_filters_on: bool = False,
   ):
     """Initializes the GenaiModel.
 
     Args:
-      api_key: The Google Generative AI API key.
       model_name: The name of the model to use.
+      api_key: The Google Generative AI API key. If not provided, the
+        GOOGLE_API_KEY environment variable will be used.
       safety_filters_on: Whether to enable safety filters. Defaults to False.
     """
+    if not api_key:
+      api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+      raise ValueError(
+          "Google API key not provided and GOOGLE_API_KEY environment variable"
+          " is not set."
+      )
+
     self.client = genai.Client(api_key=api_key)
     self.model = model_name
     self.safety_settings = (
@@ -552,3 +562,105 @@ class GenaiModel:
         f"Token count for prompt of the run '{run_name}': {token_count}"
     )
     return token_count
+
+  def _parse_batch_responses(
+      self, batch_job: Any, prompts: List[str]
+  ) -> List[Optional[Dict[str, Any]]]:
+    """Parses the inlined responses from a completed batch job."""
+    results = []
+    if batch_job.dest and batch_job.dest.inlined_responses:
+      for inline_response in batch_job.dest.inlined_responses:
+        if inline_response.response and hasattr(
+            inline_response.response, "text"
+        ):
+          results.append(
+              {"text": inline_response.response.text, "error": None}
+          )
+        elif inline_response.error:
+          results.append({"error": str(inline_response.error)})
+        else:
+          results.append({"error": "Unknown response format"})
+    else:
+      return [{"error": "No inline results found."} for _ in prompts]
+
+    if len(results) != len(prompts):
+      logging.warning("Mismatch between number of prompts and results.")
+
+    return results
+
+  async def process_prompts_batch(
+      self,
+      prompts: List[str],
+      polling_interval_seconds: int = 30,
+  ) -> List[Optional[Dict[str, Any]]]:
+    """
+    Processes prompts using the client.batches API and waits for the result.
+    This is an async implementation that uses an executor to avoid blocking.
+    """
+    if not prompts:
+      return []
+
+    inline_requests = [
+        {"contents": [{"parts": [{"text": p}], "role": "user"}]}
+        for p in prompts
+    ]
+
+    loop = asyncio.get_running_loop()
+
+    try:
+      start_time = time.time()
+
+      model_for_batch = f"models/{self.model}"
+
+      # self.client.batches.create is a blocking call
+      inline_batch_job = await loop.run_in_executor(
+          None,
+          lambda: self.client.batches.create(
+              model=model_for_batch,
+              src=inline_requests,
+          ),
+      )
+      logging.info(f"Created batch job: {inline_batch_job.name}")
+
+      job_name = inline_batch_job.name
+
+      completed_states = {
+          "JOB_STATE_SUCCEEDED",
+          "JOB_STATE_FAILED",
+          "JOB_STATE_CANCELLED",
+          "JOB_STATE_EXPIRED",
+      }
+
+      while True:
+        batch_job = await loop.run_in_executor(
+            None, lambda: self.client.batches.get(name=job_name)
+        )
+        logging.info(
+            f"Polling for job {job_name}. Current state: {batch_job.state.name}"
+        )
+        if batch_job.state.name in completed_states:
+          break
+        await asyncio.sleep(polling_interval_seconds)
+
+      end_time = time.time()
+      duration = end_time - start_time
+      logging.info(f"Batch job {job_name} finished in {duration:.2f} seconds.")
+
+      logging.info(
+          f"Job {job_name} finished with state: {batch_job.state.name}"
+      )
+
+      if batch_job.state.name != "JOB_STATE_SUCCEEDED":
+        error_message = f"Batch job failed with state {batch_job.state.name}"
+        if batch_job.error:
+          error_message += f": {batch_job.error}"
+        return [{"error": error_message} for _ in prompts]
+
+      return self._parse_batch_responses(batch_job, prompts)
+
+    except google_genai_errors.ClientError as e:
+      logging.error(f"A Genai ClientError occurred in batch processing: {repr(e)}")
+      return [{"error": e} for _ in prompts]
+    except Exception as e:
+      logging.error(f"An error occurred in batch processing: {repr(e)}")
+      return [{"error": e} for _ in prompts]
