@@ -23,6 +23,7 @@ import os
 import time
 from typing import Any, Callable, Tuple, Dict, List, Optional, TypedDict
 from google import genai
+from google.api_core import exceptions as google_api_core_exceptions
 from google.genai import errors as google_genai_errors
 from google.protobuf import duration_pb2, json_format
 import pandas as pd
@@ -61,6 +62,13 @@ RETRY_DELAY_SEC = 60
 INITIAL_RETRY_DELAY = 60
 # Maximum number of concurrent API calls. By default Genai limits to 10.
 MAX_CONCURRENT_CALLS = 100
+
+COMPLETED_BATCH_JOB_STATES = frozenset({
+    "JOB_STATE_SUCCEEDED",
+    "JOB_STATE_FAILED",
+    "JOB_STATE_CANCELLED",
+    "JOB_STATE_EXPIRED",
+})
 
 
 class GenaiModel:
@@ -564,7 +572,7 @@ class GenaiModel:
     return token_count
 
   def _parse_batch_responses(
-      self, batch_job: Any, prompts: List[str]
+      self, batch_job: Any, num_expected_prompts: int
   ) -> List[Optional[Dict[str, Any]]]:
     """Parses the inlined responses from a completed batch job."""
     results = []
@@ -573,32 +581,26 @@ class GenaiModel:
         if inline_response.response and hasattr(
             inline_response.response, "text"
         ):
-          results.append(
-              {"text": inline_response.response.text, "error": None}
-          )
+          results.append({"text": inline_response.response.text, "error": None})
         elif inline_response.error:
           results.append({"error": str(inline_response.error)})
         else:
           results.append({"error": "Unknown response format"})
     else:
-      return [{"error": "No inline results found."} for _ in prompts]
+      return [
+          {"error": "No inline results found."}
+          for _ in range(num_expected_prompts)
+      ]
 
-    if len(results) != len(prompts):
+    if len(results) != num_expected_prompts:
       logging.warning("Mismatch between number of prompts and results.")
 
     return results
 
-  async def process_prompts_batch(
-      self,
-      prompts: List[str],
-      polling_interval_seconds: int = 30,
-  ) -> List[Optional[Dict[str, Any]]]:
-    """
-    Processes prompts using the client.batches API and waits for the result.
-    This is an async implementation that uses an executor to avoid blocking.
-    """
+  async def start_prompts_batch(self, prompts: List[str]) -> str:
+    """Starts a batch job and returns the job name."""
     if not prompts:
-      return []
+      return ""
 
     inline_requests = [
         {"contents": [{"parts": [{"text": p}], "role": "user"}]}
@@ -606,61 +608,69 @@ class GenaiModel:
     ]
 
     loop = asyncio.get_running_loop()
+    model_for_batch = f"models/{self.model}"
 
+    inline_batch_job = await loop.run_in_executor(
+        None,
+        lambda: self.client.batches.create(
+            model=model_for_batch,
+            src=inline_requests,
+        ),
+    )
+    logging.info(f"Created batch job: {inline_batch_job.name}")
+    return inline_batch_job.name
+
+  async def get_batch_job(self, job_name: str):
+    """Gets a batch job by name."""
     try:
-      start_time = time.time()
-
-      model_for_batch = f"models/{self.model}"
-
-      # self.client.batches.create is a blocking call
-      inline_batch_job = await loop.run_in_executor(
-          None,
-          lambda: self.client.batches.create(
-              model=model_for_batch,
-              src=inline_requests,
-          ),
+      loop = asyncio.get_running_loop()
+      return await loop.run_in_executor(
+          None, lambda: self.client.batches.get(name=job_name)
       )
-      logging.info(f"Created batch job: {inline_batch_job.name}")
+    except google_api_core_exceptions.NotFound:
+      return None
 
-      job_name = inline_batch_job.name
+  async def poll_batch_job(
+      self,
+      job_name: str,
+      num_prompts: int,
+      polling_interval_seconds: int = 30,
+  ) -> List[Optional[Dict[str, Any]]]:
+    """Polls a batch job until it is complete and returns the results."""
 
-      completed_states = {
-          "JOB_STATE_SUCCEEDED",
-          "JOB_STATE_FAILED",
-          "JOB_STATE_CANCELLED",
-          "JOB_STATE_EXPIRED",
-      }
+    start_time = time.time()
 
-      while True:
-        batch_job = await loop.run_in_executor(
-            None, lambda: self.client.batches.get(name=job_name)
+    while True:
+      batch_job = await self.get_batch_job(job_name)
+
+      if not batch_job:
+        logging.error(
+            f"Batch job {job_name} not found or disappeared during polling."
         )
-        logging.info(
-            f"Polling for job {job_name}. Current state: {batch_job.state.name}"
-        )
-        if batch_job.state.name in completed_states:
-          break
-        await asyncio.sleep(polling_interval_seconds)
+        return [
+            {"error": "Job not found or disappeared"}
+            for _ in range(num_prompts)
+        ]
 
-      end_time = time.time()
-      duration = end_time - start_time
-      logging.info(f"Batch job {job_name} finished in {duration:.2f} seconds.")
+      if batch_job.state.name in COMPLETED_BATCH_JOB_STATES:
+        break
 
       logging.info(
-          f"Job {job_name} finished with state: {batch_job.state.name}"
+          f"Polling for job {job_name}. Current state: {batch_job.state.name}"
       )
+      await asyncio.sleep(polling_interval_seconds)
 
-      if batch_job.state.name != "JOB_STATE_SUCCEEDED":
-        error_message = f"Batch job failed with state {batch_job.state.name}"
-        if batch_job.error:
-          error_message += f": {batch_job.error}"
-        return [{"error": error_message} for _ in prompts]
+    end_time = time.time()
+    duration = end_time - start_time
+    logging.info(
+        f"Batch job {job_name} finished polling in {duration:.2f} seconds."
+    )
+    logging.info(f"Job {job_name} finished with state: {batch_job.state.name}")
 
-      return self._parse_batch_responses(batch_job, prompts)
+    if batch_job.state.name != "JOB_STATE_SUCCEEDED":
+      error_message = f"Batch job failed with state {batch_job.state.name}"
+      if batch_job.error:
+        error_message += f": {batch_job.error}"
+      return [{"error": error_message} for _ in range(num_prompts)]
 
-    except google_genai_errors.ClientError as e:
-      logging.error(f"A Genai ClientError occurred in batch processing: {repr(e)}")
-      return [{"error": e} for _ in prompts]
-    except Exception as e:
-      logging.error(f"An error occurred in batch processing: {repr(e)}")
-      return [{"error": e} for _ in prompts]
+    return self._parse_batch_responses(batch_job, num_prompts)
