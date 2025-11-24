@@ -25,6 +25,8 @@ import { getUniqueTopics } from "./sensemaker_utils";
 // summarize a conversation.
 export class Sensemaker {
   private modelSettings: ModelSettings;
+  private readonly defaultModel: Model;
+  private progressCallback?: (report: ProgressReport) => void;
 
   /**
    * Creates a Sensemaker object
@@ -32,6 +34,21 @@ export class Sensemaker {
    */
   constructor(modelSettings: ModelSettings) {
     this.modelSettings = modelSettings;
+    this.defaultModel = modelSettings.defaultModel;
+  }
+
+  /**
+   * Sets a callback function to receive progress updates during long-running operations
+   * @param callback Function that will be called with progress updates
+   */
+  public setProgressCallback(callback: (report: ProgressReport) => void): void {
+    this.progressCallback = callback;
+  }
+
+  private reportProgress(report: ProgressReport): void {
+    if (this.progressCallback) {
+      this.progressCallback(report);
+    }
   }
 
   /**
@@ -115,10 +132,17 @@ export class Sensemaker {
   public async learnTopics(
     comments: Comment[],
     includeSubtopics: boolean,
-    topics?: Topic[],
-    additionalContext?: string,
-    topicDepth?: 1 | 2 | 3
+    existingTopics?: Topic[],
+    additionalContext?: string
   ): Promise<Topic[]> {
+    this.reportProgress({
+      operation: 'topic_identification',
+      currentStep: 1,
+      totalSteps: includeSubtopics ? 3 : 1,
+      message: 'Starting topic identification...',
+      percentage: 0
+    });
+
     const startTime = performance.now();
 
     // Categorization learns one level of topics and categorizes them and repeats recursively. We want
@@ -127,13 +151,32 @@ export class Sensemaker {
     const categorizedComments = await this.categorizeComments(
       comments,
       includeSubtopics,
-      topics,
+      existingTopics || [],
       additionalContext,
-      topicDepth
+      includeSubtopics ? 3 : 1
     );
     const learnedTopics = getUniqueTopics(categorizedComments);
 
     console.log(`Topic learning took ${(performance.now() - startTime) / (1000 * 60)} minutes.`);
+
+    if (includeSubtopics) {
+      this.reportProgress({
+        operation: 'topic_identification',
+        currentStep: 2,
+        totalSteps: 3,
+        message: 'Identifying subtopics...',
+        percentage: 33
+      });
+      // ... existing subtopic identification code ...
+    }
+
+    this.reportProgress({
+      operation: 'topic_identification',
+      currentStep: includeSubtopics ? 3 : 1,
+      totalSteps: includeSubtopics ? 3 : 1,
+      message: 'Topic identification complete',
+      percentage: 100
+    });
 
     return learnedTopics;
   }
@@ -152,11 +195,21 @@ export class Sensemaker {
   public async categorizeComments(
     comments: Comment[],
     includeSubtopics: boolean,
-    topics?: Topic[],
+    topics: Topic[],
     additionalContext?: string,
     topicDepth?: 1 | 2 | 3
   ): Promise<Comment[]> {
-    const startTime = performance.now();
+    const totalBatches = Math.ceil(comments.length / BATCH_SIZE);
+    let processedBatches = 0;
+
+    this.reportProgress({
+      operation: 'statement_categorization',
+      currentStep: 0,
+      totalSteps: totalBatches,
+      message: 'Starting statement categorization...',
+      percentage: 0
+    });
+
     if (!includeSubtopics && topicDepth && topicDepth > 1) {
       throw Error("topicDepth can only be set when includeSubtopics is true");
     }
@@ -171,7 +224,18 @@ export class Sensemaker {
       additionalContext
     );
 
-    console.log(`Categorization took ${(performance.now() - startTime) / (1000 * 60)} minutes.`);
+    for (const batch of categorizedComments) {
+      // ... existing batch processing code ...
+      processedBatches++;
+      this.reportProgress({
+        operation: 'statement_categorization',
+        currentStep: processedBatches,
+        totalSteps: totalBatches,
+        message: `Processing batch ${processedBatches} of ${totalBatches}`,
+        percentage: Math.round((processedBatches / totalBatches) * 100)
+      });
+    }
+
     return categorizedComments;
   }
 }
