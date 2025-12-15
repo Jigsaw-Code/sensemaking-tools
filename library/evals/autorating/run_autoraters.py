@@ -75,7 +75,7 @@ async def main():
   parser.add_argument(
       "-m",
       "--model",
-      default="gemini-2.5-pro-preview-06-05",
+      default="gemini-2.5-pro",
       help="Vertex AI model name",
   )
   parser.add_argument(
