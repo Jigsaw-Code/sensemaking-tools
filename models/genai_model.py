@@ -52,6 +52,8 @@ class Job(TypedDict, total=False):
   stats: Dict[str, Any]
   system_prompt: Optional[str]
   topic: Optional[str]
+  thinking_budget: Optional[int]
+  temperature: Optional[float]
 
 
 # The maximum number of times an LLM call should be retried.
@@ -217,6 +219,8 @@ class GenaiModel:
       system_prompt = job.get("system_prompt")
       response_mime_type = job.get("response_mime_type")
       response_schema = job.get("response_schema")
+      thinking_budget = job.get("thinking_budget")
+      temperature = job.get("temperature", 0.0)
 
       # Prepare logging prefix
       log_prefix = f"[Worker-{worker_id}]"
@@ -263,6 +267,8 @@ class GenaiModel:
               system_prompt=system_prompt,
               response_mime_type=response_mime_type,
               response_schema=response_schema,
+              thinking_budget=thinking_budget,
+              temperature=temperature,
           )
 
           if resp.get("error"):
@@ -273,7 +279,8 @@ class GenaiModel:
             raise GenaiModelError(error)
 
           try:
-            result = response_parser(resp["text"], job)
+            job["current_attempt"] = attempt
+            result = response_parser(resp, job)
           except Exception as e:
             raise Exception(f"Response parsing failed: {e}")
 
@@ -400,6 +407,7 @@ class GenaiModel:
           })
 
           attempt += 1
+          temperature += 0.02
           if attempt < retry_attempts:
             # Initialize delay to < 1s, with randomness (jitter)
             delay = random.uniform(0, 1)
@@ -538,6 +546,7 @@ class GenaiModel:
       system_prompt: Optional[str] = None,
       response_mime_type: Optional[str] = None,
       response_schema: Optional[Dict[str, Any]] = None,
+      thinking_budget: Optional[int] = None,
   ) -> Optional[Dict[str, Any]]:
     """Calls the Gemini model with the given prompt.
 
@@ -548,6 +557,7 @@ class GenaiModel:
       system_prompt: The system prompt to use for the model.
       response_mime_type: The response mime type to use for the model.
       response_schema: The response schema to use for the model.
+      thinking_budget: The token budget for the model's thinking process.
 
     Returns:
       A dictionary containing the model's response and token count,
@@ -555,6 +565,12 @@ class GenaiModel:
     """
     if not prompt:
       raise ValueError("Prompt must be present to call Gemini.")
+
+    thinking_config = (
+        genai.types.ThinkingConfig(thinking_budget=thinking_budget)
+        if thinking_budget is not None
+        else None
+    )
 
     try:
       response = await self.client.aio.models.generate_content(
@@ -566,6 +582,7 @@ class GenaiModel:
               safety_settings=self.safety_settings,
               response_mime_type=response_mime_type,
               response_schema=response_schema,
+              thinking_config=thinking_config,
               automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
                   maximum_remote_calls=MAX_CONCURRENT_CALLS
               ),
@@ -578,7 +595,32 @@ class GenaiModel:
 
       candidate = response.candidates[0]
 
-      if candidate.finish_reason.name != "STOP":
+      if (
+          candidate.content.parts
+          and hasattr(candidate.content.parts[0], "function_call")
+          and candidate.content.parts[0].function_call
+          and candidate.content.parts[0].function_call.name
+      ):
+        function_call = candidate.content.parts[0].function_call
+        return {
+            "function_name": function_call.name,
+            "function_args": json_format.MessageToDict(function_call.args),
+            "text": "",  # Ensure text field exists to avoid key errors
+            "total_token_count": response.usage_metadata.total_token_count,
+            "prompt_token_count": response.usage_metadata.prompt_token_count,
+            "candidates_token_count": (
+                response.usage_metadata.candidates_token_count
+            ),
+            "tool_use_prompt_token_count": (
+                response.usage_metadata.tool_use_prompt_token_count
+            ),
+            "thoughts_token_count": (
+                response.usage_metadata.thoughts_token_count
+            ),
+            "error": None,
+        }
+
+      if candidate.finish_reason and candidate.finish_reason.name != "STOP":
         logging.error(
             "The model stopped generating for a reason: '%s' for: %s",
             candidate.finish_reason.name,
@@ -592,7 +634,9 @@ class GenaiModel:
         }
 
       return {
-          "text": candidate.content.parts[0].text,
+          "text": (
+              candidate.content.parts[0].text if candidate.content.parts else ""
+          ),
           "total_token_count": response.usage_metadata.total_token_count,
           "prompt_token_count": response.usage_metadata.prompt_token_count,
           "candidates_token_count": (

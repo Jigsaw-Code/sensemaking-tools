@@ -80,6 +80,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     mock_candidate.finish_reason.name = 'STOP'
     mock_candidate.content.parts = [MagicMock()]
     mock_candidate.content.parts[0].text = 'Success response'
+    mock_candidate.content.parts[0].function_call = None
     mock_response.candidates = [mock_candidate]
     mock_response.usage_metadata.total_token_count = 456
     mock_response.usage_metadata.prompt_token_count = 7
@@ -111,6 +112,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     mock_candidate.finish_reason.name = 'SAFETY'
     mock_candidate.finish_message = 'Blocked for safety'
     mock_candidate.token_count = 0
+    mock_candidate.content.parts = []
     mock_response.candidates = [mock_candidate]
     mock_client_instance.aio.models.generate_content.return_value = (
         mock_response
@@ -213,8 +215,8 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
 
     model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
 
-    def simple_parser(text, job):
-      return f"{text}_{job['opinion']}"
+    def simple_parser(resp, job):
+      return f"{resp['text']}_{job['opinion']}"
 
     results_df, _ = asyncio.run(
         model.process_prompts_concurrently(
@@ -264,7 +266,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     results_df, _ = asyncio.run(
         model.process_prompts_concurrently(
             self.prompts,
-            lambda t, j: t,
+            lambda resp, j: resp['text'],
             retry_attempts=2,
             initial_retry_delay=0.01,
             delay_between_calls_seconds=0,
@@ -324,7 +326,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     results_df, _ = asyncio.run(
         self.model.process_prompts_concurrently(
             self.prompts,
-            lambda t, j: t,
+            lambda resp, j: resp['text'],
             retry_attempts=3,
             delay_between_calls_seconds=0,
         )
@@ -489,7 +491,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     # Run the process
     results_df, _ = await self.model.process_prompts_concurrently(
         self.prompts,
-        lambda t, j: t,
+        lambda resp, j: resp['text'],
         retry_attempts=3,
         delay_between_calls_seconds=0,
     )
