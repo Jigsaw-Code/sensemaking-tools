@@ -48,7 +48,7 @@ class Job(TypedDict, total=False):
   response_mime_type: Optional[str]
   response_schema: Optional[Dict[str, Any]]
   retry_attempts: int
-  stats: Optional[Dict[str, Any]]
+  stats: Dict[str, Any]
   system_prompt: Optional[str]
   topic: Optional[str]
 
@@ -187,8 +187,8 @@ class GenaiModel:
       prompt = job.get("prompt")
       opinion = job.get("opinion")
       allocations = job.get("allocations")
-      stats = job.get("stats")
-      combined_tokens = stats.get("combined_tokens") if stats else None
+      stats = job["stats"]
+      combined_tokens = stats.get("combined_tokens")
       retry_attempts = job.get("retry_attempts")
       initial_retry_delay = job.get("initial_retry_delay")
       delay_between_calls_seconds = job.get("delay_between_calls_seconds")
@@ -207,6 +207,11 @@ class GenaiModel:
         log_prefix += f" Processing topic '{topic}'"
       else:
         log_prefix += f" Processing job"
+
+      # Initialize failure tracking stats
+      stats["non_quota_failures"] = 0
+      stats["is_complete_failure"] = False
+
       # This list tracks failures for this job, to be included in the final
       # results for debugging. It is not part of the retry logic itself.
       failed_tries = []
@@ -266,8 +271,7 @@ class GenaiModel:
           result_data = {**job, **result_data}
           results_list.append(result_data)
 
-          if stats is not None:
-            stats_list.append(stats)
+          stats_list.append(stats)
 
           logging.info(f"✅ {log_prefix} Successfully processed.")
 
@@ -334,6 +338,9 @@ class GenaiModel:
           error_msg = ", ".join(error_parts)
           logging.error(error_msg)
 
+          # Increment the non-quota failure count in the stats object
+          stats["non_quota_failures"] += 1
+
           failed_tries.append({
               "attempt_index": attempt,
               "error_message": str(e),
@@ -363,7 +370,11 @@ class GenaiModel:
                 f"Failed to process {log_identifier} after"
                 f" {retry_attempts} attempts."
             )
+            # Mark this job as a complete failure in the stats
+            stats["is_complete_failure"] = True
 
+      # Always append the stats object to the list, regardless of success.
+      stats_list.append(stats)
       queue.task_done()
 
   async def process_prompts_concurrently(
@@ -378,6 +389,13 @@ class GenaiModel:
     """
     Orchestrates the process of generating prompts and processing them
     using a queue and concurrent workers.
+
+    Returns:
+        A tuple containing:
+        - llm_response: A DataFrame with the successful results.
+        - llm_response_stats: A DataFrame with statistics for each job that
+          produced a stats object. Note: This may not include entries for jobs
+          that fail in a way that prevents a stats object from being returned.
     """
     # Queue to hold all the jobs
     queue: asyncio.Queue = asyncio.Queue()
@@ -412,6 +430,10 @@ class GenaiModel:
       job["retry_attempts"] = retry_attempts
       job["initial_retry_delay"] = initial_retry_delay
       job["delay_between_calls_seconds"] = delay_between_calls_seconds
+
+      # Ensure a stats object exists for every job
+      if "stats" not in job or job["stats"] is None:
+        job["stats"] = {}
 
       await queue.put(job)
 
