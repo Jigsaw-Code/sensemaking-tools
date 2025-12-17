@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import asyncio
 import pandas as pd
 import logging
+from google.api_core import exceptions as google_exceptions
 
 from models import genai_model
 
@@ -286,6 +287,223 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
     model._log_retry_summary(results_df)
     mock_log.assert_called_once()
+
+
+class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
+
+  def setUp(self):
+    self.model = genai_model.GenaiModel(
+        api_key='test_key', model_name='test_model'
+    )
+    self.prompts = [{'prompt': 'test prompt'}]
+
+  @patch('asyncio.sleep', new_callable=AsyncMock)
+  @patch('models.genai_model.GenaiModel._call_gemini')
+  def test_service_unavailable_triggers_backoff_and_recovers(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """
+    Tests that a 503 ServiceUnavailable error triggers an exponential backoff
+    and that the system recovers and succeeds on the next attempt.
+    """
+    # Setup: Fail first, then succeed
+    mock_call_gemini.side_effect = [
+        {'error': google_exceptions.ServiceUnavailable('Service is down')},
+        {
+            'text': 'Success',
+            'total_token_count': 10,
+            'prompt_token_count': 5,
+            'candidates_token_count': 5,
+            'tool_use_prompt_token_count': 0,
+            'thoughts_token_count': 0,
+            'error': None,
+        },
+    ]
+
+    # Run the process
+    results_df, _ = asyncio.run(
+        self.model.process_prompts_concurrently(
+            self.prompts,
+            lambda t, j: t,
+            retry_attempts=3,
+            delay_between_calls_seconds=0,
+        )
+    )
+
+    # Assertions
+    self.assertEqual(len(results_df), 1)
+    self.assertEqual(results_df.iloc[0]['result'], 'Success')
+
+    # Check that backoff was triggered
+    self.assertIn(unittest.mock.call(2), mock_sleep.call_args_list)
+    self.assertEqual(mock_call_gemini.call_count, 2)
+
+    # Check that the backoff delay was reset after success
+    self.assertEqual(
+        self.model._backoff_delay, self.model._initial_backoff_delay
+    )
+
+    # Check that the per-job retry counter was NOT incremented
+    self.assertTrue(results_df.iloc[0]['failed_tries'].empty)
+
+  @patch('asyncio.sleep', new_callable=AsyncMock)
+  @patch('models.genai_model.GenaiModel._call_gemini')
+  def test_backoff_delay_increases_exponentially(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """
+    Tests that the backoff delay squares on repeated failures.
+    """
+    # Setup: Fail twice, then succeed
+    mock_call_gemini.side_effect = [
+        {'error': google_exceptions.ServiceUnavailable('Service is down')},
+        {
+            'error': google_exceptions.ServiceUnavailable(
+                'Service is still down'
+            )
+        },
+        {
+            'text': 'Success',
+            'total_token_count': 10,
+            'prompt_token_count': 5,
+            'candidates_token_count': 5,
+            'tool_use_prompt_token_count': 0,
+            'thoughts_token_count': 0,
+            'error': None,
+        },
+    ]
+
+    # Run the process
+    asyncio.run(
+        self.model.process_prompts_concurrently(
+            self.prompts,
+            lambda t, j: t,
+            retry_attempts=3,
+            delay_between_calls_seconds=0,
+        )
+    )
+
+    # Assertions
+    # First backoff is 2s, second is 2^2=4s
+    self.assertIn(unittest.mock.call(2), mock_sleep.call_args_list)
+    self.assertIn(unittest.mock.call(4), mock_sleep.call_args_list)
+    self.assertEqual(
+        self.model._backoff_delay, self.model._initial_backoff_delay
+    )
+
+  @patch('asyncio.sleep', new_callable=AsyncMock)
+  @patch('models.genai_model.GenaiModel._call_gemini')
+  def test_backoff_delay_is_capped(self, mock_call_gemini, mock_sleep):
+    """
+    Tests that the backoff delay does not exceed the maximum.
+    """
+    # Manually set the current backoff to a value that will exceed the max
+    self.model._backoff_delay = 32
+
+    # Setup: Fail, then succeed
+    mock_call_gemini.side_effect = [
+        {'error': google_exceptions.ServiceUnavailable('Service is down')},
+        {
+            'text': 'Success',
+            'total_token_count': 10,
+            'prompt_token_count': 5,
+            'candidates_token_count': 5,
+            'tool_use_prompt_token_count': 0,
+            'thoughts_token_count': 0,
+            'error': None,
+        },
+    ]
+
+    # Run the process
+    asyncio.run(
+        self.model.process_prompts_concurrently(
+            self.prompts,
+            lambda t, j: t,
+            retry_attempts=3,
+            delay_between_calls_seconds=0,
+        )
+    )
+
+    # Assertions
+    # 32^2 = 1024, which is > 64, so it should be capped at 64.
+    # The sleep will be called with the current delay (32) *before* it's squared.
+    self.assertIn(unittest.mock.call(32), mock_sleep.call_args_list)
+
+    # After the call, the *next* delay is calculated. 32^2 > 64, so the next
+    # theoretical delay would be 64. But since the next call succeeds, it
+    # resets to the initial value.
+    self.assertEqual(
+        self.model._backoff_delay, self.model._initial_backoff_delay
+    )
+
+  @patch('asyncio.sleep', new_callable=AsyncMock)
+  @patch('models.genai_model.GenaiModel._call_gemini')
+  async def test_quota_error_triggers_global_pause(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """
+    Tests that a 429 Quota error triggers a global pause and the job retries.
+    """
+
+    # a mock, which fails the `isinstance` check.
+    class MockClientError(genai_model.google_genai_errors.ClientError):
+
+      def __init__(self, message, response, response_json=None):
+        super().__init__(message, response_json)
+        self.response = response
+
+    mock_response = unittest.mock.MagicMock()
+    mock_response.status = 429
+
+    # Mock the async json() method on the response
+    async def mock_json():
+      return {
+          'error': {
+              'details': [{
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  'retryDelay': '10s',
+              }]
+          }
+      }
+
+    mock_response.json = mock_json
+
+    mock_error = MockClientError(
+        'Quota exceeded', mock_response, response_json=await mock_json()
+    )
+
+    # Setup: Fail first with quota error, then succeed
+    mock_call_gemini.side_effect = [
+        {'error': mock_error},
+        {
+            'text': 'Success',
+            'total_token_count': 10,
+            'prompt_token_count': 5,
+            'candidates_token_count': 5,
+            'tool_use_prompt_token_count': 0,
+            'thoughts_token_count': 0,
+            'error': None,
+        },
+    ]
+
+    # Run the process
+    results_df, _ = await self.model.process_prompts_concurrently(
+        self.prompts,
+        lambda t, j: t,
+        retry_attempts=3,
+        delay_between_calls_seconds=0,
+    )
+
+    # Assertions
+    self.assertEqual(len(results_df), 1)
+    self.assertEqual(results_df.iloc[0]['result'], 'Success')
+
+    # Check that global pause was triggered with the correct delay (10s + 1s buffer)
+    self.assertIn(unittest.mock.call(11), mock_sleep.call_args_list)
+    self.assertEqual(mock_call_gemini.call_count, 2)
+
+    # Check that the per-job retry counter was NOT incremented
+    self.assertTrue(results_df.iloc[0]['failed_tries'].empty)
 
 
 if __name__ == '__main__':

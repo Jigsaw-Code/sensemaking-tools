@@ -37,9 +37,7 @@ def create_survey(filename: str, output: str):
   props = pd.read_csv(filename, header=0)
   topics = props['topic']
   nuanced_rows = topics == 'Nuanced'
-  topic_map = {
-      element: str(index) for index, element in enumerate(set(topics))
-  }
+  topic_map = {element: str(index) for index, element in enumerate(set(topics))}
 
   with open(output, 'w') as output_file:
     output_file.write('[[Block:Topics]]\n')
@@ -61,18 +59,18 @@ def main():
   """Reads a set of questions from a exported CSV to create a Qualtrics Survey"""
   parser = argparse.ArgumentParser(
       description=(
-          "Exported propositions used to create a Qualtrics Simple Format survey")
+          'Exported propositions used to create a Qualtrics Simple Format'
+          ' survey'
+      )
   )
   parser.add_argument(
-      "--input_csv", required=True, help="Path to the input CSV file."
+      '--input_csv', required=True, help='Path to the input CSV file.'
   )
-  parser.add_argument(
-      "--output_txt", required=True, help="Output filename."
-  )
+  parser.add_argument('--output_txt', required=True, help='Output filename.')
   args = parser.parse_args()
 
   create_survey(args.input_csv, args.output_txt)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   main()
