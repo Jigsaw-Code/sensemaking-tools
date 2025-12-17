@@ -32,28 +32,40 @@ def _create_survey(filename: str, output: str):
       output_file.write('\n')
       output_file.write('[[Question:TextEntry:Essay]]\n')
       output_file.write(f'[[ID:GOV{index + 1}]]\n')
-      output_file.write(f'<div class="topic-line"><strong>Topic:</strong> {row["topic"]}</div>\n<br/>\n')
-      output_file.write(f'<div class="opinion-line"><strong>Opinion:</strong> {row["opinion"]}</div>\n<br/>\n')
-      output_file.write(f'<div class="quote-line">&ldquo;{row["representative_text"]}&rdquo;</div>\n<br/>\n')
-      output_file.write('<div class="instruction-line">What do you think about this quote?</div>\n')
+      output_file.write(
+          '<div class="topic-line"><strong>Topic:</strong>'
+          f' {row["topic"]}</div>\n<br/>\n'
+      )
+      output_file.write(
+          '<div class="opinion-line"><strong>Opinion:</strong>'
+          f' {row["opinion"]}</div>\n<br/>\n'
+      )
+      output_file.write(
+          '<div'
+          f' class="quote-line">&ldquo;{row["representative_text"]}&rdquo;</div>\n<br/>\n'
+      )
+      output_file.write(
+          '<div class="instruction-line">What do you think about this'
+          ' quote?</div>\n'
+      )
 
 
 def main():
   """Reads a set of questions from a exported CSV to create a Qualtrics Survey"""
   parser = argparse.ArgumentParser(
       description=(
-          "Exported propositions used to create a Qualtrics Simple Format survey")
+          'Exported propositions used to create a Qualtrics Simple Format'
+          ' survey'
+      )
   )
   parser.add_argument(
-      "--input_csv", required=True, help="Path to the input CSV file."
+      '--input_csv', required=True, help='Path to the input CSV file.'
   )
-  parser.add_argument(
-      "--output_txt", required=True, help="Output filename."
-  )
+  parser.add_argument('--output_txt', required=True, help='Output filename.')
   args = parser.parse_args()
 
   _create_survey(args.input_csv, args.output_txt)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   main()
