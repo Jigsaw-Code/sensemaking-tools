@@ -15,6 +15,7 @@
 import { groupCommentsBySubtopic } from "../sensemaker_utils";
 import { Comment, CommentWithVoteInfo, isCommentWithVoteInfoType } from "../types";
 import { getCommentVoteCount, getTotalPassRate } from "./stats_util";
+import { type SupportedLanguage } from "../../templates/l10n";
 
 function get75thPercentile(arr: number[]): number {
   const sortedArr = [...arr].sort((a, b) => a - b);
@@ -51,9 +52,12 @@ export abstract class SummaryStats {
   public minVoteCount = 20;
   // Whether group data is used as part of the summary.
   groupBasedSummarization: boolean = true;
+  // Output language for localization
+  output_lang: SupportedLanguage = "en";
 
-  constructor(comments: Comment[]) {
+  constructor(comments: Comment[], output_lang: SupportedLanguage = "en") {
     this.comments = comments;
+    this.output_lang = output_lang;
     this.filteredComments = comments.filter(isCommentWithVoteInfoType).filter((comment) => {
       return getCommentVoteCount(comment, true) >= this.minVoteCount;
     });
@@ -222,7 +226,7 @@ export abstract class SummaryStats {
         subtopicStats.push({
           name: subtopicName,
           commentCount,
-          summaryStats: (this.constructor as typeof SummaryStats).create([...comments]),
+          summaryStats: (this.constructor as any).create(Array.from(comments), this.output_lang),
         });
       }
 
@@ -230,7 +234,7 @@ export abstract class SummaryStats {
         name: topicName,
         commentCount: topicComments.size,
         subtopicStats: subtopicStats,
-        summaryStats: (this.constructor as typeof SummaryStats).create([...topicComments]),
+        summaryStats: (this.constructor as any).create(Array.from(topicComments), this.output_lang),
       });
     }
 

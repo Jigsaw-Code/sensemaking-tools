@@ -1,8 +1,20 @@
 {
   "name": "sensemaking-tools",
-  "description": "",
-  "main": "index.js",
+  "version": "1.0.0",
+  "description": "AI-powered conversation analysis and summarization tools for Cloudflare Workers",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.worker.json",
+    "build:worker": "tsc -p tsconfig.worker.json",
+    "build:worker-bundle": "node build-worker.js",
+    "prepublishOnly": "npm run build:worker-bundle",
+    "pack": "npm pack",
     "test": "npm run test:ts",
     "test:ts": "NODE_NO_WARNINGS=1 TFJS_NODE_GPU=false jest",
     "test:py": "python -m pytest",
@@ -17,14 +29,29 @@
     "type": "git",
     "url": "sso://participation-project-internal/participation-project"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "ai",
+    "conversation-analysis",
+    "summarization",
+    "cloudflare-workers",
+    "llm",
+    "sensemaking",
+    "topic-categorization"
+  ],
+  "author": "Google LLC",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "@types/papaparse": "^5.3.15",
     "csv-parse": "^5.6.0",
     "csv-writer": "^1.6.0",
+    "esbuild": "^0.25.9",
     "eslint": "^9.15.0",
     "eslint-config-prettier": "^9.1.0",
     "globals": "^11.12.0",
@@ -44,13 +71,22 @@
     "@babel/preset-env": "^7.25.4",
     "@google-cloud/vertexai": "^1.9.0",
     "@sinclair/typebox": "^0.34.3",
-    "@tensorflow/tfjs-node-gpu": "^4.22.0",
     "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-node-gpu": "^4.22.0",
     "@typescript-eslint/eslint-plugin": "^8.16.0",
     "babel-jest": "^29.7.0",
     "colors": "^1.4.0",
     "diff": "^7.0.0",
+    "dotenv": "^17.2.1",
+    "jwa": "^2.0.0",
+    "jws": "^4.0.0",
+    "openai": "^5.12.2",
     "ts-node": "^10.9.2"
+  },
+  "browser": {
+    "util": false,
+    "stream": false,
+    "crypto": false
   },
   "lint-staged": {
     "*.ts": "eslint --cache --fix",
