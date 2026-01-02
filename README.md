@@ -179,6 +179,48 @@ There is also a simple CLI set up for testing. There are three tools:
 * [./library/runner-cli/categorization\_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/categorization_runner.ts): takes in a CSV representing a conversation and outputs another CSV with the comments categorized into topics and subtopics.  
 * [./library/runner-cli/advanced\_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/advanced_runner.ts): takes in a CSV representing a conversation and outputs three files for an advanced user more interested in the statistics. The first is a JSON of topics, their sizes, and their subtopics. The second is a JSON with all of the comments and their alignment scores and values. Third is the summary object as a JSON which can be used for additional processing.
 
+**CSV Format Conversion:**
+
+If your CSV file is exported from pol.is or polis.tw, you need to convert it to the required format before using the CLI tools.
+
+* For CSV files from **pol.is**, use [./polis_csv_fixer/csv_converter.py](https://github.com/bestian/sensemaking-tools/blob/new-feature-open-router/polis_csv_fixer/csv_converter.py):
+
+```bash
+python polis_csv_fixer/csv_converter.py input.csv output.csv
+```
+
+* For CSV files from **polis.tw**, use [./polis_csv_fixer/csv_converter_for_polis_tw.py](https://github.com/bestian/sensemaking-tools/blob/new-feature-open-router/polis_csv_fixer/csv_converter_for_polis_tw.py):
+
+```bash
+python polis_csv_fixer/csv_converter_for_polis_tw.py input.csv [output.csv]
+```
+
+**OpenRouter CLI Tools:**
+
+* [./library/runner-cli/runner\_openrouter.ts](https://github.com/bestian/sensemaking-tools/blob/new-feature-open-router/library/runner-cli/runner_openrouter.ts): Same usage as `runner.ts`, but uses OpenRouter models. Supports multi-language output via the `--output_lang` parameter.
+
+```bash
+npx ts-node ./library/runner-cli/runner_openrouter.ts \
+  --outputBasename out \
+  --inputFile "./files/comments.csv" \
+  --additionalContext "Description of the conversation" \
+  --output_lang zh-TW
+```
+
+The `--output_lang` parameter supports: `en` (default), `zh-TW`, `zh-CN`, `fr`, `es`, `ja`.
+
+* [./library/runner-cli/categorization\_runner\_openrouter.ts](https://github.com/bestian/sensemaking-tools/blob/new-feature-open-router/library/runner-cli/categorization_runner_openrouter.ts): Uses OpenRouter models for topic categorization. Supports custom model selection and topic depth configuration.
+
+```bash
+npx ts-node ./library/runner-cli/categorization_runner_openrouter.ts \
+  --inputFile "./files/comments.csv" \
+  --outputFile "./files/categorized_comments.csv" \
+  --topicDepth 2 \
+  --additionalContext "Description of the conversation"
+```
+
+Set the `OPENROUTER_API_KEY` environment variable before running these tools. The model can be specified via `OPENROUTER_MODEL` environment variable.
+
 These tools process CSV input files.  These must contain the columns `comment_text` and `comment-id`.  For deliberations without group information, vote counts should be set in columns titled `agrees`, `disagrees` and `passes`.  If you do not have vote information, these can be set to 0. For deliberations with group breakdowns, you can set the columns `{group_name}-agree-count`, `{group_name}-disagree-count`, `{group_name}-pass-count`.
 
 ## **Generating a Report \- Get a webpage presentation of the report**
