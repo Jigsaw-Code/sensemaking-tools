@@ -60,11 +60,13 @@ export async function categorizeWithRetry(
       );
 
       
+      /*
       // 確保回應是一個數組
       if (!Array.isArray(rawResponse) && !Array.isArray((rawResponse as { items: CommentRecord[] }).items)) {
         console.error('LLM response is not an array:', typeof rawResponse, rawResponse);
         throw new Error('LLM response format error: expected array of comments');
       }
+      */
       
       newCategorized = Array.isArray(rawResponse) ? rawResponse : (rawResponse as { items: CommentRecord[] }).items;
       console.log(`LLM returned ${newCategorized.length} categorized comments`);
