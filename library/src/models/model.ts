@@ -30,7 +30,7 @@ export interface ModelSettings {
 // An abstract base class that defines how to interact with models.
 export abstract class Model {
   // The best batch size to use for categorization.
-  public readonly categorizationBatchSize: number;
+  public readonly categorizationBatchSize: number = 100;
 
   constructor(batchSize: number = 100) {
     this.categorizationBatchSize = batchSize;
