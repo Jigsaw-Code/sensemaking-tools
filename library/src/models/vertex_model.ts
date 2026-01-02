@@ -52,10 +52,10 @@ export class VertexModel extends Model {
   constructor(
     project: string,
     location: string,
-    modelName: string = "gemini-2.5-pro-preview-06-05"
+    modelName: string = "gemini-2.5-pro"
   ) {
     super();
-    if (modelName === "gemini-2.5-pro-preview-06-05" && location != "global") {
+    if (modelName === "gemini-2.5-pro" && location != "global") {
       throw Error(
         "Only the 'global' location is supported for the 'gemini-2.5-pro-preview-06-05' model. See " +
           "https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro for more information."

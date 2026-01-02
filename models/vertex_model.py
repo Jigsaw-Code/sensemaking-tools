@@ -28,6 +28,7 @@ from google.auth.transport.requests import Request as AuthRequest
 from requests.adapters import HTTPAdapter
 import requests
 from pydantic import ValidationError, TypeAdapter
+import re
 
 from .model import Model as BaseModelClass, SchemaType, ListSchemaType
 from .model_util import MAX_LLM_RETRIES, DEFAULT_VERTEX_PARALLELISM, RETRY_DELAY_SEC, MAX_RETRIES
@@ -89,41 +90,56 @@ class VertexModel(BaseModelClass):
   ) -> SchemaType | ListSchemaType:
     response_text = await self._call_llm_with_retry(prompt)
 
+    json_text = response_text
+
     # Drop markdown code block delimiters if present
-    if response_text.startswith("```json"):
-      response_text = response_text[7:]  # Remove ```json
-    if response_text.endswith("```"):
-      response_text = response_text[:-3]  # Remove ```
+    if json_text.startswith("```json"):
+      json_text = json_text[7:]  # Remove ```json
+    if json_text.endswith("```"):
+      json_text = json_text[:-3]  # Remove ```
+
+    # Find the first occurrence of '{' or '[', and drop everything in front of it as not expected.
+    match = re.search(r"[\[{]", json_text)
+    if match:
+      first_brace_index = match.start()
+      json_text = json_text[first_brace_index:]
 
     try:
       # Use TypeAdapter for robust parsing of schema
       # The schema argument itself is the type hint, e.g. Topic or List[Topic]
       adapter = TypeAdapter(schema)
-      return adapter.validate_json(response_text)
+      return adapter.validate_json(json_text)
 
     except ValidationError as e:  # Catches Pydantic validation errors
-      logging.error(
+      logging.debug(
           f"Model response failed Pydantic validation for schema {schema}:"
-          f" {response_text}.\nError: {e}"
+          f" {json_text}.\nError: {e}"
       )
-      raise ValueError(
-          f"Model response failed Pydantic validation: {response_text}."
-      ) from e
+      raise ValueError(f"Model response failed Pydantic validation") from e
     except (
         json.JSONDecodeError
-    ) as e:  # Catches errors if response_text is not valid JSON
-      logging.error(f"Model returned invalid JSON: {response_text}.")
-      raise ValueError(f"Model returned invalid JSON: {response_text}.") from e
+    ) as e:  # Catches errors if json_text is not valid JSON
+      logging.debug(f"Model returned invalid JSON: {json_text}.")
+      raise ValueError(f"Model returned invalid JSON") from e
     except Exception as e:  # Catches any other unexpected errors during parsing
       logging.error(
           f"Failed to parse or validate model response against schema {schema}:"
-          f" {response_text}.\nError: {e}"
+          f" {json_text}.\nError: {e}"
       )
       raise ValueError(
-          f"Failed to parse or validate model response: {response_text}."
+          f"Failed to parse or validate model response: {json_text}."
       ) from e
 
   async def _call_llm_with_retry(self, prompt: str) -> str:
+    # Gemini can take minutes to error on very long prompts.
+    # To avoid this, we check the prompt length before making an API call.
+    # We don't use the token count API as it can fail at the HTTP level.
+    # 10M chars = ~2.5M tokens (2.5x more than current Gemini 1M token limit)
+    ten_millions = 10000000
+    if len(prompt) > ten_millions:
+      raise TokenLimitExceededError(
+          "Prompt length significantly exceeds model's max input token limit"
+      )
 
     async def call_llm_inner() -> GenerationResponse:
       return await self.llm.generate_content_async(
@@ -143,7 +159,7 @@ class VertexModel(BaseModelClass):
         logging.error(f"Model returned an incomplete response: {response}")
         return False
 
-      logging.info(
+      logging.debug(
           "✓ Completed LLM call (input:"
           f" {response.usage_metadata.prompt_token_count} tokens, output:"
           f" {response.usage_metadata.candidates_token_count} tokens)"
@@ -182,14 +198,22 @@ async def _retry_call(
 
       logging.error(f"Attempt {attempt} failed. Invalid response: {response}")
     except Exception as error:
+      # catch input tokens limit error in case our check for prompt length was not enough
       if "exceeds the maximum number of tokens allowed" in str(error):
-        logging.warning("Input token limit exceeded. Not retrying.")
         raise TokenLimitExceededError(error) from error
-      logging.error(f"Attempt {attempt} failed: {error}")
+      if isinstance(error, TokenLimitExceededError):
+        raise  # Re-raise the proactively caught token limit error
+      error_message = str(error)
+      # Don't pollute the logs with the long 429 error messages
+      # Extract the relevant part of the error message
+      match = re.search(r"429 Resource exhausted.*", error_message)
+      if match:
+        error_message = match.group(0).split(".")[0]
+      logging.error(f"Attempt {attempt} failed: {error_message}")
 
     # Exponential backoff calculation
     delay = retry_delay_sec * (backoff_growth_rate ** (attempt - 1))
-    logging.info(f"Retrying in {delay} seconds (attempt {attempt})")
+    logging.info(f"Retrying in {int(delay)} seconds (attempt {attempt})")
     await asyncio.sleep(delay)
 
   raise Exception(f"Failed after {max_retries} attempts: {error_message}")

@@ -17,7 +17,7 @@
 import os
 
 # The maximum number of times a task should be retried.
-MAX_RETRIES = 4
+MAX_RETRIES = 10
 # The maximum number of times an LLM call should be retried.
 MAX_LLM_RETRIES = 4
 # How long in seconds to wait between LLM calls.

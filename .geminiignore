@@ -6,11 +6,6 @@ __pycache__
 /.venv
 /venv
 private_*
-# Ignore Gemini CLI files.
-GEMINI.md
-todo.md
 *.env
-/files
 .vscode
 *.pkl
-*.tgz
