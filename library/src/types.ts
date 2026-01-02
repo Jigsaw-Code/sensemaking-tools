@@ -361,7 +361,7 @@ export function isCommentType(data: any): data is Comment {
  * Note that it's important here that this be a Map structure, for its specific value/identity
  * semantic guarantees on the input spec value.
  */
-// 在 Cloudflare Workers 環境中不使用 TypeBox 編譯器，因此不需要緩存
+// Do not use the TypeBox compiler or caching in the Cloudflare Workers environment
 // const schemaCheckerCache = new Map<TSchema, TypeCheck<TSchema>>();
 
 /**
