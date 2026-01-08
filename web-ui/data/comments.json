@@ -1,34 +1,142 @@
 [
   {
-    "id": "0",
-    "text": "Comment text",
+    "id": "item_24",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
     "votes": {
-      "Group-1": {
-        "agreeCount": 0,
-        "disagreeCount": 0,
-        "passCount": 0
-      },
-      "Group-2": {
-        "agreeCount": 0,
-        "disagreeCount": 0,
-        "passCount": 0
-      },
-      "Group-none": {
-        "agreeCount": 0,
-        "disagreeCount": 0,
-        "passCount": 0
-      }
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
     },
-    "topics": "Topic:Subtopic",
+    "topics": "Placeholder Content:Generic Content",
     "passRate": 0,
-    "agreeRate": 0,
+    "agreeRate": 1,
     "disagreeRate": 0,
-    "isHighAlignment": true,
-    "highAlignmentScore": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
     "isLowAlignment": false,
     "lowAlignmentScore": 0,
     "isHighUncertainty": false,
     "highUncertaintyScore": 0,
-    "isFilteredOut": false
+    "isFilteredOut": true
+  },
+  {
+    "id": "item_51",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
+    "votes": {
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
+    },
+    "topics": "Placeholder Content:Generic Content",
+    "passRate": 0,
+    "agreeRate": 1,
+    "disagreeRate": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": true
+  },
+  {
+    "id": "item_54",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
+    "votes": {
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
+    },
+    "topics": "Placeholder Content:Generic Content",
+    "passRate": 0,
+    "agreeRate": 1,
+    "disagreeRate": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": true
+  },
+  {
+    "id": "item_59",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
+    "votes": {
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
+    },
+    "topics": "Placeholder Content:Generic Content",
+    "passRate": 0,
+    "agreeRate": 1,
+    "disagreeRate": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": true
+  },
+  {
+    "id": "item_60",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
+    "votes": {
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
+    },
+    "topics": "Placeholder Content:Generic Content",
+    "passRate": 0,
+    "agreeRate": 1,
+    "disagreeRate": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": true
+  },
+  {
+    "id": "item_65",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
+    "votes": {
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
+    },
+    "topics": "Placeholder Content:Generic Content",
+    "passRate": 0,
+    "agreeRate": 1,
+    "disagreeRate": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": true
+  },
+  {
+    "id": "item_92",
+    "text": "Title for locale en\n\n<p>Description for locale en</p>",
+    "votes": {
+      "agreeCount": 1,
+      "disagreeCount": 0,
+      "passCount": 0
+    },
+    "topics": "Placeholder Content:Generic Content",
+    "passRate": 0,
+    "agreeRate": 1,
+    "disagreeRate": 0,
+    "isHighAlignment": false,
+    "highAlignmentScore": 1,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": true
   }
 ]
