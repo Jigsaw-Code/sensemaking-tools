@@ -12,16 +12,15 @@ type DialogData = {
 };
 
 @Component({
-  selector: 'app-dialog',
-  standalone: true,
-  imports: [
-    CommonModule,
-    MatButtonModule,
-    MatDialogModule,
-    MatIconModule,
-  ],
-  templateUrl: './dialog.component.html',
-  styleUrl: './dialog.component.scss'
+    selector: 'app-dialog',
+    imports: [
+        CommonModule,
+        MatButtonModule,
+        MatDialogModule,
+        MatIconModule,
+    ],
+    templateUrl: './dialog.component.html',
+    styleUrl: './dialog.component.scss'
 })
 export class DialogComponent {
   constructor(

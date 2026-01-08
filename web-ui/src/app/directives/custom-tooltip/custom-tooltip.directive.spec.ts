@@ -6,10 +6,11 @@ import { CustomTooltipDirective } from './custom-tooltip.directive';
 
 // test host component
 @Component({
-  template: `
+    template: `
     <div [customTooltip]="tooltipTemplate">Host element</div>
     <ng-template #tooltipTemplate>Tooltip content</ng-template>
   `,
+    standalone: false
 })
 class TestComponent {
   @ViewChild('tooltipTemplate') tooltipTemplate!: TemplateRef<any>;
