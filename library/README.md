@@ -4,7 +4,7 @@ This repository shares tools developed by [Jigsaw](http://jigsaw.google.com) as 
 
 # **Overview**
 
-Effectively understanding large-scale public input is a significant challenge, as traditional methods struggle to translate thousands of diverse opinions into actionable insights. ‘Sensemaker’ showcases how Google's Gemini models can be used to transform massive volumes of raw community feedback into clear, digestible insights, aiding the analysis of these complex discussions.
+Effectively understanding large-scale public input is a significant challenge, as traditional methods struggle to translate thousands of diverse opinions into actionable insights. 'Sensemaker' showcases how Google's Gemini models can be used to transform massive volumes of raw community feedback into clear, digestible insights, aiding the analysis of these complex discussions.
 
 The tools demonstrated here illustrate methods for:
 
@@ -18,7 +18,7 @@ Please see these [docs](https://jigsaw-code.github.io/sensemaking-tools/docs/) f
 
 # Our Approach
 
-The tools here show how Jigsaw is approaching the application of AI and Google’s Gemini to the emerging field of ‘sensemaking’. It is offered as an insight into our experimental methods. While parts of this library may be adaptable for other projects, developers should anticipate their own work for implementation, customization, and ongoing support for their specific use case.
+The tools here show how Jigsaw is approaching the application of AI and Google's Gemini to the emerging field of 'sensemaking'. It is offered as an insight into our experimental methods. While parts of this library may be adaptable for other projects, developers should anticipate their own work for implementation, customization, and ongoing support for their specific use case.
 
 # **How It Works**
 
@@ -30,7 +30,7 @@ Sensemaker provides an option to identify the topics present in the comments. Th
 * Both top-level and subtopics  
 * Sub-topics only, given a set of pre-specified top-level topics
 
-Topic identification code can be found in [library/src/tasks/topic\_modeling.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/src/tasks/topic_modeling.ts).
+Topic identification code can be found in [library/src/tasks/topic_modeling.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/src/tasks/topic_modeling.ts).
 
 ## **Statement Categorization**
 
@@ -52,11 +52,11 @@ Includes a short bullet list of the number of statements, votes, topics and subt
 
 ### **Overview Section**
 
-The overview section summarizes the "Themes" sections for all subtopics, along with summaries generated for each top-level topic (these summaries are generated as an intermediate step, but not shown to users, and can be thought of as intermediate “chain of thought” steps in the overall recursive summarization approach).
+The overview section summarizes the "Themes" sections for all subtopics, along with summaries generated for each top-level topic (these summaries are generated as an intermediate step, but not shown to users, and can be thought of as intermediate "chain of thought" steps in the overall recursive summarization approach).
 
 Currently the Overview does not reference the "Common Ground" and "Differences of Opinion" sections described below.
 
-Percentages in the overview (e.g. “Arts and Culture (17%)”) are the percentage of statements that are about this topic. Since statements can be categorized into multiple topics these percentages add up to a number greater than 100%.
+Percentages in the overview (e.g. "Arts and Culture (17%)") are the percentage of statements that are about this topic. Since statements can be categorized into multiple topics these percentages add up to a number greater than 100%.
 
 ### **Top 5 Subtopics**
 
@@ -71,7 +71,7 @@ For each subtopic, Sensemaker surfaces:
 * The number of statements assigned to this subtopic.  
 * Prominent themes.  
 * A summary of the top statements where we find "common ground" and "differences of opinion", based on agree and disagree rates.  
-* The relative level of agreement within the subtopic, as compared to the average subtopic, based on how many comments end up in “common ground” vs “differences of opinion” buckets.
+* The relative level of agreement within the subtopic, as compared to the average subtopic, based on how many comments end up in "common ground" vs "differences of opinion" buckets.
 
 #### **Themes**
 
@@ -89,13 +89,13 @@ For this section, Sensemaker provides grounding citations to show which statemen
 
 #### **Relative Agreement**
 
-Each subtopic is labeled as “high”, “moderately high”, “moderately low” or “low” agreement. This is determined by, for each subtopic, getting *all* the comments that qualify as common ground comments and normalizing it based on how many comments were in that subtopic. Then these numbers are compared subtopic to subtopic.
+Each subtopic is labeled as "high", "moderately high", "moderately low" or "low" agreement. This is determined by, for each subtopic, getting *all* the comments that qualify as common ground comments and normalizing it based on how many comments were in that subtopic. Then these numbers are compared subtopic to subtopic.
 
 ### **LLMs Used and Custom Models**
 
-This library is implemented using Google Cloud’s [VertexAI](https://cloud.google.com/vertex-ai), and works with the latest Gemini models. The access and quota requirements are controlled by a user’s Google Cloud account.
+This library is implemented using Google Cloud's [VertexAI](https://cloud.google.com/vertex-ai), and works with the latest Gemini models. The access and quota requirements are controlled by a user's Google Cloud account.
 
-In addition to Gemini models available through VertexAI, users can integrate custom models using the library’s `Model` abstraction. This can be done by implementing a class with only two methods, one for generating plain text and one for generating structured data ([docs](https://jigsaw-code.github.io/sensemaking-tools/docs/classes/models_model.Model.html) for methods). This allows for the library to be used with models other than Gemini, with other cloud providers, and even with on-premise infrastructure for complete data sovereignty.
+In addition to Gemini models available through VertexAI, users can integrate custom models using the library's `Model` abstraction. This can be done by implementing a class with only two methods, one for generating plain text and one for generating structured data ([docs](https://jigsaw-code.github.io/sensemaking-tools/docs/classes/models_model.Model.html) for methods). This allows for the library to be used with models other than Gemini, with other cloud providers, and even with on-premise infrastructure for complete data sovereignty.
 
 Please note that performance results for existing functionality may vary depending on the model selected.
 
@@ -132,7 +132,7 @@ Then to log in locally run:
 
 ## **Example Usage \- Javascript**
 
-Summarize Seattle’s $15 Minimum Wage Conversation.
+Summarize Seattle's $15 Minimum Wage Conversation.
 
 ```javascript
 // Set up the tools to use the default Vertex model (Gemini Pro 1.5) and related authentication info.
@@ -141,6 +141,11 @@ const mySensemaker = new Sensemaker({
     "myGoogleCloudProject123,
     "us-central1",
   ),
+});
+
+// Optional: Set up progress reporting
+mySensemaker.setProgressCallback((report) => {
+  console.log(`${report.operation}: ${report.message} (${report.percentage}%)`);
 });
 
 // Note: this function does not exist.
@@ -176,8 +181,8 @@ CLI Usage
 There is also a simple CLI set up for testing. There are three  tools:
 
 * [./library/runner-cli/runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/runner.ts): takes in a CSV representing a conversation and outputs an HTML file containing the summary. The summary is best viewed as an HTML file so that the included citations can be hovered over to see the original comment and votes.  
-* [./library/runner-cli/categorization\_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/categorization_runner.ts): takes in a CSV representing a conversation and outputs another CSV with the comments categorized into topics and subtopics.  
-* [./library/runner-cli/advanced\_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/advanced_runner.ts): takes in a CSV representing a conversation and outputs three files for an advanced user more interested in the statistics. The first is a JSON of topics, their sizes, and their subtopics. The second is a JSON with all of the comments and their alignment scores and values. Third is the summary object as a JSON which can be used for additional processing.
+* [./library/runner-cli/categorization_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/categorization_runner.ts): takes in a CSV representing a conversation and outputs another CSV with the comments categorized into topics and subtopics.  
+* [./library/runner-cli/advanced_runner.ts](https://github.com/Jigsaw-Code/sensemaking-tools/blob/main/library/runner-cli/advanced_runner.ts): takes in a CSV representing a conversation and outputs three files for an advanced user more interested in the statistics. The first is a JSON of topics, their sizes, and their subtopics. The second is a JSON with all of the comments and their alignment scores and values. Third is the summary object as a JSON which can be used for additional processing.
 
 These tools process CSV input files.  These must contain the columns `comment_text` and `comment-id`.  For deliberations without group information, vote counts should be set in columns titled `agrees`, `disagrees` and `passes`.  If you do not have vote information, these can be set to 0. For deliberations with group breakdowns, you can set the columns `{group_name}-agree-count`, `{group_name}-disagree-count`, `{group_name}-pass-count`.
 
