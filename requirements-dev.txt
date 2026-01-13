@@ -1,9 +1,10 @@
-google-cloud-aiplatform[evaluation]==1.105.0
+google-cloud-aiplatform[evaluation]==1.133.0
 pre_commit==4.2.0
 pytest==8.4.1
 pytest-asyncio==1.0.0
 pandas==2.3.1
-google-genai==1.27.0
+google-genai==1.57.0
 google-api-python-client==2.177.0
 google-cloud-dlp==3.31.0
 more_itertools==10.7.0
+pyink==25.12.0

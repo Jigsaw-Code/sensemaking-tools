@@ -12,21 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-This module provides a wrapper around the Google Generative AI API.
-"""
+"""This module provides a wrapper around the Google Generative AI API."""
 
 import asyncio
 import logging
-import random
 import os
+import random
 import time
-from typing import Any, Callable, Tuple, Dict, List, Optional, TypedDict
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict
 from google import genai
 from google.api_core import exceptions as google_api_core_exceptions
-from google.genai import errors as google_genai_errors
-from google.protobuf import duration_pb2, json_format
 from google.api_core import exceptions as google_exceptions
+from google.genai import errors as google_genai_errors
+from google.genai import types as genai_types
+from google.protobuf import duration_pb2, json_format
+from napolitan import custom_types
 import pandas as pd
 
 
@@ -40,8 +40,6 @@ class Job(TypedDict, total=False):
   """A TypedDict for representing a job to be processed by the LLM."""
 
   allocations: Optional[Any]
-  delay_between_calls_seconds: int
-  initial_retry_delay: int
   job_id: int
   opinion: Optional[str]
   opinion_num: Optional[int]
@@ -52,19 +50,25 @@ class Job(TypedDict, total=False):
   stats: Dict[str, Any]
   system_prompt: Optional[str]
   topic: Optional[str]
-  thinking_budget: Optional[int]
+  thinking_level: genai_types.ThinkingLevel | None
   temperature: Optional[float]
 
 
 # The maximum number of times an LLM call should be retried.
-MAX_LLM_RETRIES = 4
-# How long in seconds to wait between LLM calls. This is needed due to per
-# minute limits Vertex AI imposes.
-RETRY_DELAY_SEC = 1
-# How long in seconds to wait before first LLM calls.
-INITIAL_RETRY_DELAY = 0.5
-# Maximum number of concurrent API calls.
+MAX_LLM_RETRIES = 10
+# How long in seconds to wait between successful LLM calls.
+WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS = 1
+# How long in seconds to wait between failed LLM calls.
+FAIL_RETRY_DELAY_SECONDS = 60
+# Maximum number of concurrent API calls. By default Genai limits to 10.
 MAX_CONCURRENT_CALLS = 100
+# Maximum delay in seconds for any retry attempt (10 minutes).
+MAX_RETRY_DELAY_SECONDS = 600
+# Timeout in seconds for API calls. Default Gemini timeout is 10 minutes.
+TIMEOUT_SECONDS = 601
+# Default thinking level for Gemini.
+THINKING_LEVEL: genai_types.ThinkingLevel | None = None
+
 
 COMPLETED_BATCH_JOB_STATES = frozenset({
     "JOB_STATE_SUCCEEDED",
@@ -140,24 +144,12 @@ class GenaiModel:
             ),
         ]
     )
-    # Event to signal a global pause for all workers, e.g., for quota limits.
+    # Event to signal a global pause for all workers, e.g., for quota limits or service availability.
     # It's set by default, meaning workers can proceed.
-    self._quota_available_event = asyncio.Event()
-    self._quota_available_event.set()
-    # Lock to ensure only one worker handles a quota error at a time.
-    self._quota_availability_lock = asyncio.Lock()
-
-    # --- Service Availability Backoff ---
-    # Event to signal a global pause for all workers for service availability.
-    # It's set by default, meaning workers can proceed.
-    self._system_available_event = asyncio.Event()
-    self._system_available_event.set()
-    # Lock to ensure only one worker handles an availability error at a time.
-    self._system_availability_lock = asyncio.Lock()
-    # Constants for the exponential backoff delay
-    self._initial_backoff_delay = 2
-    self._max_backoff_delay = 64
-    self._backoff_delay = self._initial_backoff_delay
+    self._global_pause_event = asyncio.Event()
+    self._global_pause_event.set()
+    # Lock to ensure only one worker handles a global pause at a time.
+    self._global_pause_lock = asyncio.Lock()
 
   def _parse_duration(self, duration_str: str) -> int:
     """Parses a duration string (e.g., '18s') into seconds."""
@@ -165,21 +157,169 @@ class GenaiModel:
     json_format.Parse(f'"{duration_str}"', duration_proto)
     return duration_proto.seconds
 
-  async def _handle_quota_pause(self, delay: int):
+  async def _handle_global_pause(self, delay: int):
     """Sleeps for a specified duration and then resumes all workers."""
     logging.info(f"   Global pause for {delay} seconds...")
     await asyncio.sleep(delay)
     logging.info("   Resuming all workers.")
-    self._quota_available_event.set()
+    self._global_pause_event.set()
 
-  async def _handle_availability_pause(self, delay: int):
-    """
-    Pauses all workers for the current backoff duration and then resumes them.
-    """
-    logging.info(f"   Global availability pause for {delay} seconds...")
-    await asyncio.sleep(delay)
-    logging.info("   Resuming all workers after availability pause.")
-    self._system_available_event.set()
+  async def _handle_api_error(
+      self,
+      e: Exception,
+      job: Job,
+      attempt: int,
+      temperature: float,
+      log_prefix: str,
+      failed_tries: List[Dict[str, Any]],
+      results_list: list,
+      resp: Optional[Dict[str, Any]],
+  ) -> Tuple[int, float]:
+    """Handles exceptions occurring during API calls."""
+    stats = job["stats"]
+    job_id = job.get("job_id")
+    opinion = job.get("opinion")
+    topic = job.get("topic")
+    chunk = job.get("chunk")
+    response_schema = job.get("response_schema")
+    combined_tokens = stats.get("combined_tokens")
+    prompt = job.get("prompt")
+    allocations = job.get("allocations")
+    retry_attempts = job.get("retry_attempts")
+    # Check if this is a Resource Exhausted error (429) or Service Unavailable (503)
+    is_quota_error = (
+        isinstance(e, google_genai_errors.ClientError)
+        and e.response.status == 429
+    )
+    is_service_unavailable = (
+        isinstance(e, google_genai_errors.ServerError)
+        and e.response.status == 503
+    )
+    is_genai_error = isinstance(e, GenaiModelError)
+    # Trigger global pause for 429, 503, or GenaiModelError (e.g. MAX_TOKENS)
+    if (
+        is_quota_error
+        or is_service_unavailable
+        or is_genai_error
+        or "limit" in str(e).lower()
+    ):
+      async with self._global_pause_lock:
+        if self._global_pause_event.is_set():
+          logging.warning(
+              f"{log_prefix} Error encountered: {e}. Initiating global pause."
+          )
+          self._global_pause_event.clear()
+          logging.info(f"{log_prefix} I am the leader. Pausing all workers.")
+          delay = FAIL_RETRY_DELAY_SECONDS
+          # Try to prefer retryDelay from 429 error if available and > 60
+          if is_quota_error:
+            try:
+              # Extract the dictionary from the error message
+              error_details = await e.response.json()
+              # Find the retryDelay in the details
+              for detail in error_details.get("error", {}).get("details", []):
+                if (
+                    detail.get("@type")
+                    == "type.googleapis.com/google.rpc.RetryInfo"
+                ):
+                  retry_delay_str = detail.get("retryDelay", "60s")
+                  parsed_delay = self._parse_duration(retry_delay_str) + 1
+                  if parsed_delay > delay:
+                    delay = parsed_delay
+                  break
+            except (ValueError, AttributeError, TypeError, IndexError):
+              pass
+
+          asyncio.create_task(self._handle_global_pause(delay))
+    # --- Generic Error Handling ---
+    error_parts = [f"{log_prefix} ❌"]
+    if opinion:
+      opinion_str = getattr(opinion, "name", str(opinion))
+      error_parts.append(f"Error on opinion '{opinion_str[:150]}'")
+    elif topic:
+      topic_str = getattr(topic, "name", str(topic))
+      error_parts.append(f"Error on topic '{topic_str[:150]}'")
+    elif chunk:
+      chunk_str = getattr(chunk, "name", str(chunk))
+      error_parts.append(f"Error on chunk '{chunk_str[:150]}'")
+    elif response_schema == custom_types.EvaluationResult:
+      error_parts.append(f"Error on evaluation result for job {job_id}")
+    if combined_tokens is not None:
+      error_parts.append(f"input_token: {combined_tokens}")
+    stack = repr(e)
+    error_parts.append(f"attempt {attempt + 1}: {stack[:150]}")
+    error_msg = ", ".join(error_parts)
+    logging.error(error_msg)
+    if "Model response failed Pydantic validation" in stack:
+      logging.error(f"Raw response: \n{resp}")
+    # Increment the non-quota failure count in the stats object
+    stats["non_quota_failures"] += 1
+    if resp and "total_token_count" in resp:
+      stats["total_token_used"] = resp.get("total_token_count")
+      stats["prompt_token_count"] = resp.get("prompt_token_count")
+      stats["candidates_token_count"] = resp.get("candidates_token_count")
+    failed_tries.append({
+        "attempt_index": attempt,
+        "error_message": str(e),
+        "raw_response": resp.get("text", "") if resp else "",
+        "prompt": prompt,
+    })
+    attempt += 1
+    temperature += 0.02
+    if attempt < retry_attempts:
+      # New Hybrid Backoff Strategy
+      # Attempts 1 to (Max/2 - 1): Wait standard delay
+      # Attempts (Max/2) to Max: Exponential increasing delay
+      delay = float(FAIL_RETRY_DELAY_SECONDS)
+
+      half_retries = int(retry_attempts / 2)
+      # Start exponential backoff from halfway point
+      if attempt >= half_retries:
+        # Calculate exponential delay
+        exponent = attempt - half_retries
+        delay = FAIL_RETRY_DELAY_SECONDS * (2**exponent)
+
+      # Cap at Max Delay
+      delay = min(delay, float(MAX_RETRY_DELAY_SECONDS))
+      logging.info(f"   Retrying in {delay:.2f} seconds...")
+      await asyncio.sleep(delay)
+    else:
+      log_identifier = ""
+      if opinion:
+        opinion_str = getattr(opinion, "name", str(opinion))
+        log_identifier = f"opinion '{opinion_str[:20]}'"
+      elif topic:
+        topic_str = getattr(topic, "name", str(topic))
+        log_identifier = f"topic '{topic_str[:20]}'"
+      elif chunk:
+        chunk_str = getattr(chunk, "name", str(chunk))
+        log_identifier = f"chunk '{chunk_str[:20]}'"
+      elif response_schema == custom_types.EvaluationResult:
+        log_identifier = f"evaluation result for job {job_id}"
+      else:
+        log_identifier = f"job {job_id}"
+      logging.error(
+          f"Failed to process {log_identifier} after {retry_attempts} attempts."
+      )
+      # Mark this job as a complete failure in the stats
+      stats["is_complete_failure"] = True
+      # Append a failure result so that process_prompts_concurrently doesn't drop this job
+      failed_result_data = {
+          "result": {
+              "error": f"Failed after {retry_attempts} attempts"
+          },  # Or None, or a specific error object
+          "propositions": [],
+          "allocations": allocations,
+          "total_token_used": 0,
+          "prompt_token_count": 0,
+          "candidates_token_count": 0,
+          "tool_use_prompt_token_count": 0,
+          "thoughts_token_count": 0,
+          "failed_tries": pd.DataFrame(failed_tries),
+      }
+      results_list.append({**job, **failed_result_data})
+
+    return attempt, temperature
 
   async def _api_worker_with_retry(
       self,
@@ -189,9 +329,9 @@ class GenaiModel:
       stats_list: list,
       stop_event: asyncio.Event,
       response_parser: Callable[[str, Dict[str, Any]], Any],
+      max_concurrent_calls: Optional[int] = MAX_CONCURRENT_CALLS,
   ):
-    """
-    Consumes jobs from the queue, calls the Gemini API with retry logic,
+    """Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
     """
     while not stop_event.is_set():
@@ -207,6 +347,7 @@ class GenaiModel:
 
       job_id = job.get("job_id")
       opinion_num = job.get("opinion_num")
+      chunk = job.get("chunk")
       topic = job.get("topic")
       prompt = job.get("prompt")
       opinion = job.get("opinion")
@@ -214,25 +355,39 @@ class GenaiModel:
       stats = job["stats"]
       combined_tokens = stats.get("combined_tokens")
       retry_attempts = job.get("retry_attempts")
-      initial_retry_delay = job.get("initial_retry_delay")
-      delay_between_calls_seconds = job.get("delay_between_calls_seconds")
       system_prompt = job.get("system_prompt")
       response_mime_type = job.get("response_mime_type")
       response_schema = job.get("response_schema")
-      thinking_budget = job.get("thinking_budget")
+      thinking_level = job.get("thinking_level")
       temperature = job.get("temperature", 0.0)
 
       # Prepare logging prefix
-      log_prefix = f"[Worker-{worker_id}]"
+      log_prefix_marker = job.get("log_prefix_marker")
+
+      worker_part = f"Worker-{worker_id}"
 
       if opinion_num is not None:
-        log_prefix = f"[O#{opinion_num} {log_prefix[1:-1]}]"
-      if opinion is not None:
-        log_prefix += f" Processing opinion '{opinion[:20]}'"
-      elif topic is not None:
-        log_prefix += f" Processing topic '{topic}'"
+        worker_part = f"O#{opinion_num} {worker_part}"
+
+      if log_prefix_marker:
+        marker_part = str(log_prefix_marker)
+        log_prefix = f"[{worker_part} | {marker_part}]"
       else:
-        log_prefix += f" Processing job"
+        log_prefix = f"[{worker_part}]"
+
+      if opinion is not None:
+        opinion_str = getattr(opinion, "name", str(opinion))
+        log_body = f" Processing opinion '{opinion_str[:20]}'"
+      elif topic is not None:
+        topic_str = getattr(topic, "name", str(topic))
+        log_body = f" Processing topic '{topic_str[:20]}'"
+      elif chunk is not None:
+        chunk_str = getattr(chunk, "name", str(chunk))
+        log_body = f" Processing chunk '{chunk_str[:20]}'"
+      elif response_schema == custom_types.EvaluationResult:
+        log_body = f" Processing evaluation result for job {job_id}"
+      else:
+        log_body = f" Processing job {job_id}"
 
       # Initialize failure tracking stats
       stats["non_quota_failures"] = 0
@@ -244,31 +399,31 @@ class GenaiModel:
       # The main retry loop. This will continue until the job succeeds or is
       # stopped, at which point the loop will `break`.
       attempt = 0
+
       while attempt < retry_attempts:
-        # Wait here if a global pause is in effect for quota.
-        await self._quota_available_event.wait()
-        # Wait here if a global pause is in effect for availability.
-        await self._system_available_event.wait()
+        # Wait here if a global pause is in effect.
+        await self._global_pause_event.wait()
 
         resp = None  # Initialize resp for this attempt
         if stop_event.is_set():
-          logging.info(f"{log_prefix} Stop event received, terminating.")
+          logging.info(
+              f"{log_prefix} {log_body} Stop event received, terminating."
+          )
           break
 
-        API_ERROR = "API Error"
-
         try:
-          logging.info(f"{log_prefix} (Attempt {attempt + 1})...")
+          logging.info(f"{log_prefix} {log_body} (Attempt {attempt + 1})")
 
           # Make the actual API call
-          resp = await self._call_gemini(
+          resp = await self.call_gemini(
               prompt=prompt,
               run_name=opinion,
               system_prompt=system_prompt,
               response_mime_type=response_mime_type,
               response_schema=response_schema,
-              thinking_budget=thinking_budget,
+              thinking_level=thinking_level,
               temperature=temperature,
+              max_concurrent_calls=max_concurrent_calls,
           )
 
           if resp.get("error"):
@@ -307,126 +462,26 @@ class GenaiModel:
           stats["candidates_token_count"] = resp["candidates_token_count"]
           stats_list.append(stats)
 
-          # On success, reset the availability backoff delay
-          self._backoff_delay = self._initial_backoff_delay
-
-          logging.info(f"✅ {log_prefix} Successfully processed.")
+          logging.info(f"{log_prefix} {log_body} ✅ Successfully processed.")
 
           # Add a delay after a successful call to respect rate limits.
-          await asyncio.sleep(delay_between_calls_seconds)
+          await asyncio.sleep(WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS)
 
           # Break the retry loop on success
           break
 
         # Universal Error Handling
         except Exception as e:
-
-          # --- Quota Error Handling ---
-          if (
-              isinstance(e, google_genai_errors.ClientError)
-              and hasattr(e, "response")
-              and e.response is not None
-              and e.response.status == 429
-          ):
-            async with self._quota_availability_lock:
-              if self._quota_available_event.is_set():
-                logging.warning(
-                    f"{log_prefix} Quota limit hit. Initiating global pause."
-                )
-                self._quota_available_event.clear()
-                logging.info(
-                    f"{log_prefix} I am the leader. Pausing all workers."
-                )
-
-                # Extract the dictionary from the error message
-                error_details = await e.response.json()
-                # Find the retryDelay in the details
-                for detail in error_details.get("error", {}).get("details", []):
-                  if (
-                      detail.get("@type")
-                      == "type.googleapis.com/google.rpc.RetryInfo"
-                  ):
-                    retry_delay_str = detail.get("retryDelay", "60s")
-                    delay = self._parse_duration(retry_delay_str) + 1
-                    break
-
-                asyncio.create_task(self._handle_quota_pause(delay))
-
-            # Do NOT increment attempt counter for quota errors, just restart the loop
-            continue
-
-          # --- Availability Error Handling ---
-          if isinstance(e, google_exceptions.ServiceUnavailable) or (
-              isinstance(e, google_genai_errors.ClientError)
-              and hasattr(e, "response")
-              and e.response is not None
-              and e.response.status == 503
-          ):
-            async with self._system_availability_lock:
-              if self._system_available_event.is_set():
-                logging.warning(
-                    f"{log_prefix} Service unavailable. Initiating global"
-                    " backoff."
-                )
-                self._system_available_event.clear()
-                delay = self._backoff_delay
-                asyncio.create_task(self._handle_availability_pause(delay))
-                # Increase the backoff for the next potential failure
-                self._backoff_delay = min(
-                    self._backoff_delay**2, self._max_backoff_delay
-                )
-            # Do not increment the attempt counter for availability errors
-            continue
-
-          # --- Generic Error Handling ---
-          error_parts = [f"❌ {log_prefix}"]
-          if opinion:
-            error_parts.append(f"Error on opinion '{opinion[:20]}'")
-          elif topic:
-            error_parts.append(f"Error on topic '{topic}'")
-
-          if combined_tokens is not None:
-            error_parts.append(f"input_token: {combined_tokens}")
-
-          error_parts.append(f"attempt {attempt + 1}: {repr(e)}")
-          error_msg = ", ".join(error_parts)
-          logging.error(error_msg)
-
-          # Increment the non-quota failure count in the stats object
-          stats["non_quota_failures"] += 1
-          if resp and "total_token_count" in resp:
-            stats["total_token_used"] = resp.get("total_token_count")
-            stats["prompt_token_count"] = resp.get("prompt_token_count")
-            stats["candidates_token_count"] = resp.get("candidates_token_count")
-
-          failed_tries.append({
-              "attempt_index": attempt,
-              "error_message": str(e),
-              "raw_response": resp.get("text", "") if resp else "",
-              "prompt": prompt,
-          })
-
-          attempt += 1
-          temperature += 0.02
-          if attempt < retry_attempts:
-            # Initialize delay to < 1s, with randomness (jitter)
-            delay = random.uniform(0, 1)
-            logging.info(f"   Retrying in {delay:.2f} seconds...")
-            await asyncio.sleep(delay)
-          else:
-            log_identifier = ""
-            if opinion:
-              log_identifier = f"opinion '{opinion[:20]}'"
-            elif topic:
-              log_identifier = f"topic '{topic}'"
-            else:
-              log_identifier = f"job {job_id}"
-            logging.error(
-                f"Failed to process {log_identifier} after"
-                f" {retry_attempts} attempts."
-            )
-            # Mark this job as a complete failure in the stats
-            stats["is_complete_failure"] = True
+          attempt, temperature = await self._handle_api_error(
+              e,
+              job,
+              attempt,
+              temperature,
+              log_prefix,
+              failed_tries,
+              results_list,
+              resp,
+          )
 
       # Always append the stats object to the list, regardless of success.
       stats_list.append(stats)
@@ -438,12 +493,16 @@ class GenaiModel:
       response_parser: Callable[[str, Dict[str, Any]], Any],
       max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
       retry_attempts: int = MAX_LLM_RETRIES,
-      initial_retry_delay: int = INITIAL_RETRY_DELAY,
-      delay_between_calls_seconds: int = RETRY_DELAY_SEC,
   ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Orchestrates the process of generating prompts and processing them
+    """Orchestrates the process of generating prompts and processing them
     using a queue and concurrent workers.
+
+    Args:
+        prompts: A list of prompts to process.
+        response_parser: A callable that parses the response from the LLM.
+        max_concurrent_calls: The maximum number of concurrent API calls.
+        retry_attempts: The maximum number of times an LLM call should be
+          retried.
 
     Returns:
         A tuple containing:
@@ -469,6 +528,7 @@ class GenaiModel:
                 final_stats,
                 stop_event,
                 response_parser,
+                max_concurrent_calls,
             )
         )
         for i in range(max_concurrent_calls)
@@ -483,8 +543,7 @@ class GenaiModel:
       job["job_id"] = i  # Add a unique identifier
       job["opinion_num"] = i + 1
       job["retry_attempts"] = retry_attempts
-      job["initial_retry_delay"] = initial_retry_delay
-      job["delay_between_calls_seconds"] = delay_between_calls_seconds
+      job["thinking_level"] = THINKING_LEVEL
 
       # Ensure a stats object exists for every job
       if "stats" not in job or job["stats"] is None:
@@ -500,7 +559,7 @@ class GenaiModel:
     try:
       await asyncio.gather(*workers)
     except KeyboardInterrupt:
-      logging.info("\nKeyboardInterrupt received. Stopping workers...")
+      logging.info("KeyboardInterrupt received. Stopping workers...")
       stop_event.set()
       # Wait for workers to finish gracefully
       await asyncio.gather(*workers, return_exceptions=True)
@@ -528,7 +587,7 @@ class GenaiModel:
       return
 
     summary = retry_counts.value_counts().sort_index()
-    logging.info("\n--- Job Retry Summary ---")
+    logging.info("--- Job Retry Summary ---")
     for num_retries, count in summary.items():
       if num_retries == 0:
         logging.info(
@@ -536,9 +595,9 @@ class GenaiModel:
         )
       else:
         logging.info(f"Jobs with {num_retries} retries: {count}")
-    logging.info("-----------------------\n")
+    logging.info("-----------------------")
 
-  async def _call_gemini(
+  async def call_gemini(
       self,
       prompt: str,
       run_name: str,
@@ -546,7 +605,8 @@ class GenaiModel:
       system_prompt: Optional[str] = None,
       response_mime_type: Optional[str] = None,
       response_schema: Optional[Dict[str, Any]] = None,
-      thinking_budget: Optional[int] = None,
+      thinking_level: genai_types.ThinkingLevel | None = None,
+      max_concurrent_calls: Optional[int] = MAX_CONCURRENT_CALLS,
   ) -> Optional[Dict[str, Any]]:
     """Calls the Gemini model with the given prompt.
 
@@ -557,7 +617,8 @@ class GenaiModel:
       system_prompt: The system prompt to use for the model.
       response_mime_type: The response mime type to use for the model.
       response_schema: The response schema to use for the model.
-      thinking_budget: The token budget for the model's thinking process.
+      thinking_level: The thinking budget for the model's thinking process.
+      max_concurrent_calls: The maximum number of concurrent API calls.
 
     Returns:
       A dictionary containing the model's response and token count,
@@ -566,31 +627,51 @@ class GenaiModel:
     if not prompt:
       raise ValueError("Prompt must be present to call Gemini.")
 
-    thinking_config = (
-        genai.types.ThinkingConfig(thinking_budget=thinking_budget)
-        if thinking_budget is not None
-        else None
-    )
+    if thinking_level:
+      if "gemini-3" in self.model:
+        thinking_config = genai.types.ThinkingConfig(
+            thinking_level=thinking_level
+        )
+      else:
+        thinking_budget_int = 0
+        if thinking_level == genai_types.ThinkingLevel.HIGH:
+          thinking_budget_int = 20000
+        elif thinking_level == genai_types.ThinkingLevel.MEDIUM:
+          thinking_budget_int = 10000
+        elif thinking_level == genai_types.ThinkingLevel.LOW:
+          thinking_budget_int = 5000
+        elif thinking_level == genai_types.ThinkingLevel.MINIMAL:
+          thinking_budget_int = 1000
+        thinking_config = genai.types.ThinkingConfig(
+            thinking_budget=thinking_budget_int
+        )
+    else:
+      thinking_config = None
 
     try:
-      response = await self.client.aio.models.generate_content(
-          model=self.model,
-          contents=prompt,
-          config=genai.types.GenerateContentConfig(
-              system_instruction=system_prompt,
-              temperature=temperature,
-              safety_settings=self.safety_settings,
-              response_mime_type=response_mime_type,
-              response_schema=response_schema,
-              thinking_config=thinking_config,
-              automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
-                  maximum_remote_calls=MAX_CONCURRENT_CALLS
+      response = await asyncio.wait_for(
+          self.client.aio.models.generate_content(
+              model=self.model,
+              contents=prompt,
+              config=genai.types.GenerateContentConfig(
+                  system_instruction=system_prompt,
+                  temperature=temperature,
+                  safety_settings=self.safety_settings,
+                  response_mime_type=response_mime_type,
+                  response_schema=response_schema,
+                  thinking_config=thinking_config,
+                  automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
+                      maximum_remote_calls=max_concurrent_calls
+                  ),
               ),
           ),
+          timeout=TIMEOUT_SECONDS,
       )
       if not response.candidates:
-        logging.error("The response from the API contained no candidates.")
-        logging.error("This might be due to a problem with the prompt itself.")
+        logging.error(
+            "The response from the API contained no candidates.\n"
+            "This might be due to a problem with the prompt itself."
+        )
         return {"error": response.prompt_feedback}
 
       candidate = response.candidates[0]
@@ -649,8 +730,10 @@ class GenaiModel:
           "error": None,
       }
     except Exception as e:
+      stack = repr(e)
       logging.error(
-          "An unexpected error occurred during content generation: %s", repr(e)
+          "An unexpected error occurred during content generation: %s",
+          stack[:100],
       )
       return {"error": e}
 
@@ -664,6 +747,8 @@ class GenaiModel:
 
     Args:
       prompt: The prompt to calculate the token count for.
+      run_name: The name of the run for logging purposes.
+      temperature: The temperature to use for the model.
 
     Returns:
       The number of tokens needed for the prompt.
@@ -671,13 +756,6 @@ class GenaiModel:
     token_count = self.client.models.count_tokens(
         model=self.model,
         contents=prompt,
-        config=genai.types.GenerateContentConfig(
-            temperature=temperature,
-            safety_settings=self.safety_settings,
-            automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
-                maximum_remote_calls=MAX_CONCURRENT_CALLS
-            ),
-        ),
     ).total_tokens
     logging.info(
         f"Token count for prompt of the run '{run_name}': {token_count}"
@@ -709,81 +787,3 @@ class GenaiModel:
       logging.warning("Mismatch between number of prompts and results.")
 
     return results
-
-  async def start_prompts_batch(self, prompts: List[str]) -> str:
-    """Starts a batch job and returns the job name."""
-    if not prompts:
-      return ""
-
-    inline_requests = [
-        {"contents": [{"parts": [{"text": p}], "role": "user"}]}
-        for p in prompts
-    ]
-
-    loop = asyncio.get_running_loop()
-    model_for_batch = f"models/{self.model}"
-
-    inline_batch_job = await loop.run_in_executor(
-        None,
-        lambda: self.client.batches.create(
-            model=model_for_batch,
-            src=inline_requests,
-        ),
-    )
-    logging.info(f"Created batch job: {inline_batch_job.name}")
-    return inline_batch_job.name
-
-  async def get_batch_job(self, job_name: str):
-    """Gets a batch job by name."""
-    try:
-      loop = asyncio.get_running_loop()
-      return await loop.run_in_executor(
-          None, lambda: self.client.batches.get(name=job_name)
-      )
-    except google_api_core_exceptions.NotFound:
-      return None
-
-  async def poll_batch_job(
-      self,
-      job_name: str,
-      num_prompts: int,
-      polling_interval_seconds: int = 30,
-  ) -> List[Optional[Dict[str, Any]]]:
-    """Polls a batch job until it is complete and returns the results."""
-
-    start_time = time.time()
-
-    while True:
-      batch_job = await self.get_batch_job(job_name)
-
-      if not batch_job:
-        logging.error(
-            f"Batch job {job_name} not found or disappeared during polling."
-        )
-        return [
-            {"error": "Job not found or disappeared"}
-            for _ in range(num_prompts)
-        ]
-
-      if batch_job.state.name in COMPLETED_BATCH_JOB_STATES:
-        break
-
-      logging.info(
-          f"Polling for job {job_name}. Current state: {batch_job.state.name}"
-      )
-      await asyncio.sleep(polling_interval_seconds)
-
-    end_time = time.time()
-    duration = end_time - start_time
-    logging.info(
-        f"Batch job {job_name} finished polling in {duration:.2f} seconds."
-    )
-    logging.info(f"Job {job_name} finished with state: {batch_job.state.name}")
-
-    if batch_job.state.name != "JOB_STATE_SUCCEEDED":
-      error_message = f"Batch job failed with state {batch_job.state.name}"
-      if batch_job.error:
-        error_message += f": {batch_job.error}"
-      return [{"error": error_message} for _ in range(num_prompts)]
-
-    return self._parse_batch_responses(batch_job, num_prompts)
