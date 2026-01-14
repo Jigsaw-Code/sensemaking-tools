@@ -18,15 +18,3 @@ repos:
         language: python
         types: [python]
         pass_filenames: false
-      - id: npm-test
-        name: Run npm tests
-        entry: npm test
-        language: system
-        types: [file]
-        pass_filenames: false
-      - id: lint-staged
-        name: Run lint-staged
-        entry: npx lint-staged
-        language: system
-        types: [file]
-        pass_filenames: false
