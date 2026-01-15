@@ -1,16 +1,16 @@
 [
   {
-    "name": "Placeholder Content",
-    "commentCount": 7,
-    "voteCount": 7,
-    "relativeAlignment": "high alignment",
+    "name": "Topic 1",
+    "commentCount": 0,
+    "voteCount": 0,
+    "relativeAlignment": "moderately high alignment",
     "relativeEngagement": "high engagement",
     "subtopicStats": [
       {
-        "name": "Generic Content",
-        "commentCount": 7,
-        "voteCount": 7,
-        "relativeAlignment": "high alignment",
+        "name": "Subtopic 1",
+        "commentCount": 0,
+        "voteCount": 0,
+        "relativeAlignment": "moderately low alignment",
         "relativeEngagement": "high engagement"
       }
     ]
