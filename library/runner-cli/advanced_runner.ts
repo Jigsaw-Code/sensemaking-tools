@@ -41,6 +41,7 @@ import { TopicStats } from "../src/stats/summary_stats";
 import { RelativeContext } from "../src/tasks/summarization_subtasks/relative_context";
 import { Comment, CommentWithVoteInfo, VoteInfo } from "../src/types";
 import { getTotalAgreeRate, getTotalDisagreeRate, getTotalPassRate } from "../src/stats/stats_util";
+import { SupportedLanguage } from "../templates/l10n/languages";
 
 interface MinimalTopicStat {
   name: string;
@@ -75,9 +76,10 @@ interface CommentWithScores {
 
 function createMinimalStats(
   stats: TopicStats[],
+  output_lang: SupportedLanguage = "en",
   relativeContext: RelativeContext | null = null
 ): MinimalTopicStat[] {
-  if (!relativeContext) relativeContext = new RelativeContext(stats);
+  if (!relativeContext) relativeContext = new RelativeContext(stats, output_lang);
   return stats.map((stat): MinimalTopicStat => {
     const minimalStat: MinimalTopicStat = {
       name: stat.name,
@@ -87,7 +89,7 @@ function createMinimalStats(
       relativeEngagement: relativeContext.getRelativeEngagement(stat.summaryStats),
       // Recursively process subtopics if they exist
       subtopicStats: stat.subtopicStats
-        ? createMinimalStats(stat.subtopicStats, relativeContext)
+        ? createMinimalStats(stat.subtopicStats, output_lang, relativeContext)
         : undefined,
     };
     return minimalStat;
@@ -157,7 +159,8 @@ async function main(): Promise<void> {
       "-a, --additionalContext <context>",
       "A short description of the conversation to add context."
     )
-    .option("-v, --vertexProject <project>", "The Vertex Project name.");
+    .option("-v, --vertexProject <project>", "The Vertex Project name.")
+    .option("-l, --outputLang <language>", "The output language (en, zh-TW, zh-CN, fr, es, ja).", "en");
   program.parse(process.argv);
   const options = program.opts();
 
@@ -171,7 +174,7 @@ async function main(): Promise<void> {
   }
 
   // Modify the SummaryStats output to drop comment info and add RelativeContext.
-  const minimalTopicStats = createMinimalStats(stats.getStatsByTopic());
+  const minimalTopicStats = createMinimalStats(stats.getStatsByTopic(), options.outputLang);
   writeFileSync(
     options.outputBasename + "-topic-stats.json",
     JSON.stringify(minimalTopicStats, null, 2)
@@ -187,7 +190,8 @@ async function main(): Promise<void> {
     options.vertexProject,
     comments,
     undefined,
-    options.additionalContext
+    options.additionalContext,
+    options.outputLang
   );
   writeFileSync(options.outputBasename + "-summary.json", JSON.stringify(summary, null, 2));
 }

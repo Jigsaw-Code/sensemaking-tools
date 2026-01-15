@@ -16,6 +16,7 @@ import { decimalToPercent } from "../sensemaker_utils";
 import { Comment, CommentWithVoteInfo } from "../types";
 import { getTotalAgreeRate, getTotalDisagreeRate, getTotalPassRate } from "./stats_util";
 import { SummaryStats } from "./summary_stats";
+import { getStatisticsMessage, type SupportedLanguage } from "../../templates/l10n";
 
 // Stats basis for the summary that is based on majority vote algorithms. Does not use groups.
 export class MajoritySummaryStats extends SummaryStats {
@@ -39,8 +40,8 @@ export class MajoritySummaryStats extends SummaryStats {
    * An override of the SummaryStats static factory method,
    * to allow for MajoritySummaryStats specific initialization.
    */
-  static override create(comments: Comment[]): MajoritySummaryStats {
-    return new MajoritySummaryStats(comments);
+  static override create(comments: Comment[], output_lang: SupportedLanguage = "en"): MajoritySummaryStats {
+    return new MajoritySummaryStats(comments, output_lang);
   }
 
   /**
@@ -112,11 +113,11 @@ export class MajoritySummaryStats extends SummaryStats {
   }
 
   getCommonGroundNoCommentsMessage(): string {
-    return (
-      `No statements met the thresholds necessary to be considered as a point of common ` +
-      `ground (at least ${this.minVoteCount} votes, and at least ` +
-      `${decimalToPercent(this.minCommonGroundProb)} agreement).`
-    );
+    return getStatisticsMessage("noCommonGround", this.output_lang, {
+      minVoteCount: this.minVoteCount,
+      minCommonGroundProb: decimalToPercent(this.minCommonGroundProb),
+      acrossGroups: ""
+    });
   }
 
   /** Returns a score indicating how well a comment represents an uncertain viewpoint based on pass
@@ -212,10 +213,9 @@ export class MajoritySummaryStats extends SummaryStats {
   getDifferencesOfOpinionNoCommentsMessage(): string {
     const minThreshold = decimalToPercent(this.minDifferenceProb);
     const maxThreshold = decimalToPercent(this.maxDifferenceProb);
-    return (
-      `No statements met the thresholds necessary to be considered as a significant ` +
-      `difference of opinion (at least ${this.minVoteCount} votes, and both an agreement rate ` +
-      `and disagree rate between ${minThreshold}% and ${maxThreshold}%).`
-    );
+    return getStatisticsMessage("noDifferencesOfOpinion", this.output_lang, {
+      minVoteCount: this.minVoteCount,
+      minAgreeProbDifference: `${minThreshold}% and ${maxThreshold}%`
+    });
   }
 }
