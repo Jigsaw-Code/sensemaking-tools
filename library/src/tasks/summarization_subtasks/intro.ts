@@ -1,4 +1,4 @@
-// Copyright 2025 Google LLC
+// Copyright 2024 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,28 +14,40 @@
 
 // Functions for different ways to summarize Comment and Vote data.
 
-import { SummaryStats, TopicStats } from "../../stats/summary_stats";
-import { SummaryContent } from "../../types";
 import { RecursiveSummary } from "./recursive_summarization";
+import { SummaryStats } from "../../stats/summary_stats";
+import { SummaryContent } from "../../types";
+
+// Import localization system
+import { 
+  getReportSectionTitle, 
+  getReportContent 
+} from "../../../templates/l10n";
 
 export class IntroSummary extends RecursiveSummary<SummaryStats> {
   getSummary(): Promise<SummaryContent> {
-    let text = `This report summarizes the results of public input, encompassing:\n`;
-    const commentCountFormatted = this.input.commentCount.toLocaleString();
-    text += ` * __${commentCountFormatted} statements__\n`;
-    const voteCountFormatted = this.input.voteCount.toLocaleString();
-    text += ` * __${voteCountFormatted} votes__\n`;
+    // Get localized title and text from localization system
+    const title = getReportSectionTitle("introduction", this.output_lang);
+    const text = getReportContent("introduction", "text", this.output_lang);
+    const statementsLabel = getReportContent("introduction", "statements", this.output_lang);
+    const votesLabel = getReportContent("introduction", "votes", this.output_lang);
+    const topicsLabel = getReportContent("introduction", "topics", this.output_lang);
+    const subtopicsLabel = getReportContent("introduction", "subtopics", this.output_lang);
+    const anonymousText = getReportContent("introduction", "anonymous", this.output_lang);
+    
+    // Build the content with dynamic values
+    const content = `${text}\n` +
+      ` * __${this.input.commentCount.toLocaleString()} ${statementsLabel}__\n` +
+      ` * __${this.input.voteCount.toLocaleString()} ${votesLabel}__\n` +
+      ` * ${this.input.getStatsByTopic().length} ${topicsLabel}\n` +
+      ` * ${this.getSubtopicCount()} ${subtopicsLabel}\n\n` +
+      `${anonymousText}`;
+    
+    return Promise.resolve({ title, text: content });
+  }
+  
+  private getSubtopicCount(): number {
     const statsByTopic = this.input.getStatsByTopic();
-    text += ` * ${statsByTopic.length} topics\n`;
-    const subtopicCount = statsByTopic
-      .map((topic: TopicStats) => {
-        return topic.subtopicStats ? topic.subtopicStats.length : 0;
-      })
-      .reduce((a, b) => a + b, 0);
-    text += ` * ${subtopicCount} subtopics\n\n`;
-    // TODO: Add how many themes there are when it's available.
-    text += "All voters were anonymous.";
-
-    return Promise.resolve({ title: "## Introduction", text: text });
+    return statsByTopic.map(topic => topic.subtopicStats?.length || 0).reduce((a, b) => a + b, 0);
   }
 }

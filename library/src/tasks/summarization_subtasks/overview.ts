@@ -25,43 +25,17 @@ import {
   retryCall,
 } from "../../sensemaker_utils";
 
-function oneShotInstructions(topicNames: string[]) {
-  return (
-    `Your job is to compose a summary of the key findings from a public discussion, based on already composed summaries corresponding to topics and subtopics identified in said discussion. ` +
-    `These topic and subtopic summaries are based on comments and voting patterns that participants submitted as part of the discussion. ` +
-    `You should format the results as a markdown list, to be included near the top of the final report, which shall include the complete topic and subtopic summaries. ` +
-    `Do not pretend that you hold any of these opinions. You are not a participant in this discussion. ` +
-    `Do not include specific numbers about how many comments were included in each topic or subtopic, as these will be included later in the final report output. ` +
-    `You also do not need to recap the context of the conversation, as this will have already been stated earlier in the report. ` +
-    `Where possible, prefer describing the results in terms of the "statements" submitted or the overall "conversation", rather than in terms of the participants' perspectives (Note: "comments" and "statements" are the same thing, but for the sake of this portion of the summary, only use the term "statements"). ` +
-    `Remember: this is just one component of a larger report, and you should compose this so that it will flow naturally in the context of the rest of the report. ` +
-    `Be clear and concise in your writing, and do not use the passive voice, or ambiguous pronouns.` +
-    `\n\n` +
-    `The structure of the list you output should be in terms of the topic names, in the order that follows. ` +
-    `Each list item should start in bold with topic name name (including percentage, exactly as listed below), then a colon, and then a short one or two sentence summary for the corresponding topic.` +
-    `The complete response should be only the markdown list, and no other text. ` +
-    `For example, a list item might look like this:\n` +
-    `<output_format format="markdown">* **Topic Name (45%):**  Topic summary.</output_format>\n` +
-    `Here are the topics:
-    ${topicNames.map((s) => "* " + s).join("\n")}`
-  );
+// Import localization system
+import { getReportSectionTitle, getReportContent } from "../../../templates/l10n";
+import { getOverviewOneShotPrompt, getOverviewPerTopicPrompt } from "../../../templates/l10n/prompts";
+import { SupportedLanguage } from "../../../templates/l10n/languages";
+
+function oneShotInstructions(topicNames: string[], output_lang: string) {
+  return getOverviewOneShotPrompt(output_lang as SupportedLanguage, topicNames);
 }
 
-function perTopicInstructions(topicName: string) {
-  return (
-    `Your job is to compose a summary of the key findings from a public discussion, based on already composed summaries corresponding to topics and subtopics identified in said discussion. ` +
-    `These topic and subtopic summaries are based on comments and voting patterns that participants submitted as part of the discussion. ` +
-    `This summary will be formatted as a markdown list, to be included near the top of the final report, which shall include the complete topic and subtopic summaries. ` +
-    `Do not pretend that you hold any of these opinions. You are not a participant in this discussion. ` +
-    `Where possible, prefer descriging the results in terms of the "statements" submitted or the overall "conversation", rather than in terms of the participants' perspectives (Note: "comments" and "statements" are the same thing, but for the sake of this portion of the summary, only use the term "statements"). ` +
-    `Do not include specific numbers about how many comments were included in each topic or subtopic, as these will be included later in the final report output. ` +
-    `You also do not need to recap the context of the conversation, as this will have already been stated earlier in the report. ` +
-    `Remember: this is just one component of a larger report, and you should compose this so that it will flow naturally in the context of the rest of the report. ` +
-    `Be clear and concise in your writing, and do not use the passive voice, or ambiguous pronouns.` +
-    `\n\n` +
-    `Other topics will come later, but for now, your job is to compose a very short one or two sentence summary of the following topic: ${topicName}. ` +
-    `This summary will be put together into a list with other such summaries later.`
-  );
+function perTopicInstructions(topicName: string, output_lang: string) {
+  return getOverviewPerTopicPrompt(output_lang as SupportedLanguage, topicName);
 }
 
 /**
@@ -80,13 +54,23 @@ export interface OverviewInput {
  */
 export class OverviewSummary extends RecursiveSummary<OverviewInput> {
   async getSummary(): Promise<SummaryContent> {
+    // Debug: 檢查 output_lang 值
+    console.log(`[DEBUG] OverviewSummary.getSummary() output_lang: ${this.output_lang}`);
+    
     const method = this.input.method || "one-shot";
     const result = await (method == "one-shot" ? this.oneShotSummary() : this.perTopicSummary());
 
-    const preamble =
-      `Below is a high level overview of the topics discussed in the conversation, as well as the percentage of statements categorized under each topic. ` +
-      `Note that the percentages may add up to greater than 100% when statements fall under more than one topic.\n\n`;
-    return { title: "## Overview", text: preamble + result };
+    // Get localized title and preamble from localization system
+    const title = getReportSectionTitle("overview", this.output_lang);
+    const preamble = getReportContent("overview", "preamble", this.output_lang);
+    
+    // Debug: 檢查本地化函式的調用參數和結果
+    console.log(`[DEBUG] OverviewSummary.getSummary() calling getReportSectionTitle with: section="overview", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] OverviewSummary.getSummary() calling getReportContent with: section="overview", content="preamble", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] OverviewSummary.getSummary() title result: "${title}"`);
+    console.log(`[DEBUG] OverviewSummary.getSummary() preamble result: "${preamble}"`);
+    
+    return { title, text: preamble + result };
   }
 
   /**
@@ -96,19 +80,30 @@ export class OverviewSummary extends RecursiveSummary<OverviewInput> {
    */
   async oneShotSummary(): Promise<string> {
     const topicNames = this.topicNames();
+    const output_lang = this.output_lang;
+    
+    // Debug: 檢查 oneShotSummary 中的 output_lang 值
+    console.log(`[DEBUG] OverviewSummary.oneShotSummary() output_lang: ${output_lang}`);
+    
     const prompt = getAbstractPrompt(
-      oneShotInstructions(topicNames),
+      oneShotInstructions(topicNames, output_lang),
       [filterSectionsForOverview(this.input.topicsSummary)],
       (summary: SummaryContent) =>
         `<topicsSummary>\n` +
         `${new Summary([summary], []).getText("XML")}\n` +
         `  </topicsSummary>`,
-      this.additionalContext
+      this.additionalContext,
+      this.output_lang  // ← 加入 output_lang 參數
     );
+    
+    // Debug: 檢查 getAbstractPrompt 的調用參數
+    console.log(`[DEBUG] OverviewSummary.oneShotSummary() calling getAbstractPrompt with: output_lang="${this.output_lang}"`);
+    
     return await retryCall(
-      async function (model, prompt) {
+      async function (model, prompt, output_lang) {
         console.log(`Generating OVERVIEW SUMMARY in one shot`);
-        let result = await model.generateText(prompt);
+        console.log(`[DEBUG] retryCall function received output_lang: ${output_lang}`);
+        let result = await model.generateText(prompt, output_lang);
         result = removeEmptyLines(result);
         if (!result) {
           throw new Error(`Overview summary failed to conform to markdown list format.`);
@@ -120,7 +115,7 @@ export class OverviewSummary extends RecursiveSummary<OverviewInput> {
       3,
       "Overview summary failed to conform to markdown list format, or did not include all topic descriptions exactly as intended.",
       undefined,
-      [this.model, prompt],
+      [this.model, prompt, output_lang],  // ← 加入 output_lang
       []
     );
   }
@@ -130,20 +125,29 @@ export class OverviewSummary extends RecursiveSummary<OverviewInput> {
    * @returns A promise of the resulting summary string
    */
   async perTopicSummary(): Promise<string> {
+    // Debug: 檢查 perTopicSummary 中的 output_lang 值
+    console.log(`[DEBUG] OverviewSummary.perTopicSummary() output_lang: ${this.output_lang}`);
+    
     let text = "";
     for (const topicStats of this.input.summaryStats.getStatsByTopic()) {
       text += `* __${this.getTopicNameAndCommentPercentage(topicStats)}__: `;
       const prompt = getAbstractPrompt(
-        perTopicInstructions(topicStats.name),
+        perTopicInstructions(topicStats.name, this.output_lang),
         [filterSectionsForOverview(this.input.topicsSummary)],
         (summary: SummaryContent) =>
           `<topicsSummary>\n` +
           `${new Summary([summary], []).getText("XML")}\n` +
           `  </topicsSummary>`,
-        this.additionalContext
+        this.additionalContext,
+        this.output_lang  // ← 加入 output_lang 參數
       );
+      
+      // Debug: 檢查 getAbstractPrompt 的調用參數
+      console.log(`[DEBUG] OverviewSummary.perTopicSummary() calling getAbstractPrompt with: output_lang="${this.output_lang}"`);
+      
       console.log(`Generating OVERVIEW SUMMARY for topic: "${topicStats.name}"`);
-      text += (await this.model.generateText(prompt)).trim() + "\n";
+      console.log(`[DEBUG] Calling model.generateText with output_lang: ${this.output_lang}`);
+      text += (await this.model.generateText(prompt, this.output_lang)).trim() + "\n";
     }
     return text;
   }
@@ -210,11 +214,32 @@ export function isMdListValid(mdList: string, topicNames: string[]): boolean {
       console.log("Line does not match expected format:", line);
       return false;
     }
+    
     // Check to make sure that every single topicName in topicNames is in the list, and in the right order
-    if (!line.includes(topicNames[index])) {
-      console.log(`Topic "${topicNames[index]}" not found at line:\n`, line);
+    // 使用更寬鬆的檢查，處理可能的格式變化
+    const expectedTopicName = topicNames[index];
+    const normalizedExpected = normalizeTopicName(expectedTopicName);
+    const normalizedLine = normalizeTopicName(line);
+    
+    if (!normalizedLine.includes(normalizedExpected)) {
+      console.log(`Topic "${expectedTopicName}" not found at line:\n`, line);
+      console.log(`Normalized expected: "${normalizedExpected}"`);
+      console.log(`Normalized line: "${normalizedLine}"`);
       return false;
     }
   }
   return true;
+}
+
+/**
+ * 標準化主題名稱，移除可能影響匹配的字符
+ */
+function normalizeTopicName(topicName: string): string {
+  return topicName
+    .toLowerCase()
+    .replace(/["""]/g, '')           // 移除各種引號
+    .replace(/['']/g, '')            // 移除各種單引號
+    .replace(/[()]/g, '')            // 移除括號
+    .replace(/\s+/g, ' ')            // 標準化空白字符
+    .trim();
 }

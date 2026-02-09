@@ -18,6 +18,7 @@ import { executeConcurrently, getPrompt, hydrateCommentRecord } from "../sensema
 import { TSchema, Type } from "@sinclair/typebox";
 import { learnOneLevelOfTopics } from "./topic_modeling";
 import { MAX_RETRIES, RETRY_DELAY_MS } from "../models/model_util";
+import { SupportedLanguage } from "../../templates/l10n";
 
 /**
  * @fileoverview Helper functions for performing comments categorization.
@@ -36,7 +37,8 @@ export async function categorizeWithRetry(
   instructions: string,
   inputComments: Comment[],
   topics: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  output_lang: SupportedLanguage = "en"
 ): Promise<CommentRecord[]> {
   // a holder for uncategorized comments: first - input comments, later - any failed ones that need to be retried
   let uncategorized: Comment[] = [...inputComments];
@@ -48,10 +50,30 @@ export async function categorizeWithRetry(
       JSON.stringify({ id: comment.id, text: comment.text })
     );
     const outputSchema: TSchema = Type.Array(TopicCategorizedComment);
-    const newCategorized: CommentRecord[] = (await model.generateData(
-      getPrompt(instructions, uncategorizedCommentsForModel, additionalContext),
-      outputSchema
-    )) as CommentRecord[];
+    let newCategorized: CommentRecord[];
+    
+    try {
+      const rawResponse = await model.generateData(
+        getPrompt(instructions, uncategorizedCommentsForModel, additionalContext, output_lang),
+        outputSchema,
+        output_lang
+      );
+
+      
+      /*
+      // 確保回應是一個數組
+      if (!Array.isArray(rawResponse) && !Array.isArray((rawResponse as { items: CommentRecord[] }).items)) {
+        console.error('LLM response is not an array:', typeof rawResponse, rawResponse);
+        throw new Error('LLM response format error: expected array of comments');
+      }
+      */
+      
+      newCategorized = Array.isArray(rawResponse) ? rawResponse : (rawResponse as { items: CommentRecord[] }).items;
+      console.log(`LLM returned ${newCategorized.length} categorized comments`);
+    } catch (error) {
+      console.error('Error in LLM categorization:', error);
+      throw error;
+    }
 
     const newProcessedComments = processCategorizedComments(
       newCategorized,
@@ -119,6 +141,25 @@ export function validateCommentRecords(
 } {
   const commentsPassedValidation: CommentRecord[] = [];
   const commentsWithInvalidTopics: CommentRecord[] = [];
+  
+  // 防護措施：確保 commentRecords 是一個數組
+  if (!Array.isArray(commentRecords)) {
+    console.error('validateCommentRecords: commentRecords is not an array:', typeof commentRecords, commentRecords);
+    throw new Error('Invalid input: commentRecords must be an array');
+  }
+  
+  // 防護措施：確保 inputComments 是一個數組
+  if (!Array.isArray(inputComments)) {
+    console.error('validateCommentRecords: inputComments is not an array:', typeof inputComments, inputComments);
+    throw new Error('Invalid input: inputComments must be an array');
+  }
+  
+  // 防護措施：確保 topics 是一個數組
+  if (!Array.isArray(topics)) {
+    console.error('validateCommentRecords: topics is not an array:', typeof topics, topics);
+    throw new Error('Invalid input: topics must be an array');
+  }
+  
   // put all input comment ids together for output ids validation
   const inputCommentIds = new Set<string>(inputComments.map((comment) => comment.id));
   // topic -> subtopics lookup for naming validation
@@ -186,8 +227,9 @@ function isExtraComment(comment: Comment | CommentRecord, inputCommentIds: Set<s
  * @returns True if the comment has empty topics or subtopics, false otherwise.
  */
 function hasEmptyTopicsOrSubtopics(comment: CommentRecord): boolean {
-  if (comment.topics.length === 0) {
-    console.warn(`Comment with empty topics: ${JSON.stringify(comment)}`);
+  // 檢查 topics 欄位是否存在
+  if (!comment.topics || comment.topics.length === 0) {
+    console.warn(`Comment with missing or empty topics: ${JSON.stringify(comment)}`);
     return true;
   }
   if (
@@ -211,6 +253,12 @@ function hasInvalidTopicNames(
   comment: CommentRecord,
   inputTopics: Record<string, string[]>
 ): boolean {
+  // 檢查 topics 欄位是否存在
+  if (!comment.topics || comment.topics.length === 0) {
+    console.warn(`Comment with missing or empty topics: ${JSON.stringify(comment)}`);
+    return true;
+  }
+  
   // We use `some` here to return as soon as we find an invalid topic (or subtopic).
   return comment.topics.some((topic: Topic) => {
     const isValidTopic = topic.name in inputTopics;
@@ -556,7 +604,8 @@ export async function categorizeCommentsRecursive(
   topicDepth: 1 | 2 | 3,
   model: Model,
   topics?: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  output_lang: SupportedLanguage = "en"
 ): Promise<Comment[]> {
   // The exit condition - if the requested topic depth matches the current depth of topics on the
   // comments then exit.
@@ -567,20 +616,20 @@ export async function categorizeCommentsRecursive(
   }
 
   if (!topics) {
-    topics = await learnOneLevelOfTopics(comments, model, undefined, undefined, additionalContext);
-    comments = await oneLevelCategorization(comments, model, topics, additionalContext);
+    topics = await learnOneLevelOfTopics(comments, model, undefined, undefined, additionalContext, output_lang);
+    comments = await oneLevelCategorization(comments, model, topics, additionalContext, output_lang);
     // Sometimes comments are categorized into an "Other" topic if no given topics are a good fit.
     // This needs included in the list of topics so these are processed downstream.
     topics.push({ name: "Other" });
-    return categorizeCommentsRecursive(comments, topicDepth, model, topics, additionalContext);
+    return categorizeCommentsRecursive(comments, topicDepth, model, topics, additionalContext, output_lang);
   }
 
   if (topics && currentTopicDepth === 0) {
-    comments = await oneLevelCategorization(comments, model, topics, additionalContext);
+    comments = await oneLevelCategorization(comments, model, topics, additionalContext, output_lang);
     // Sometimes comments are categorized into an "Other" topic if no given topics are a good fit.
     // This needs included in the list of topics so these are processed downstream.
     topics.push({ name: "Other" });
-    return categorizeCommentsRecursive(comments, topicDepth, model, topics, additionalContext);
+    return categorizeCommentsRecursive(comments, topicDepth, model, topics, additionalContext, output_lang);
   }
 
   let index = 0;
@@ -599,10 +648,16 @@ export async function categorizeCommentsRecursive(
     }
     if (!("subtopics" in topic)) {
       // The subtopics are added to the existing topic, so a list of length one is returned.
-      const newTopicAndSubtopics = (
-        await learnOneLevelOfTopics(commentsInTopic, model, topic, parentTopics, additionalContext)
-      )[0];
-      if (!("subtopics" in newTopicAndSubtopics)) {
+      const newTopics = await learnOneLevelOfTopics(commentsInTopic, model, topic, parentTopics, additionalContext, output_lang);
+      
+      // Check if we got any topics back
+      if (newTopics.length === 0) {
+        console.log(`No subtopics learned for topic "${topic.name}", skipping subtopic categorization`);
+        continue;
+      }
+      
+      const newTopicAndSubtopics = newTopics[0];
+      if (!newTopicAndSubtopics || !("subtopics" in newTopicAndSubtopics)) {
         throw Error("Badly formed LLM response - expected 'subtopics' to be in topics ");
       }
       topic = { name: topic.name, subtopics: newTopicAndSubtopics.subtopics };
@@ -613,7 +668,8 @@ export async function categorizeCommentsRecursive(
       commentsInTopic,
       model,
       topic.subtopics,
-      additionalContext
+      additionalContext,
+      output_lang
     );
     comments = mergeCommentTopics(comments, categorizedComments, topic, currentTopicDepth);
     // Sometimes comments are categorized into an "Other" subtopic if no given subtopics are a good fit.
@@ -622,14 +678,15 @@ export async function categorizeCommentsRecursive(
     topicWithNewSubtopics.subtopics.push({ name: "Other" });
     topics = mergeTopics(topics, topicWithNewSubtopics);
   }
-  return categorizeCommentsRecursive(comments, topicDepth, model, topics, additionalContext);
+  return categorizeCommentsRecursive(comments, topicDepth, model, topics, additionalContext, output_lang);
 }
 
 export async function oneLevelCategorization(
   comments: Comment[],
   model: Model,
   topics: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  output_lang: SupportedLanguage = "en"
 ): Promise<Comment[]> {
   const instructions = topicCategorizationPrompt(topics);
   // TODO: Consider the effects of smaller batch sizes. 1 comment per batch was much faster, but
@@ -641,16 +698,19 @@ export async function oneLevelCategorization(
 
     // Create a callback function for each batch and add it to the list, preparing them for parallel execution.
     batchesToCategorize.push(() =>
-      categorizeWithRetry(model, instructions, uncategorizedBatch, topics, additionalContext)
+      categorizeWithRetry(model, instructions, uncategorizedBatch, topics, additionalContext, output_lang)
     );
   }
 
-  // categorize comment batches, potentially in parallel
+  // 恢復並行處理：每個請求現在都有獨立的 buffer 上下文，不會互相干擾
   const totalBatches = Math.ceil(comments.length / model.categorizationBatchSize);
   console.log(
-    `Categorizing ${comments.length} statements in batches (${totalBatches} batches of ${model.categorizationBatchSize} statements)`
+    `Categorizing ${comments.length} statements in batches (${totalBatches} batches of ${model.categorizationBatchSize} statements) - using parallel processing`
   );
+  
+  // 使用 executeConcurrently 進行並行處理，每個批次都有獨立的 buffer 上下文
   const CategorizedBatches: CommentRecord[][] = await executeConcurrently(batchesToCategorize);
+  console.log(`✅ All ${totalBatches} batches completed successfully in parallel`);
 
   // flatten categorized batches
   const categorized: CommentRecord[] = [];

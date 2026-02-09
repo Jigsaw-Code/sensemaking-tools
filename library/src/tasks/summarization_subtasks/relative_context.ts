@@ -14,6 +14,8 @@
 
 import { getStandardDeviation } from "../../stats/stats_util";
 import { SummaryStats, TopicStats } from "../../stats/summary_stats";
+import { SupportedLanguage } from "../../../templates/l10n/languages";
+import { getRelativeAgreementLabel, getRelativeEngagementLabel } from "../../../templates/l10n/prompts";
 
 /**
  * Holds information for the relative agreement and engagement across all pieces of the summary.
@@ -26,8 +28,16 @@ export class RelativeContext {
   maxVoteCount: number;
   engagementStdDeviation: number;
   averageEngagement: number;
+  
+  output_lang?: SupportedLanguage;
 
-  constructor(topicStats: TopicStats[]) {
+  constructor(topicStats: TopicStats[], output_lang: SupportedLanguage = "en") {
+    if (!output_lang) {
+      console.warn("RelativeContext constructor: output_lang is undefined, using default 'en'");
+      this.output_lang = "en";
+    } else {
+      this.output_lang = output_lang;
+    }
     const subtopicStats = topicStats.flatMap((t) => t.subtopicStats || []);
     const highAgreementRatePerSubtopic = subtopicStats.map((subtopicStats) =>
       this.getHighAgreementRate(subtopicStats.summaryStats)
@@ -68,15 +78,15 @@ export class RelativeContext {
   getRelativeEngagement(summaryStats: SummaryStats): string {
     const engagmenet = this.getEngagementNumber(summaryStats);
     if (engagmenet < this.averageEngagement - this.engagementStdDeviation) {
-      return "low engagement";
+      return getRelativeEngagementLabel(this.output_lang || "en", "lowEngagement");
     }
     if (engagmenet < this.averageEngagement) {
-      return "moderately low engagement";
+      return getRelativeEngagementLabel(this.output_lang || "en", "moderatelyLowEngagement");
     }
     if (engagmenet < this.averageEngagement + this.engagementStdDeviation) {
-      return "moderately high engagement";
+      return getRelativeEngagementLabel(this.output_lang || "en", "moderatelyHighEngagement");
     } else {
-      return "high engagement";
+      return getRelativeEngagementLabel(this.output_lang || "en", "highEngagement");
     }
   }
 
@@ -99,15 +109,15 @@ export class RelativeContext {
   getRelativeAgreement(summaryStats: SummaryStats): string {
     const highAgreementRate = this.getHighAgreementRate(summaryStats);
     if (highAgreementRate < this.averageHighAgreeRate - this.highAgreeStdDeviation) {
-      return "low alignment";
+      return getRelativeAgreementLabel(this.output_lang || "en", "lowAlignment");
     }
     if (highAgreementRate < this.averageHighAgreeRate) {
-      return "moderately low alignment";
+      return getRelativeAgreementLabel(this.output_lang || "en", "moderatelyLowAlignment");
     }
     if (highAgreementRate < this.averageHighAgreeRate + this.highAgreeStdDeviation) {
-      return "moderately high alignment";
+      return getRelativeAgreementLabel(this.output_lang || "en", "moderatelyHighAlignment");
     } else {
-      return "high alignment";
+      return getRelativeAgreementLabel(this.output_lang || "en", "highAlignment");
     }
   }
 }

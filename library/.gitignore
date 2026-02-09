@@ -2,3 +2,4 @@
 /.eslintcache
 /.venv
 .DS_Store
+/dist

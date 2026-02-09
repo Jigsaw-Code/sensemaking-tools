@@ -17,63 +17,26 @@ import { Model } from "../models/model";
 import { MAX_RETRIES } from "../models/model_util";
 import { getPrompt, retryCall } from "../sensemaker_utils";
 import { Comment, FlatTopic, NestedTopic, Topic } from "../types";
+import { SupportedLanguage } from "../../templates/l10n";
+import { getLearnTopicsPrompt, getLearnSubtopicsPrompt } from "../../templates/l10n/prompts";
 
 /**
  * @fileoverview Helper functions for performing topic modeling on sets of comments.
  */
 
-export const LEARN_TOPICS_PROMPT = `
-Analyze the following comments and identify common topics.
-Consider the granularity of topics: too few topics may oversimplify the content and miss important nuances, while too many topics may lead to redundancy and make the overall structure less clear.
-Aim for a balanced number of topics that effectively summarizes the key themes without excessive detail.
-After analysis of the comments, determine the optimal number of topics to represent the content effectively.
-Justify why having fewer topics would be less optimal (potentially oversimplifying and missing key nuances), and why having more topics would also be less optimal (potentially leading to redundancy and a less clear overall structure).
-After determining the optimal number of topics, identify those topics.
-`;
-
-export function learnSubtopicsForOneTopicPrompt(parentTopic: Topic, otherTopics?: Topic[]): string {
-  const otherTopicNames = otherTopics?.map((topic) => topic.name).join(", ") ?? "";
-
-  return `
-Analyze the following comments and identify common subtopics within the following overarching topic: "${parentTopic.name}".
-Consider the granularity of subtopics: too few subtopics may oversimplify the content and miss important nuances, while too many subtopics may lead to redundancy and make the overall structure less clear.
-Aim for a balanced number of subtopics that effectively summarizes the key themes without excessive detail.
-After analysis of the comments, determine the optimal number of subtopics to represent the content effectively.
-Justify why having fewer subtopics would be less optimal (potentially oversimplifying and missing key nuances), and why having more subtopics would also be less optimal (potentially leading to redundancy and a less clear overall structure).
-After determining the optimal number of subtopics, identify those subtopics.
-
-Important Considerations:
-- No subtopics should have the same name as the overarching topic.
-- There are other overarching topics that are being used on different sets of comments, do not use these overarching topic names as identified subtopics names: ${otherTopicNames}
-
-Example of Incorrect Output:
-
-[
-  {
-    "name": "Economic Development",
-    "subtopics": [
-        { "name": "Job Creation" },
-        { "name": "Business Growth" },
-        { "name": "Small Business Development" },
-        { "name": "Small Business Marketing" } // Incorrect: Too closely related to the "Small Business Development" subtopic
-        { "name": "Infrastructure & Transportation" } // Incorrect: This is the name of a main topic
-      ]
-  }
-]
-`;
-}
-
 /**
  * Generates an LLM prompt for topic modeling of a set of comments.
  *
  * @param parentTopics - Optional. An array of top-level topics to use.
+ * @param output_lang - The target language for the prompt.
  * @returns The generated prompt string.
  */
-export function generateTopicModelingPrompt(parentTopic?: Topic, otherTopics?: Topic[]): string {
+export function generateTopicModelingPrompt(parentTopic?: Topic, otherTopics?: Topic[], output_lang: SupportedLanguage = "en"): string {
   if (parentTopic) {
-    return learnSubtopicsForOneTopicPrompt(parentTopic, otherTopics);
+    const otherTopicNames = otherTopics?.map((topic) => topic.name).join(", ") ?? "";
+    return getLearnSubtopicsPrompt(output_lang, parentTopic.name, otherTopicNames);
   } else {
-    return LEARN_TOPICS_PROMPT;
+    return getLearnTopicsPrompt(output_lang);
   }
 }
 
@@ -92,9 +55,10 @@ export function learnOneLevelOfTopics(
   model: Model,
   topic?: Topic,
   otherTopics?: Topic[],
-  additionalContext?: string
+  additionalContext?: string,
+  output_lang: SupportedLanguage = "en"
 ): Promise<Topic[]> {
-  const instructions = generateTopicModelingPrompt(topic, otherTopics);
+  const instructions = generateTopicModelingPrompt(topic, otherTopics, output_lang);
   const schema = topic ? Type.Array(NestedTopic) : Type.Array(FlatTopic);
 
   return retryCall(
@@ -104,9 +68,11 @@ export function learnOneLevelOfTopics(
         getPrompt(
           instructions,
           comments.map((comment) => comment.text),
-          additionalContext
+          additionalContext,
+          output_lang
         ),
-        schema
+        schema,
+        output_lang
       )) as Topic[];
     },
     function (response: Topic[]): boolean {
@@ -120,6 +86,8 @@ export function learnOneLevelOfTopics(
   );
 }
 
+
+
 /**
  * Validates the topic modeling response from the LLM.
  *
@@ -128,26 +96,48 @@ export function learnOneLevelOfTopics(
  * @returns True if the response is valid, false otherwise.
  */
 export function learnedTopicsValid(response: Topic[], parentTopic?: Topic): boolean {
+  // Check if response is empty
+  if (!response || response.length === 0) {
+    if (parentTopic) {
+      console.warn(`Empty response when learning subtopics for "${parentTopic.name}". This may indicate the LLM couldn't identify meaningful subtopics.`);
+    } else {
+      console.warn("Empty response when learning topics. This may indicate the LLM couldn't identify meaningful topics.");
+    }
+    return false;
+  }
+
   const topicNames = response.map((topic) => topic.name);
 
-  // 1. If a parentTopic is provided, ensure no other top-level topics exist except "Other".
+  // 1. If a parentTopic is provided, we're learning subtopics - allow any meaningful topic names
   if (parentTopic) {
-    const allowedTopicNames = [parentTopic]
-      .map((topic: Topic) => topic.name.toLowerCase())
-      .concat("other");
-    if (!topicNames.every((name) => allowedTopicNames.includes(name.toLowerCase()))) {
-      topicNames.forEach((topicName: string) => {
-        if (!allowedTopicNames.includes(topicName.toLowerCase())) {
-          console.warn(
-            "Invalid response: Found top-level topic not present in the provided topics. Provided topics: ",
-            allowedTopicNames,
-            " Found topic: ",
-            topicName
-          );
-        }
-      });
+    // When learning subtopics, we want the LLM to create new, specific topic names
+    // that are different from the parent topic name
+    const parentTopicName = parentTopic.name.toLowerCase().replace(/[‑\-\s]+/g, ' ').trim();
+    
+    // Check if any subtopic has the same name as the parent topic
+    // Note: topicNames here are the names of the topics in the response array
+    // We need to check the actual subtopic names within each topic
+    const hasParentTopicName = response.some(topic => {
+      if (topic && "subtopics" in topic && topic.subtopics) {
+        return topic.subtopics.some(subtopic => {
+          const subtopicName = subtopic.name.toLowerCase().replace(/[‑\-\s]+/g, ' ').trim();
+          return subtopicName === parentTopicName;
+        });
+      }
+      return false;
+    });
+    
+    if (hasParentTopicName) {
+      console.warn(
+        `Invalid response: Found subtopic with the same name as the parent topic "${parentTopic.name}". ` +
+        "Subtopics should have distinct names from their parent topic."
+      );
       return false;
     }
+    
+    // Allow any other meaningful topic names for subtopics
+    console.log(`✅ Valid subtopic learning response: ${response.length} topics with subtopics created under "${parentTopic.name}"`);
+    return true;
   }
 
   // 2. Ensure no subtopic has the same name as any main topic.
@@ -155,7 +145,13 @@ export function learnedTopicsValid(response: Topic[], parentTopic?: Topic): bool
     const subtopicNames =
       "subtopics" in topic ? topic.subtopics.map((subtopic) => subtopic.name) : [];
     for (const subtopicName of subtopicNames) {
-      if (topicNames.includes(subtopicName) && subtopicName !== "Other") {
+      // 更寬鬆的名稱匹配，允許大小寫和格式差異
+      const normalizedSubtopicName = subtopicName.toLowerCase().replace(/[‑\-\s]+/g, ' ').trim();
+      const normalizedTopicNames = topicNames.map(name => 
+        name.toLowerCase().replace(/[‑\-\s]+/g, ' ').trim()
+      );
+      
+      if (normalizedTopicNames.includes(normalizedSubtopicName) && subtopicName !== "Other") {
         console.warn(
           `Invalid response: Subtopic "${subtopicName}" has the same name as a main topic.`
         );

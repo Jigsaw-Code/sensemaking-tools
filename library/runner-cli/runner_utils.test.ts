@@ -31,10 +31,12 @@ jest.mock("fs", () => {
   const mockReadFileSync = jest.fn().mockImplementation(() => {
     return mockHeaderData;
   });
+  const mockRealpathSync = jest.fn().mockImplementation((p: string) => p);
 
   return {
     ...actualFs,
     readFileSync: mockReadFileSync,
+    realpathSync: mockRealpathSync,
     createReadStream: mockCreateReadStream,
     __setMockCsvData: (data: string) => {
       mockCsvData = data;

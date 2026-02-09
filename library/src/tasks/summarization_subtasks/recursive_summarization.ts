@@ -16,17 +16,20 @@
 
 import { Model } from "../../models/model";
 import { SummaryContent } from "../../types";
+import { type SupportedLanguage } from "../../../templates/l10n";
 
 export abstract class RecursiveSummary<InputType> {
   protected input: InputType;
   // Input data with at least minimumCommentCount votes.
   protected model: Model;
   protected additionalContext?: string;
+  protected output_lang: SupportedLanguage;
 
-  constructor(input: InputType, model: Model, additionalContext?: string) {
+  constructor(input: InputType, model: Model, additionalContext?: string, output_lang: SupportedLanguage = "en") {
     this.input = input;
     this.model = model;
     this.additionalContext = additionalContext;
+    this.output_lang = output_lang;
   }
 
   abstract getSummary(): Promise<SummaryContent>;

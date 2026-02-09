@@ -27,109 +27,63 @@ import { Comment, SummaryContent, isCommentType } from "../../types";
 import { Model } from "../../models/model";
 import { SummaryStats, TopicStats } from "../../stats/summary_stats";
 import { RelativeContext } from "./relative_context";
+// Import localization system
+import { 
+  type SupportedLanguage,
+  getReportSectionTitle, 
+  getReportContent, 
+  getSubsectionTitle,
+  getTopicSummaryText,
+  getPluralForm,
+  localizeTopicName,
+  getStatisticsMessage
+} from "../../../templates/l10n";
+// Import multi-language prompts
+import { 
+  getThemesPrompt,
+  getDifferencesOfOpinionInstructions,
+  getDifferencesOfOpinionSingleCommentInstructions,
+  getCommonGroundInstructions,
+  getCommonGroundSingleCommentInstructions,
+  getRecursiveTopicSummaryInstructions
+} from "../../../templates/l10n/prompts";
 
-const COMMON_INSTRUCTIONS =
-  "Do not use the passive voice. Do not use ambiguous pronouns. Be clear. " +
-  "Do not generate bullet points or special formatting. Do not yap.";
-const GROUP_SPECIFIC_INSTRUCTIONS =
-  `Participants in this conversation have been clustered into opinion groups. ` +
-  `These opinion groups mostly approve of these comments. `;
+// Note: These constants are now replaced by multi-language versions from prompts.ts
+// const COMMON_INSTRUCTIONS = ...
+// const GROUP_SPECIFIC_INSTRUCTIONS = ...
 
-function getCommonGroundInstructions(containsGroups: boolean): string {
-  const groupSpecificText = containsGroups ? GROUP_SPECIFIC_INSTRUCTIONS : "";
-  return (
-    `Here are several comments sharing different opinions. Your job is to summarize these ` +
-    `comments. Do not pretend that you hold any of these opinions. You are not a participant in ` +
-    `this discussion. ${groupSpecificText}Write a concise summary of these ` +
-    `comments that is at least one sentence and at most five sentences long. The summary should ` +
-    `be substantiated, detailed and informative: include specific findings, requests, proposals, ` +
-    `action items and examples, grounded in the comments. Refer to the people who made these ` +
-    `comments as participants, not commenters. Do not talk about how strongly they approve of ` +
-    `these comments. Use complete sentences. ${COMMON_INSTRUCTIONS}`
-  );
-}
-
-function getCommonGroundSingleCommentInstructions(containsGroups: boolean): string {
-  const groupSpecificText = containsGroups ? GROUP_SPECIFIC_INSTRUCTIONS : "";
-  return (
-    `Here is a comment presenting an opinion from a discussion. Your job is to rewrite this ` +
-    `comment clearly without embellishment. Do not pretend that you hold this opinion. You are not` +
-    ` a participant in this discussion. ${groupSpecificText}Refer to the people who ` +
-    `made these comments as participants, not commenters. Do not talk about how strongly they ` +
-    `approve of these comments. Write a complete sentence. ${COMMON_INSTRUCTIONS}`
-  );
-}
+// Note: These functions are now replaced by multi-language versions from prompts.ts
+// function getCommonGroundInstructions(containsGroups: boolean): string { ... }
+// function getCommonGroundSingleCommentInstructions(containsGroups: boolean): string { ... }
 
 // TODO: Test whether conditionally including group specific text in this prompt improves
 // performance.
-const DIFFERENCES_OF_OPINION_INSTRUCTIONS =
-  `You are going to be presented with several comments from a discussion on which there were differing opinions, ` +
-  `as well as a summary of points of common ground from this discussion. Your job is summarize the ideas ` +
-  `contained in the comments, keeping in mind the points of common ground as backgrounnd in describing ` +
-  `the differences of opinion. Do not pretend that you hold any of these opinions. You are not a ` +
-  `participant in this discussion. Write a concise summary of these comments that is at least ` +
-  `one sentence and at most five sentences long. Refer to the people who made these comments as ` +
-  `participants, not commenters.  Do not talk about how strongly they disagree with these ` +
-  `comments. Use complete sentences. ${COMMON_INSTRUCTIONS}
+// Note: This constant is now replaced by getDifferencesOfOpinionInstructions() function
+// const DIFFERENCES_OF_OPINION_INSTRUCTIONS =
+//   `You are going to be presented with several comments from a discussion on which there were differing opinions, ` +
+//   `as well as a summary of points of common ground from this discussion. Your job is summarize the ideas ` +
+//   `contained in the comments, keeping in mind the points of common ground as backgrounnd in describing ` +
+//   `the differences of opinion. Do not pretend that you hold any of these opinions. You are not a ` +
+//   `participant in this discussion. Write a concise summary of these comments that is at least ` +
+//   `one sentence and at most five sentences long. Refer to the people who made these comments as ` +
+//   `participants, not commenters.  Do not talk about how strongly they disagree with these ` +
+//   `comments. Use complete sentences. ${COMMON_INSTRUCTIONS}
 
-Do not assume that these comments were written by different participants. These comments could be from ` +
-  `the same participant, so do not say some participants prosed one things while other ` +
-  `participants proposed another.  Do not say "Some participants proposed X while others Y".  ` +
-  `Instead say "One statement proposed X while another Y"
+// Do not assume that these comments were written by different participants. These comments could be from ` +
+//   `the same participant, so do not say some participants prosed one things while other ` +
+//   `participants proposed another.  Do not say "Some participants proposed X while others Y".  ` +
+//   `Instead say "One statement proposed X while another Y"
 
-Where the difference of opinion comments refer to topics that are also covered in the common ground ` +
-  `summary, your output should begin in some variant of the form "While there was broad support for ..., ` +
-  `opinions differed with respect to ...". When this is not the case, you can beging simple as ` +
-  `"There was disagreement ..." or something similar to contextualize that the comments you are ` +
-  `summarizing had mixed support.`;
+// Where the difference of opinion comments refer to topics that are also covered in the common ground ` +
+//   `summary, your output should begin in some variant of the form "While there was broad support for ..., ` +
+//   `opinions differed with respect to ...". When this is not the case, you can beging simple as ` +
+//   `"There was disagreement ..." or something similar to contextualize that the comments you are ` +
+//   `summarizing had mixed support.`;
 
-function getDifferencesOfOpinionSingleCommentInstructions(containsGroups: boolean): string {
-  const groupSpecificText = containsGroups
-    ? `Participants in this conversation have been clustered ` +
-      `into opinion groups. There were very different levels of agreement between the two opinion ` +
-      `groups regarding this comment. `
-    : "";
-  return (
-    `You are going to be presented with a single comment from a discussion on which there were differing opinions, ` +
-    `as well as a summary of points of common ground from this discussion. ` +
-    `Your job is to rewrite this comment to summarize the main points or ideas it is trying to make, clearly and without embellishment,` +
-    `keeping in mind the points of common ground as backgrounnd in describing the differences of opinion participants had in relation to this comment. ` +
-    `Do not pretend that you hold  opinions. You are not a participant in this discussion. ` +
-    groupSpecificText +
-    `Write your summary as a single complete sentence.` +
-    `Refer to the people who made these comments as participants, not commenters. ` +
-    `Do not talk about how strongly they disagree with these comments. ${COMMON_INSTRUCTIONS}
 
-  Where the difference of opinion comments refer to topics that are also covered in the common ground ` +
-    `summary, your output should begin in some variant of the form "While there was broad support for ..., ` +
-    `opinions differed with respect to ...". When this is not the case, you can beging simple as ` +
-    `"There was disagreement ..." or something similar to contextualize that the comments you are ` +
-    `summarizing had mixed support.`
-  );
-}
 
-function getRecursiveTopicSummaryInstructions(topicStat: TopicStats): string {
-  return (
-    `Your job is to compose a summary paragraph to be included in a report on the results of a ` +
-    `discussion among some number of participants. You are specifically tasked with producing ` +
-    `a paragraph about the following topic of discussion: ${topicStat.name}. ` +
-    `You will base this summary off of a number of already composed summaries corresponding to ` +
-    `subtopics of said topic. These summaries have been based on comments that participants submitted ` +
-    `as part of the discussion. ` +
-    `Do not pretend that you hold any of these opinions. You are not a participant in this ` +
-    `discussion. Write a concise summary of these summaries that is at least one sentence ` +
-    `and at most three to five sentences long. The summary should be substantiated, detailed and ` +
-    `informative. However, do not provide any meta-commentary ` +
-    `about your task, or the fact that your summary is being based on other summaries. Also do not ` +
-    `include specific numbers about how many comments were included in each subtopic, as these will be ` +
-    `included later in the final report output. ` +
-    `Also refrain from describing specific areas of agreement or disagreement, and instead focus on themes discussed. ` +
-    `You also do not need to recap the context of the conversation, ` +
-    `as this will have already been stated earlier in the report. Remember: this is just one paragraph in a larger ` +
-    `summary, and you should compose this paragraph so that it will flow naturally in the context of the rest of the report. ` +
-    `${COMMON_INSTRUCTIONS}`
-  );
-}
+// Note: This function is now replaced by getRecursiveTopicSummaryInstructions() function from prompts.ts
+// function getRecursiveTopicSummaryInstructions(topicStat: TopicStats): string { ... }
 
 /**
  * This RecursiveSummary subclass constructs a top level "Topics" summary section,
@@ -138,6 +92,9 @@ function getRecursiveTopicSummaryInstructions(topicStat: TopicStats): string {
  */
 export class AllTopicsSummary extends RecursiveSummary<SummaryStats> {
   async getSummary(): Promise<SummaryContent> {
+    // Debug: 檢查 output_lang 值
+    console.log(`[DEBUG] AllTopicsSummary.output_lang: ${this.output_lang}`);
+    
     // First construct the introductory description for the entire section
     const topicStats: TopicStats[] = this.input.getStatsByTopic();
     const nTopics: number = topicStats.length;
@@ -145,17 +102,33 @@ export class AllTopicsSummary extends RecursiveSummary<SummaryStats> {
       .map((t) => t.subtopicStats?.length || 0)
       .reduce((n, m) => n + m, 0);
     const hasSubtopics: boolean = nSubtopics > 0;
-    const subtopicsCountText: string = hasSubtopics ? `, as well as ${nSubtopics} subtopics` : "";
+    const subtopicsCountText: string = hasSubtopics ? getReportContent("subtopics", "text", this.output_lang, { count: nSubtopics }) : "";
+    
+    // Debug: 檢查 getReportContent 的調用參數
+    if (hasSubtopics) {
+      console.log(`[DEBUG] AllTopicsSummary.getSummary() calling getReportContent with: section="subtopics", content="text", output_lang="${this.output_lang}", count=${nSubtopics}`);
+      console.log(`[DEBUG] AllTopicsSummary.getSummary() subtopicsCountText result: "${subtopicsCountText}"`);
+    }
+    
     const usesGroups = topicStats.some((t) => t.summaryStats.groupBasedSummarization);
-    const overviewText: string =
-      `From the statements submitted, ${nTopics} high level topics were identified` +
-      `${subtopicsCountText}. Based on voting patterns` +
-      `${usesGroups ? " between the opinion groups described above," : ""} both points of common ` +
-      `ground as well as differences of opinion ${usesGroups ? "between the groups " : ""}` +
-      `have been identified and are described below.\n`;
+    
+    // Get localized title and overview text from localization system
+    const title = getReportSectionTitle("topics", this.output_lang);
+    const overviewText = getReportContent("topics", "overview", this.output_lang, {
+      topicCount: nTopics,
+      subtopicsText: subtopicsCountText,
+      groupsText: usesGroups ? " between the opinion groups described above," : "",
+      groupsBetweenText: usesGroups ? "between the groups " : ""
+    });
+    
+    // Debug: 檢查本地化函式的調用參數
+    console.log(`[DEBUG] AllTopicsSummary.getSummary() calling getReportSectionTitle with: section="topics", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] AllTopicsSummary.getSummary() calling getReportContent with: section="topics", content="overview", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] AllTopicsSummary.getSummary() title result: "${title}"`);
+    console.log(`[DEBUG] AllTopicsSummary.getSummary() overviewText result: "${overviewText}"`);
 
     // Now construct the individual Topic summaries
-    const relativeContext = new RelativeContext(topicStats);
+    const relativeContext = new RelativeContext(topicStats, this.output_lang);
     const topicSummaries: (() => Promise<SummaryContent>)[] = topicStats.map(
       (topicStat) =>
         // Create a callback function for each summary and add it to the list, preparing them for parallel execution.
@@ -164,11 +137,12 @@ export class AllTopicsSummary extends RecursiveSummary<SummaryStats> {
             topicStat,
             this.model,
             relativeContext,
-            this.additionalContext
+            this.additionalContext,
+            this.output_lang
           ).getSummary()
     );
     return {
-      title: "## Topics",
+      title: title,
       text: overviewText,
       subContents: await executeConcurrently(topicSummaries),
     };
@@ -188,14 +162,21 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
     topicStat: TopicStats,
     model: Model,
     relativeContext: RelativeContext,
-    additionalContext?: string
+    additionalContext?: string,
+    output_lang?: SupportedLanguage
   ) {
-    super(topicStat.summaryStats, model, additionalContext);
+    super(topicStat.summaryStats, model, additionalContext, output_lang);
     this.topicStat = topicStat;
     this.relativeContext = relativeContext;
+    
+    // Debug: 檢查建構函數中的 output_lang 值
+    // console.log(`[DEBUG] TopicSummary constructor output_lang: ${this.output_lang}`);
   }
 
   async getSummary(): Promise<SummaryContent> {
+    // Debug: 檢查 getSummary 中的 output_lang 值
+    // console.log(`[DEBUG] TopicSummary.getSummary() output_lang: ${this.output_lang}`);
+    
     const nSubtopics: number = this.topicStat.subtopicStats?.length || 0;
     if (nSubtopics == 0) {
       return this.getCommentSummary();
@@ -208,7 +189,10 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
    * Returns the section title for this topics summary section of the final report
    */
   getSectionTitle(): string {
-    return `### ${this.topicStat.name} (${this.topicStat.commentCount} statements)`;
+    // Debug: 檢查 localizeTopicName 的調用參數
+    console.log(`[DEBUG] TopicSummary.getSectionTitle() calling localizeTopicName with: topicName="${this.topicStat.name}", output_lang="${this.output_lang}"`);
+    
+    return `### ${localizeTopicName(this.topicStat.name, this.output_lang)} (${this.topicStat.commentCount} ${getStatisticsMessage("statements", this.output_lang, {})})`;
   }
 
   /**
@@ -216,6 +200,9 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
    * @returns a promise of the summary string
    */
   async getAllSubTopicSummaries(): Promise<SummaryContent> {
+    // Debug: 檢查 getAllSubTopicSummaries 中的 output_lang 值
+    console.log(`[DEBUG] TopicSummary.getAllSubTopicSummaries() output_lang: ${this.output_lang}`);
+    
     // Create subtopic summaries for all subtopics with > 1 statement.
     const subtopicSummaries: (() => Promise<SummaryContent>)[] = (
       this.topicStat.subtopicStats || []
@@ -228,7 +215,8 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
             subtopicStat,
             this.model,
             this.relativeContext,
-            this.additionalContext
+            this.additionalContext,
+            this.output_lang
           ).getSummary()
       );
 
@@ -237,23 +225,35 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
     const nSubtopics: number = subtopicSummaries.length;
     let topicSummary = "";
     if (nSubtopics > 0) {
-      topicSummary =
-        `This topic included ${nSubtopics} subtopic${nSubtopics === 1 ? "" : "s"}, comprising a ` +
-        `total of ${this.topicStat.commentCount} statement${this.topicStat.commentCount === 1 ? "" : "s"}.`;
+      // Get localized topic summary text from localization system
+      topicSummary = getTopicSummaryText("topicSummary", this.output_lang, {
+        subtopicCount: nSubtopics,
+        subtopicPlural: getPluralForm(nSubtopics, this.output_lang),
+        statementCount: this.topicStat.commentCount,
+        statementPlural: getPluralForm(this.topicStat.commentCount, this.output_lang)
+      });
+      
+      // Debug: 檢查本地化函式的調用參數
+      console.log(`[DEBUG] TopicSummary.getAllSubTopicSummaries() calling getTopicSummaryText with: content="topicSummary", output_lang="${this.output_lang}"`);
+      console.log(`[DEBUG] TopicSummary.getAllSubTopicSummaries() calling getPluralForm with: count=${nSubtopics}, output_lang="${this.output_lang}"`);
+      console.log(`[DEBUG] TopicSummary.getAllSubTopicSummaries() topicSummary result: "${topicSummary}"`);
+      
       const subtopicSummaryPrompt = getAbstractPrompt(
-        getRecursiveTopicSummaryInstructions(this.topicStat),
+        getRecursiveTopicSummaryInstructions(this.output_lang, this.topicStat.name),
         subtopicSummaryContents,
         (summary: SummaryContent) =>
           `<subtopicSummary>\n` +
           `    <title>${summary.title}</title>\n` +
           `    <text>\n${summary.subContents?.map((s) => s.title + s.text).join("\n\n")}\n` +
           `    </text>\n  </subtopicSummary>`,
-        this.additionalContext
+        this.additionalContext,
+        this.output_lang
       );
       console.log(`Generating TOPIC SUMMARY for: "${this.topicStat.name}"`);
+      console.log(`[DEBUG] Calling model.generateText with output_lang: ${this.output_lang}`);
       subtopicSummaryContents.unshift({
         type: "TopicSummary",
-        text: await this.model.generateText(subtopicSummaryPrompt),
+        text: await this.model.generateText(subtopicSummaryPrompt, this.output_lang),
       });
     }
 
@@ -272,10 +272,35 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
     const relativeAgreement = this.relativeContext.getRelativeAgreement(
       this.topicStat.summaryStats
     );
-    const agreementDescription = `This subtopic had ${relativeAgreement} compared to the other subtopics.`;
+    
+    // Get localized agreement description from localization system
+    const agreementDescription = getTopicSummaryText("relativeAgreement", this.output_lang, {
+      level: relativeAgreement
+    });
+    
+    // Debug: 檢查本地化函式的調用參數
+    console.log(`[DEBUG] TopicSummary.getCommentSummary() calling getTopicSummaryText with: content="relativeAgreement", output_lang="${this.output_lang}", level="${relativeAgreement}"`);
+    console.log(`[DEBUG] TopicSummary.getCommentSummary() agreementDescription result: "${agreementDescription}"`);
+    
     const subContents = [await this.getThemesSummary()];
     // check env variable to decide whether to compute common ground and difference of opinion summaries
-    if (process.env["SKIP_COMMON_GROUND_AND_DIFFERENCES_OF_OPINION"] !== "true") {
+    // 智能環境變量讀取，支持 Node.js 和 Cloudflare Workers
+    function getEnvVar(key: string, defaultValue: string): string {
+      // 檢查是否在 Node.js 環境中
+      if (typeof process !== 'undefined' && process.env && process.versions && process.versions.node) {
+        return process.env[key] || defaultValue;
+      }
+      
+      // 檢查是否在 Cloudflare Workers 環境中
+      if (typeof globalThis !== 'undefined') {
+        return (globalThis as unknown as Record<string, string>)[key] || defaultValue;
+      }
+      
+      return defaultValue;
+    }
+    
+    const skipCommonGround = getEnvVar("SKIP_COMMON_GROUND_AND_DIFFERENCES_OF_OPINION", "false");
+    if (skipCommonGround !== "true") {
       const commonGroundSummary = await this.getCommonGroundSummary(this.topicStat.name);
       const differencesOfOpinionSummary = await this.getDifferencesOfOpinionSummary(
         commonGroundSummary,
@@ -284,7 +309,8 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
       subContents.push(commonGroundSummary, differencesOfOpinionSummary);
     }
 
-    if (process.env["DEBUG_MODE"] === "true") {
+    const debugMode = getEnvVar("DEBUG_MODE", "false");
+    if (debugMode === "true") {
       // Based on the common ground and differences of opinion comments,
       // TODO: Should also include common ground disagree comments (aka what everyone agrees they
       // don't like)
@@ -309,7 +335,7 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
       ]);
 
       const otherCommentsSummary = {
-        title: `**Other statements** (${otherComments.length} statements`,
+        title: getSubsectionTitle("otherStatements", this.output_lang, otherComments.length),
         text: otherCommentsTable,
       };
       subContents.push(otherCommentsSummary);
@@ -327,36 +353,31 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
    * @returns a single sentence describing the themes, without citations.
    */
   async getThemesSummary(): Promise<SummaryContent> {
+    // Debug: 檢查 getThemesSummary 中的 output_lang 值
+    console.log(`[DEBUG] TopicSummary.getThemesSummary() output_lang: ${this.output_lang}`);
+    
     const allComments = this.input.comments;
     // TODO: add some edge case handling in case there is only 1 comment, etc
     console.log(`Generating PROMINENT THEMES for subtopic: "${this.topicStat.name}"`);
+    console.log(`[DEBUG] Calling model.generateText with output_lang: ${this.output_lang}`);
     const text = await this.model.generateText(
       getPrompt(
-        `Please write a concise bulleted list identifying up to 5 prominent themes across all statements. These statements are all about ${this.topicStat.name}. For each theme, begin with a short theme description written in bold text, followed by a colon, then followed by a SINGLE sentence explaining the theme. Your list should meet the below Criteria and STRICTLY follow the Output Format. Do not preface the bulleted list with any text.
-
-      <criteria format="markdown">
-      * Impartiality: Do not express your own opinion or pass normative judgments on the statements, like agreement, disagreement, or alarm.
-      * Faithfulness: Your list should accurately reflect the statements without hallucinations or mischaracterizations.
-        * Similarly, your list should not assume or misstate the amount of agreement across statements. For example, do not present a theme as unanimous if it is only mentioned in some statements.
-        * This criterion also applies to the name of the theme itself: do not imply overwhelming agreement when you name themes if it does not exist. For example, do not name a theme "Support for _______" unless there is overwhelming evidence beyond a reasonable doubt in the statements.
-        * Be **specific**. Avoid overgeneralizations or fuzzy nouns like "things" or "aspects".
-      * Comprehensiveness: Your list should reflect ALL opinions proportional to their representation in the statements. However, **absolutely do not exclude minority opinions**, especially if there are strong objections or mixed stances.  Please be **specific** in including these objections or stances.
-      * Consistent terminology: You should always use "statements" and NOT "comments".
-      </criteria>
-
-      <output_format format="markdown">
-      * **Title Case Theme**: Sentence
-      </output_format>
-      
-      `,
+        getThemesPrompt(this.output_lang, this.topicStat.name),
         allComments.map((comment: Comment): string => comment.text),
-        this.additionalContext
-      )
+        this.additionalContext,
+        this.output_lang
+      ),
+      this.output_lang
     );
-    return {
-      title: "Prominent themes were: ",
-      text: text,
-    };
+    
+    // Get localized themes title from localization system
+    const title = getSubsectionTitle("prominentThemes", this.output_lang);
+    
+    // Debug: 檢查本地化函式的調用參數
+    console.log(`[DEBUG] TopicSummary.getThemesSummary() calling getSubsectionTitle with: section="prominentThemes", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] TopicSummary.getThemesSummary() title result: "${title}"`);
+    
+    return { title, text };
   }
 
   /**
@@ -364,6 +385,9 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
    * @returns a short paragraph describing the similarities, including comment citations.
    */
   async getCommonGroundSummary(topic: string): Promise<SummaryContent> {
+    // Debug: 檢查 getCommonGroundSummary 中的 output_lang 值
+    console.log(`[DEBUG] TopicSummary.getCommonGroundSummary() output_lang: ${this.output_lang}`);
+    
     // TODO: Should also include common ground disagree comments (aka what everyone agrees they
     // don't like)
     const commonGroundComments = this.input.getCommonGroundAgreeComments();
@@ -373,21 +397,32 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
       text = this.input.getCommonGroundNoCommentsMessage();
     } else {
       console.log(`Generating COMMON GROUND for "${topic}"`);
+      console.log(`[DEBUG] Calling model.generateText with output_lang: ${this.output_lang}`);
       const summary = this.model.generateText(
         getPrompt(
           nComments === 1
-            ? getCommonGroundSingleCommentInstructions(this.input.groupBasedSummarization)
-            : getCommonGroundInstructions(this.input.groupBasedSummarization),
+            ? getCommonGroundSingleCommentInstructions(this.output_lang, this.input.groupBasedSummarization)
+            : getCommonGroundInstructions(this.output_lang, this.input.groupBasedSummarization),
           commonGroundComments.map((comment: Comment): string => comment.text),
-          this.additionalContext
-        )
+          this.additionalContext,
+          this.output_lang
+        ),
+        this.output_lang
       );
       text = await summary;
     }
+    
+    // Get localized common ground title from localization system
+    const title = this.input.groupBasedSummarization
+      ? getSubsectionTitle("commonGroundBetweenGroups", this.output_lang)
+      : getSubsectionTitle("commonGround", this.output_lang);
+    
+    // Debug: 檢查本地化函式的調用參數
+    console.log(`[DEBUG] TopicSummary.getCommonGroundSummary() calling getSubsectionTitle with: section="${this.input.groupBasedSummarization ? 'commonGroundBetweenGroups' : 'commonGround'}", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] TopicSummary.getCommonGroundSummary() title result: "${title}"`);
+    
     return {
-      title: this.input.groupBasedSummarization
-        ? "Common ground between groups: "
-        : "Common ground: ",
+      title,
       text: text,
       citations: commonGroundComments.map((comment) => comment.id),
     };
@@ -401,6 +436,9 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
     commonGroundSummary: SummaryContent,
     topic: string
   ): Promise<SummaryContent> {
+    // Debug: 檢查 getDifferencesOfOpinionSummary 中的 output_lang 值
+    console.log(`[DEBUG] TopicSummary.getDifferencesOfOpinionSummary() output_lang: ${this.output_lang}`);
+    
     const topDisagreeCommentsAcrossGroups = this.input.getDifferenceOfOpinionComments();
     const nComments = topDisagreeCommentsAcrossGroups.length;
     let text = "";
@@ -409,18 +447,28 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
     } else {
       const prompt = getAbstractPrompt(
         nComments === 1
-          ? getDifferencesOfOpinionSingleCommentInstructions(this.input.groupBasedSummarization)
-          : DIFFERENCES_OF_OPINION_INSTRUCTIONS,
+          ? getDifferencesOfOpinionSingleCommentInstructions(this.output_lang, this.input.groupBasedSummarization)
+          : getDifferencesOfOpinionInstructions(this.output_lang),
         [commonGroundSummary].concat(topDisagreeCommentsAcrossGroups),
         formatDifferenceOfOpinionData,
-        this.additionalContext
+        this.additionalContext,
+        this.output_lang
       );
       console.log(`Generating DIFFERENCES OF OPINION for "${topic}"`);
-      const summary = this.model.generateText(prompt);
+      console.log(`[DEBUG] Calling model.generateText with output_lang: ${this.output_lang}`);
+      const summary = this.model.generateText(prompt, this.output_lang);
       text = await summary;
     }
+    
+    // Get localized differences of opinion title from localization system
+    const title = getSubsectionTitle("differencesOfOpinion", this.output_lang);
+    
+    // Debug: 檢查本地化函式的調用參數
+    console.log(`[DEBUG] TopicSummary.getDifferencesOfOpinionSummary() calling getSubsectionTitle with: section="differencesOfOpinion", output_lang="${this.output_lang}"`);
+    console.log(`[DEBUG] TopicSummary.getDifferencesOfOpinionSummary() title result: "${title}"`);
+    
     const resp = {
-      title: "Differences of opinion: ",
+      title,
       text: text,
       citations: topDisagreeCommentsAcrossGroups.map((comment) => comment.id),
     };
@@ -439,7 +487,10 @@ export class TopicSummary extends RecursiveSummary<SummaryStats> {
  */
 export class SubtopicSummary extends TopicSummary {
   override getSectionTitle(): string {
-    return `#### ${this.topicStat.name} (${this.topicStat.commentCount} statements)`;
+    // Debug: 檢查 SubtopicSummary 中的 output_lang 值
+    console.log(`[DEBUG] SubtopicSummary.getSectionTitle() output_lang: ${this.output_lang}`);
+    
+    return `#### ${this.topicStat.name} (${this.topicStat.commentCount} ${getStatisticsMessage("statements", this.output_lang, {})})`;
   }
 }
 

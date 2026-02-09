@@ -21,8 +21,20 @@ export const MAX_LLM_RETRIES = 9;
 // How long in milliseconds to wait between API calls.
 export const RETRY_DELAY_MS = 5000; // 5 seconds
 // Set default vertex parallelism based on similarly named environment variable, or default to 2
-const parallelismEnvVar =
-  typeof process !== "undefined" && process.env
-    ? process.env["DEFAULT_VERTEX_PARALLELISM"]
-    : undefined;
-export const DEFAULT_VERTEX_PARALLELISM = parseInt(parallelismEnvVar || "2");
+// 智能環境變量讀取，支持 Node.js 和 Cloudflare Workers
+function getEnvVar(key: string, defaultValue: string): string {
+  // 檢查是否在 Node.js 環境中
+  if (typeof process !== 'undefined' && process.env && process.versions && process.versions.node) {
+    return process.env[key] || defaultValue;
+  }
+  
+  // 檢查是否在 Cloudflare Workers 環境中
+  if (typeof globalThis !== 'undefined') {
+    return (globalThis as any)[key] || defaultValue;
+  }
+  
+  return defaultValue;
+}
+
+const parallelismEnvVar = getEnvVar("DEFAULT_VERTEX_PARALLELISM", "2");
+export const DEFAULT_VERTEX_PARALLELISM = parseInt(parallelismEnvVar);

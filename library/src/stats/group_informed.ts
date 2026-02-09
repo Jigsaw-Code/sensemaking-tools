@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { decimalToPercent } from "../sensemaker_utils";
 import { Comment, CommentWithVoteInfo, GroupVoteTallies, isGroupVoteTalliesType } from "../types";
+import { getStatisticsMessage, type SupportedLanguage } from "../../templates/l10n";
 import {
   getGroupAgreeProbDifference,
   getGroupInformedConsensus,
@@ -23,6 +23,7 @@ import {
   getMinDisagreeProb,
   getTotalPassRate,
 } from "./stats_util";
+import { decimalToPercent } from "../sensemaker_utils";
 import { SummaryStats } from "./summary_stats";
 
 // Stats basis for summary that uses groups and group informed consensus based algorithms.
@@ -41,8 +42,8 @@ export class GroupedSummaryStats extends SummaryStats {
    * An override of the SummaryStats static factory method,
    * to allow for GroupedSummaryStats specific initialization.
    */
-  static override create(comments: Comment[]): GroupedSummaryStats {
-    return new GroupedSummaryStats(comments);
+  static override create(comments: Comment[], output_lang: SupportedLanguage = "en"): GroupedSummaryStats {
+    return new GroupedSummaryStats(comments, output_lang);
   }
 
   /**
@@ -111,11 +112,10 @@ export class GroupedSummaryStats extends SummaryStats {
   }
 
   getCommonGroundNoCommentsMessage(): string {
-    return (
-      `No statements met the thresholds necessary to be considered as a point of common ` +
-      `ground (at least ${this.minVoteCount} votes, and at least ` +
-      `${decimalToPercent(this.minCommonGroundProb)} agreement across groups).`
-    );
+    return getStatisticsMessage("noCommonGroundDisagree", this.output_lang, {
+      minVoteCount: this.minVoteCount,
+      minCommonGroundProb: decimalToPercent(this.minCommonGroundProb)
+    });
   }
 
   /**
@@ -188,11 +188,10 @@ export class GroupedSummaryStats extends SummaryStats {
   }
 
   getDifferencesOfOpinionNoCommentsMessage(): string {
-    return (
-      `No statements met the thresholds necessary to be considered as a significant ` +
-      `difference of opinion (at least ${this.minVoteCount} votes, and more than ` +
-      `${decimalToPercent(this.minAgreeProbDifference)} difference in agreement rate between groups).`
-    );
+    return getStatisticsMessage("noDifferencesOfOpinionGroups", this.output_lang, {
+      minVoteCount: this.minVoteCount,
+      minAgreeProbDifference: decimalToPercent(this.minAgreeProbDifference)
+    });
   }
 
   /** Returns a score indicating how well a comment represents an uncertain viewpoint based on pass

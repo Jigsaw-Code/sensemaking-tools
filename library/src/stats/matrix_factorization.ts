@@ -44,7 +44,23 @@
 import * as tf from "@tensorflow/tfjs-core";
 
 async function loadTFJS() {
-  if (process.env.TFJS_NODE_GPU === "false") {
+  // 智能環境變量讀取，支持 Node.js 和 Cloudflare Workers
+  function getEnvVar(key: string, defaultValue: string): string {
+    // 檢查是否在 Node.js 環境中
+    if (typeof process !== 'undefined' && process.env && process.versions && process.versions.node) {
+      return process.env[key] || defaultValue;
+    }
+    
+    // 檢查是否在 Cloudflare Workers 環境中
+    if (typeof globalThis !== 'undefined') {
+      return (globalThis as any)[key] || defaultValue;
+    }
+    
+    return defaultValue;
+  }
+  
+  const tfjsNodeGpu = getEnvVar("TFJS_NODE_GPU", "false");
+  if (tfjsNodeGpu === "false") {
     await import("@tensorflow/tfjs");
     console.log("TFJS_NODE_GPU set to false, using CPU-only version");
   } else {
