@@ -16,17 +16,17 @@ import os
 import shutil
 from unittest.mock import AsyncMock, MagicMock
 
-from autorating_utils import EvalInput
-from hallucination_autorater import HallucinationAutorater
-from models.vertex_model import VertexModel
+from library.evals.autorating.autorating_utils import EvalInput
+from library.evals.autorating.hallucination_autorater import HallucinationAutorater
+from models.genai_model import GenaiModel
 import pytest
 
 
 @pytest.fixture
 def mock_model():
-  """Fixture to create a mocked VertexModel."""
-  model = MagicMock(spec=VertexModel)
-  model.generate_data = AsyncMock()
+  """Fixture to create a mocked GenaiModel."""
+  model = MagicMock(spec=GenaiModel)
+  model.call_gemini = AsyncMock()
   model.llm = MagicMock()
   model.llm.generate_content_async = AsyncMock()
   return model
@@ -51,25 +51,12 @@ async def test_correctly_process_summaries_and_generate_report(
       EvalInput(summary="Statement 1", source="Comment 1"),
       EvalInput(summary="Statement 2", source="Comment 2"),
   ]
-  mock_model.generate_data.return_value = {
-      "analysis": "Test analysis",
-      "answer": "YES",
-      "explanation": "Test explanation",
-  }
-  mock_model.llm.generate_content_async.return_value.candidates = [
-      MagicMock(
-          content=MagicMock(
-              parts=[
-                  MagicMock(
-                      text=(
-                          '{"analysis": "Test analysis", "answer": "YES",'
-                          ' "explanation": "Test explanation"}'
-                      )
-                  )
-              ]
-          )
+  mock_model.call_gemini.return_value = {
+      "text": (
+          '{"analysis": "Test analysis", "answer": "YES", "explanation": "Test'
+          ' explanation"}'
       )
-  ]
+  }
 
   autorater = HallucinationAutorater(mock_model, mock_output_dir)
   await autorater.rate_hallucination(summaries)

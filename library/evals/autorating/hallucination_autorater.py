@@ -14,24 +14,26 @@
 
 # Module for automated evaluation of hallucination using LLMs.
 
-import logging
-import os
-import time
-from typing import List
-from autorating_utils import (
+import asyncio
+import json
+from library.evals.autorating.autorating_utils import (
     EvalInput,
     EvalResults,
     format_comments,
     format_summary,
     generate_evaluation_report,
 )
-from models.vertex_model import VertexModel, run_tasks_in_parallel
+import logging
+from models.genai_model import GenaiModel
+import os
 import pandas as pd
+import time
+from typing import List
 
 
 class HallucinationAutorater:
 
-  def __init__(self, model: VertexModel, output_dir: str):
+  def __init__(self, model: GenaiModel, output_dir: str):
     self.model = model
     self.output_dir = output_dir
 
@@ -114,7 +116,16 @@ For example:
       start_time_statement = time.perf_counter()
 
       try:
-        response = await self.model.generate_data(prompt)
+        response = await self.model.call_gemini(
+            prompt,
+            run_name="hallucination_check",
+            response_mime_type="application/json",
+        )
+        response = (
+            json.loads(response["text"])
+            if response and response.get("text")
+            else None
+        )
 
       except Exception as e:
         logging.error(f"Error during LLM call or parsing: {e}")
@@ -152,7 +163,13 @@ For example:
           "runtime": f"{statement_runtime_sec:.2f}",
       }
 
-    results = await run_tasks_in_parallel(prompts, evaluate)
+    semaphore = asyncio.Semaphore(100)  # Default limit
+
+    async def sem_task(p):
+      async with semaphore:
+        return await evaluate(p)
+
+    results = await asyncio.gather(*[sem_task(p) for p in prompts])
 
     for result in results:
       # add to dataframe
