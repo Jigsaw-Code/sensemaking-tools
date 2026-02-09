@@ -69,7 +69,7 @@ export class OpenRouterModel extends Model {
       
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         // 檢查是否有常見的包裝鍵
-        const wrapperKeys = ['items', 'data', 'result', 'content', 'output', 'topics'];
+        const wrapperKeys = ['items', 'data', 'result', 'content', 'output'];
         for (const key of wrapperKeys) {
           if (key in parsed && Array.isArray(parsed[key])) {
             console.log(`   🔧 Detected wrapped array in '${key}' key, extracting...`);
