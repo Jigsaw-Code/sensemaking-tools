@@ -69,7 +69,7 @@ export class OpenRouterModel extends Model {
       
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         // 檢查是否有常見的包裝鍵
-        const wrapperKeys = ['items', 'data', 'result', 'content', 'output'];
+        const wrapperKeys = ['items', 'data', 'result', 'content', 'output', 'topics'];
         for (const key of wrapperKeys) {
           if (key in parsed && Array.isArray(parsed[key])) {
             console.log(`   🔧 Detected wrapped array in '${key}' key, extracting...`);
@@ -130,15 +130,26 @@ export class OpenRouterModel extends Model {
           // 如果有 schema，設定結構化輸出
       if (schema) {
         // OpenRouter 支援 json_schema 格式，格式與官方文檔一致
+        // Anthropic 模型不支援 strict 參數，所以對 Anthropic 模型使用不同的設定
+        const isAnthropicModel = this.modelName.startsWith('anthropic/');
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (requestBody as any).response_format = {
-          type: "json_schema",
-          json_schema: {
-            name: "response",
-            strict: true,
-            schema: schema
-          }
-        };
+        if (isAnthropicModel) {
+          // Anthropic 模型使用簡化的 JSON mode
+          (requestBody as any).response_format = {
+            type: "json_object"
+          };
+        } else {
+          // 其他模型使用完整的 json_schema 格式
+          (requestBody as any).response_format = {
+            type: "json_schema",
+            json_schema: {
+              name: "response",
+              strict: true,
+              schema: schema
+            }
+          };
+        }
       }
 
     let lastError: Error | null = null;
