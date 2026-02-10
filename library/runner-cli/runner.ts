@@ -32,7 +32,7 @@
 // --inputFile "data.csv"
 
 import { Command } from "commander";
-import { writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import {
   getCommentsFromCsv,
   getSummary,
@@ -53,9 +53,23 @@ async function main(): Promise<void> {
       "-a, --additionalContext <context>",
       "A short description of the conversation to add context."
     )
+    .option(
+      "--additionalContextFile <file>",
+      "A file containing the additional context."
+    )
     .option("-v, --vertexProject <project>", "The Vertex Project name.");
   program.parse(process.argv);
   const options = program.opts();
+
+  if (options.additionalContext && options.additionalContextFile) {
+    console.error("Error: Cannot specify both --additionalContext and --additionalContextFile");
+    process.exit(1);
+  }
+
+  let additionalContext = options.additionalContext;
+  if (options.additionalContextFile) {
+    additionalContext = readFileSync(options.additionalContextFile, "utf-8").trim();
+  }
 
   const comments = await getCommentsFromCsv(options.inputFile);
 
@@ -63,7 +77,7 @@ async function main(): Promise<void> {
     options.vertexProject,
     comments,
     undefined,
-    options.additionalContext
+    additionalContext
   );
 
   const markdownContent = summary.getText("MARKDOWN");

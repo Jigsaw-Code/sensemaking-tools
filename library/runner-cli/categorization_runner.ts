@@ -57,6 +57,10 @@ async function main(): Promise<void> {
       "-a, --additionalContext <instructions>",
       "A short description of the conversation to add context."
     )
+    .option(
+      "--additionalContextFile <file>",
+      "A file containing the additional context."
+    )
     .option("-v, --vertexProject <project>", "The Vertex Project name.")
     .option(
       "-f, --forceRerun",
@@ -64,6 +68,17 @@ async function main(): Promise<void> {
     );
   program.parse(process.argv);
   const options = program.opts();
+
+  if (options.additionalContext && options.additionalContextFile) {
+    console.error("Error: Cannot specify both --additionalContext and --additionalContextFile");
+    process.exit(1);
+  }
+
+  let additionalContext = options.additionalContext;
+  if (options.additionalContextFile) {
+    additionalContext = fs.readFileSync(options.additionalContextFile, "utf-8").trim();
+  }
+
   options.topicDepth = parseInt(options.topicDepth);
   if (![1, 2, 3].includes(options.topicDepth)) {
     throw Error("topicDepth must be one of 1, 2, or 3");
@@ -87,7 +102,7 @@ async function main(): Promise<void> {
     comments,
     options.topicDepth >= 2 ? true : false,
     topics,
-    options.additionalContext,
+    additionalContext,
     options.topicDepth
   );
 

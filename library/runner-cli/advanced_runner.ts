@@ -34,7 +34,7 @@
 //   --inputFile "./data.csv"
 
 import { Command } from "commander";
-import { writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { concatTopics, getCommentsFromCsv, getSummary } from "./runner_utils";
 import { MajoritySummaryStats } from "../src/stats/majority_vote";
 import { TopicStats } from "../src/stats/summary_stats";
@@ -157,9 +157,23 @@ async function main(): Promise<void> {
       "-a, --additionalContext <context>",
       "A short description of the conversation to add context."
     )
+    .option(
+      "--additionalContextFile <file>",
+      "A file containing the additional context."
+    )
     .option("-v, --vertexProject <project>", "The Vertex Project name.");
   program.parse(process.argv);
   const options = program.opts();
+
+  if (options.additionalContext && options.additionalContextFile) {
+    console.error("Error: Cannot specify both --additionalContext and --additionalContextFile");
+    process.exit(1);
+  }
+
+  let additionalContext = options.additionalContext;
+  if (options.additionalContextFile) {
+    additionalContext = readFileSync(options.additionalContextFile, "utf-8").trim();
+  }
 
   const comments = await getCommentsFromCsv(options.inputFile);
   const stats = new MajoritySummaryStats(comments);
@@ -187,7 +201,7 @@ async function main(): Promise<void> {
     options.vertexProject,
     comments,
     undefined,
-    options.additionalContext
+    additionalContext
   );
   writeFileSync(options.outputBasename + "-summary.json", JSON.stringify(summary, null, 2));
 }
