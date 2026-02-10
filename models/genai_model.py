@@ -26,7 +26,7 @@ from google.api_core import exceptions as google_exceptions
 from google.genai import errors as google_genai_errors
 from google.genai import types as genai_types
 from google.protobuf import duration_pb2, json_format
-from napolitan import custom_types
+from case_studies.wtp import custom_types
 import pandas as pd
 
 
