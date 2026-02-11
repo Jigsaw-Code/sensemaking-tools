@@ -12,3 +12,4 @@ todo.md
 *.env
 .vscode
 *.pkl
+**/.logs
