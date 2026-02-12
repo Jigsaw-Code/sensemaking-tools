@@ -8,8 +8,7 @@
     "api-server",
     "library",
     "web-ui",
-    "visualizations-library",
-    "napolitan"
+    "visualizations-library"
   ],
   "scripts": {
     "test": "npm run test --workspaces",
