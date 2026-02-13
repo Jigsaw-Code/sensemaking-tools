@@ -10,11 +10,10 @@ import {
 import '@conversationai/sensemaker-visualizations';
 
 @Component({
-  selector: 'app-sensemaking-chart-wrapper',
-  standalone: true,
-  imports: [CommonModule],
-  schemas: [CUSTOM_ELEMENTS_SCHEMA],
-  template: `
+    selector: 'app-sensemaking-chart-wrapper',
+    imports: [CommonModule],
+    schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    template: `
     <div class="chart-container">
       <sensemaker-chart
         #sensemakingChartEl
@@ -26,14 +25,14 @@ import '@conversationai/sensemaker-visualizations';
       ></sensemaker-chart>
     </div>
   `,
-  styles: [
-    `
+    styles: [
+        `
       .chart-container {
         width: 100%;
         height: 100%;
       }
     `,
-  ],
+    ]
 })
 export class SensemakingChartWrapperComponent implements AfterViewInit {
   @ViewChild('sensemakingChartEl') chartElementRef!: ElementRef<

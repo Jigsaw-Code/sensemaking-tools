@@ -65,25 +65,24 @@ importedTopicData.forEach((t: Topic) => {
 });
 
 @Component({
-  selector: 'app-report',
-  standalone: true,
-  imports: [
-    CommonModule,
-    FormsModule,
-    MarkdownModule,
-    MatButtonModule,
-    MatButtonToggleModule,
-    MatDialogModule,
-    MatExpansionModule,
-    MatIconModule,
-    MatSidenavModule,
-    MatTooltipModule,
-    SensemakingChartWrapperComponent,
-    StatementCardComponent,
-  ],
-  schemas: [CUSTOM_ELEMENTS_SCHEMA],
-  templateUrl: './report.component.html',
-  styleUrl: './report.component.scss'
+    selector: 'app-report',
+    imports: [
+        CommonModule,
+        FormsModule,
+        MarkdownModule,
+        MatButtonModule,
+        MatButtonToggleModule,
+        MatDialogModule,
+        MatExpansionModule,
+        MatIconModule,
+        MatSidenavModule,
+        MatTooltipModule,
+        SensemakingChartWrapperComponent,
+        StatementCardComponent,
+    ],
+    schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    templateUrl: './report.component.html',
+    styleUrl: './report.component.scss'
 })
 export class ReportComponent {
   // data sources

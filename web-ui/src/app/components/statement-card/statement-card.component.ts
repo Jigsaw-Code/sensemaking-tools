@@ -6,15 +6,14 @@ import { CustomTooltipDirective } from "../../directives/custom-tooltip/custom-t
 import { VoteGroup, Statement } from "../../models/report.model";
 
 @Component({
-  selector: 'app-statement-card',
-  standalone: true,
-  imports: [
-    CommonModule,
-    CustomTooltipDirective,
-    OverlayModule,
-  ],
-  templateUrl: './statement-card.component.html',
-  styleUrl: './statement-card.component.scss'
+    selector: 'app-statement-card',
+    imports: [
+        CommonModule,
+        CustomTooltipDirective,
+        OverlayModule,
+    ],
+    templateUrl: './statement-card.component.html',
+    styleUrl: './statement-card.component.scss'
 })
 export class StatementCardComponent implements OnInit {
   @Input() data?: Statement;
