@@ -412,3 +412,11 @@ export function isTopicType(data: any): data is Topic {
     return checkDataSchema(FlatTopic, data);
   }
 }
+
+export interface ProgressReport {
+  operation: 'topic_identification' | 'statement_categorization' | 'summarization';
+  currentStep: number;
+  totalSteps: number;
+  message: string;
+  percentage: number;
+}
