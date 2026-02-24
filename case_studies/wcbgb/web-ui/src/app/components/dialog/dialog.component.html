@@ -1,0 +1,15 @@
+<div class="root">
+  <h2 mat-dialog-title>{{ data.title }}</h2>
+  <mat-dialog-content>
+    <div>{{ data.text }}</div>
+    <div class="copy-container">
+      <div class="copy-text">{{ data.link }}</div>
+      <button mat-icon-button (click)="copyLink()" aria-label="Copy link to clipboard">
+        <mat-icon>content_copy</mat-icon>
+      </button>
+    </div>
+  </mat-dialog-content>
+  <mat-dialog-actions>
+    <button mat-button (click)="close()">Close</button>
+  </mat-dialog-actions>
+</div>

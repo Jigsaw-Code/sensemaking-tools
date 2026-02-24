@@ -1,0 +1,7 @@
+google-cloud-aiplatform[evaluation]==1.100.0
+google-genai==1.62.0
+google-api-python-client==2.177.0
+more_itertools==10.7.0
+pandas==2.3.0
+google-auth-httplib2
+google-auth-oauthlib

@@ -1,0 +1,42 @@
+@import "../../../style-vars";
+
+.root {
+  max-width: 450px;
+
+  button[mat-button] {
+    color: $science-blue;
+    font-family: $main-font;
+  }
+
+  h2[mat-dialog-title] {
+    color: $mine-shaft;
+    font-family: $main-font;
+  }
+
+  mat-dialog-content {
+    color: $cape-cod;
+    font-family: $main-font;
+  }
+}
+
+.copy-container {
+  border: 1px solid $gray-nurse;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 10px;
+  margin-top: 20px;
+  padding: 4px 4px 4px 12px;
+
+  .copy-text {
+    overflow: hidden;
+		text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  mat-icon {
+    color: $cape-cod;
+    flex-shrink: 0;
+  }
+}

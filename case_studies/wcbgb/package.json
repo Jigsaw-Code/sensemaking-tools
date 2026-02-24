@@ -1,0 +1,54 @@
+{
+  "name": "participation-project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "private": true,
+  "workspaces": [
+    "api-server",
+    "library",
+    "web-ui",
+    "visualization-library"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "format": "npm run format --workspaces"
+  },
+  "repository": {
+    "type": "git",
+    "url": "sso://participation-project-internal/participation-project"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@types/jest": "^29.5.12",
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
+    "eslint": "^9.21.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^11.12.0",
+    "husky": "^9.1.7",
+    "jest": "^29.7.0",
+    "karma-chrome-launcher": "^3.2.0",
+    "lint-staged": "^15.4.3",
+    "marked": "^15.0.3",
+    "nodemon": "^3.1.4",
+    "prettier": "^3.5.1",
+    "puppeteer": "^24.3.0",
+    "ts-jest": "^29.4.6",
+    "typedoc": "^0.26.10",
+    "typescript": "~5.5.2",
+    "typescript-eslint": "^8.24.1"
+  },
+  "lint-staged": {
+    "*.ts": "eslint --cache --fix",
+    "*.{js,jsx,ts,tsx}": "prettier --write"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.27.8",
+    "ts-node": "^10.9.2"
+  }
+}

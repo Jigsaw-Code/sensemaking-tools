@@ -1,0 +1,282 @@
+import { Meta } from "@storybook/blocks";
+
+import TopicAlignment from "./assets/topics-alignment.png";
+import TopicsOverview from "./assets/topics-overview.png";
+import TopicsDistribution from "./assets/topics-distribution.png";
+
+export const RightArrow = () => <svg 
+    viewBox="0 0 14 14" 
+    width="8px" 
+    height="14px" 
+    style={{ 
+      marginLeft: '4px',
+      display: 'inline-block',
+      shapeRendering: 'inherit',
+      verticalAlign: 'middle',
+      fill: 'currentColor',
+      'path fill': 'currentColor'
+    }}
+>
+  <path d="m11.1 7.35-5.5 5.5a.5.5 0 0 1-.7-.7L10.04 7 4.9 1.85a.5.5 0 1 1 .7-.7l5.5 5.5c.2.2.2.5 0 .7Z" />
+</svg>
+
+<Meta title="Using the library" />
+
+<div className="sb-container">
+  <div className='sb-section-title'>
+    # Sensemaker Visualization Library
+
+    A set of web components for visualizing conversation data processed by the [Sensemaker](https://jigsaw-code.github.io/sensemaking-tools/) tool.
+
+  </div>
+
+  <div className="sb-section">
+    <div className="sb-section-item">
+      <img
+        src={TopicAlignment}
+        alt="Topic Alignment Chart visualization"
+      />
+      <h4 className="sb-section-item-heading">Topic Alignment Chart</h4>
+      <p className="sb-section-item-paragraph">Displays the alignment of all statements in a given topic.</p>
+    </div>
+    <div className="sb-section-item">
+      <img
+        src={TopicsOverview}
+        alt="Topics Overview visualization"
+      />
+      <h4 className="sb-section-item-heading">Topics Overview</h4>
+      <p className="sb-section-item-paragraph">Displays topic distribution and statement counts using stacked bar charts.</p>
+    </div>
+    <div className="sb-section-item">
+      <img src={TopicsDistribution} alt="Topics Distribution visualization" />
+      <div>
+        <h4 className="sb-section-item-heading">Topics Distribution</h4>
+        <p className="sb-section-item-paragraph">Displays topic and subtopic statement count and aggregated statement alignment.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="sb-container">
+  <div className='sb-section-title'>
+    # Implementation Steps
+
+    1. **Add the library**: Include the library via CDN or npm
+
+    **Using npm:**
+    ```bash
+npm i @conversationai/sensemaker-visualizations
+    ```
+
+    Then import in your JavaScript/TypeScript:
+    ```javascript
+    import '@conversationai/sensemaker-visualizations';
+    ```
+
+    **Using CDN:**
+    ```html
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@conversationai/sensemaker-visualizations@latest/dist/sensemaker-chart.umd.js"></script>
+    ```
+
+    2. **Add Components**: Place the web components in your HTML
+    3. **Configure**: Set attributes for data source, view type, and filters
+    4. **Style**: Customize appearance using CSS variables
+
+    See the sidebar for detailed component documentation and configuration options.
+  </div>
+</div>
+
+<div className="sb-container">
+    <div className='sb-section-title'>
+      # Example Usage
+    </div>
+
+    ```html
+
+    <sensemaker-chart
+      data-source="./comments.json"
+      chart-type="topic-alignment"
+      view="solid"
+      topic-filter="education">
+    </sensemaker-chart>
+
+    <script type="module" src="https://cdn.jsdelivr.net/npm/sensemaker-viz-components@latest/dist/sensemaker-chart.umd.js"></script>
+    ```
+</div>
+
+
+<div className="sb-container">
+  <div className='sb-section-title'>
+    # Data Source and License
+  </div>
+
+The data used in this demo was gathered using the [Polis software](https://compdemocracy.org/Polis/) and is sub-licensed under CC BY 4.0 with Attribution to The Computational Democracy Project. The data and more information about how the data was collected can be found at the following link:
+
+[https://github.com/compdemocracy/openData/tree/master/american-assembly.bowling-green](https://github.com/compdemocracy/openData/tree/master/american-assembly.bowling-green)
+
+
+</div>
+
+<style>
+  {`
+  .sb-container {
+    margin-bottom: 48px;
+  }
+
+  .sb-section {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+  }
+
+  .sb-section-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sb-section-item img {
+    width: 100%;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    border-radius: 4px;
+    object-position: top left;
+    border: 1px solid #E0E0E0;
+  }
+
+  .sb-section-title {
+    margin-bottom: 32px;
+  }
+
+  .sb-section a:not(h1 a, h2 a, h3 a) {
+    font-size: 14px;
+  }
+
+  .sb-section-item-heading {
+    padding-top: 20px !important;
+    padding-bottom: 5px !important;
+    margin: 0 !important;
+  }
+
+  .sb-section-item-paragraph {
+    margin: 0;
+    padding-bottom: 10px;
+  }
+
+  .sb-chevron {
+    margin-left: 5px;
+  }
+
+  .sb-features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-gap: 32px 20px;
+  }
+
+  .sb-socials {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .sb-socials p {
+    margin-bottom: 10px;
+  }
+
+  .sb-explore-image {
+    max-height: 32px;
+    align-self: flex-start;
+  }
+
+  .sb-addon {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    position: relative;
+    background-color: #EEF3F8;
+    border-radius: 5px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    background: #EEF3F8;
+    height: 180px;
+    margin-bottom: 48px;
+    overflow: hidden;
+  }
+
+  .sb-addon-text {
+    padding-left: 48px;
+    max-width: 240px;
+  }
+
+  .sb-addon-text h4 {
+    padding-top: 0px;
+  }
+
+  .sb-addon-img {
+    position: absolute;
+    left: 345px;
+    top: 0;
+    height: 100%;
+    width: 200%;
+    overflow: hidden;
+  }
+
+  .sb-addon-img img {
+    width: 650px;
+    transform: rotate(-15deg);
+    margin-left: 40px;
+    margin-top: -72px;
+    box-shadow: 0 0 1px rgba(255, 255, 255, 0);
+    backface-visibility: hidden;
+  }
+
+  @media screen and (max-width: 800px) {
+    .sb-addon-img {
+      left: 300px;
+    }
+  }
+
+  @media screen and (max-width: 600px) {
+    .sb-section {
+      flex-direction: column;
+    }
+
+    .sb-features-grid {
+      grid-template-columns: repeat(1, 1fr);
+    }
+
+    .sb-socials {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .sb-addon {
+      height: 280px;
+      align-items: flex-start;
+      padding-top: 32px;
+      overflow: hidden;
+    }
+
+    .sb-addon-text {
+      padding-left: 24px;
+    }
+
+    .sb-addon-img {
+      right: 0;
+      left: 0;
+      top: 130px;
+      bottom: 0;
+      overflow: hidden;
+      height: auto;
+      width: 124%;
+    }
+
+    .sb-addon-img img {
+      width: 1200px;
+      transform: rotate(-12deg);
+      margin-left: 0;
+      margin-top: 48px;
+      margin-bottom: -40px;
+      margin-left: -24px;
+    }
+  }
+  `}
+</style>

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "0",
+    "text": "Comment text",
+    "votes": {
+      "Group-1": {
+        "agreeCount": 0,
+        "disagreeCount": 0,
+        "passCount": 0
+      },
+      "Group-2": {
+        "agreeCount": 0,
+        "disagreeCount": 0,
+        "passCount": 0
+      },
+      "Group-none": {
+        "agreeCount": 0,
+        "disagreeCount": 0,
+        "passCount": 0
+      }
+    },
+    "topics": "Topic:Subtopic",
+    "passRate": 0,
+    "agreeRate": 0,
+    "disagreeRate": 0,
+    "isHighAlignment": true,
+    "highAlignmentScore": 0,
+    "isLowAlignment": false,
+    "lowAlignmentScore": 0,
+    "isHighUncertainty": false,
+    "highUncertaintyScore": 0,
+    "isFilteredOut": false
+  }
+]

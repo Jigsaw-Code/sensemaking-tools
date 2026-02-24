@@ -1,0 +1,363 @@
+<mat-sidenav-container (backdropClick)="closeStatementDrawer()">
+  <mat-sidenav-content>
+    <main class="report-page">
+      <section class="report-header">
+        <div class="report-header-details">
+          <h1>{{ reportTitle }}</h1>
+        </div>
+        <button
+          mat-stroked-button
+          class="icon-button-subtle"
+          (click)="openShareReportDialog({ title: 'Share report', text: 'Copy link to share report' })"
+        ><mat-icon>share</mat-icon> Share Report</button>
+      </section>
+      <div class="report-main">
+        <div class="nav">
+          <button
+            mat-flat-button
+            class="icon-button-fancy"
+            (click)="scrollToElement('report-overview')"
+          ><mat-icon>cards_star</mat-icon>Report Overview</button>
+          <div class="nav-label">Report Topics</div>
+          <div class="accordion-nav">
+            <mat-accordion displayMode="flat">
+              <mat-expansion-panel *ngFor="let topic of topicData">
+                <mat-expansion-panel-header>
+                  <div class="nav-item">
+                    <div class="pill">{{ topic.commentCount }}</div>
+                    <div class="nav-title" (click)="scrollToElement(topic.name)">{{ topic.name }}</div>
+                  </div>
+                </mat-expansion-panel-header>
+                <div *ngFor="let subtopic of topic.subtopicStats" class="nav-subitem">
+                  <div class="pill">{{ subtopic.commentCount }}</div>
+                  <div class="nav-subtitle" (click)="openSubtopicPanel(subtopic.id)">{{ subtopic.name }}</div>
+                </div>
+              </mat-expansion-panel>
+            </mat-accordion>
+          </div>
+        </div>
+        <div class="report-content">
+          <section class="card"  id="report-overview">
+            <div class="card-header">
+              <h2>About this report</h2>
+            </div>
+            <div class="card-section report-summary paragraphs">
+              <p>This report summarizes the results of public input, encompassing {{ totalStatements | number }} statements and {{ totalVotes | number }} votes. From the statements submitted, {{ topicNumber | number }} high level topics were identified, as well as {{ subtopicNumber | number }} subtopics. All voters were anonymous.</p>
+              <p>The report below summarizes points of <span class="tooltip-trigger" matTooltip="70% or more of participants voted the same way (e.g. 70% agree, or 70% disagree)">high alignment</span>, <span class="tooltip-trigger" matTooltip="Votes were about split between participants (e.g. 40% agree, 60% disagree, or vice versa)">low alignment</span>, and <span class="tooltip-trigger" matTooltip="More than 30% of participants voted “Unsure/pass”">uncertainty</span> among participants.</p>
+            </div>
+            <div class="card-section breakdown">
+              <div class="breakdown-widget">
+                <div class="breakdown-icon"><mat-icon>rate_review</mat-icon></div>
+                <div class="breakdown-data">
+                  <div class="breakdown-number">{{ totalStatements | number }}</div>
+                  <div class="breakdown-subject">Total statements</div>
+                </div>
+              </div>
+              <div class="breakdown-widget">
+                <div class="breakdown-icon"><mat-icon class="icon-vote">how_to_vote</mat-icon></div>
+                <div class="breakdown-data">
+                  <div class="breakdown-number">{{ totalVotes | number }}</div>
+                  <div class="breakdown-subject">Total votes</div>
+                </div>
+              </div>
+              <div class="breakdown-widget">
+                <div class="breakdown-icon"><mat-icon>list_alt</mat-icon></div>
+                <div class="breakdown-data">
+                  <div class="breakdown-number">{{ topicNumber | number }}</div>
+                  <div class="breakdown-subject">Topics captured</div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="card" id="Conversation-Overview">
+            <div class="card-header">
+              <h2>Conversation overview</h2>
+              @let overviewShareTitle = "Share 'Conversation overview'";
+              @let overviewShareText = "Copy link to share the report overview";
+              <button
+                mat-stroked-button
+                class="icon-button-subtle"
+                (click)="openShareReportDialog({ elementId: 'Conversation-Overview', title: overviewShareTitle, text: overviewShareText })"
+              ><mat-icon>share</mat-icon> Share</button>
+            </div>
+            <div class="card-section">
+              <div class="overview-summary">
+                <p>Below is a high level overview of the topics discussed in the conversation, as well as the percentage of statements categorized under each topic. Note that the percentages may add up to greater than 100% when statements fall under more than one topic.</p>
+              </div>
+              <div class="overview-visualization">
+                <app-sensemaking-chart-wrapper
+                  chartType="topics-overview"
+                  [data]="commentData"
+                  [summaryData]="summaryData"
+                ></app-sensemaking-chart-wrapper>
+              </div>
+            </div>
+          </section>
+          <section class="card" id="Participant-Alignment">
+            <div class="card-header">
+              <h2>Participant alignment</h2>
+              @let alignmentShareTitle = "Share 'Participant alignment'";
+              @let alignmentShareText = "Copy link to share the report alignment";
+              <button
+                mat-stroked-button
+                class="icon-button-subtle"
+                (click)="openShareReportDialog({ elementId: 'Participant-Alignment', title: alignmentShareTitle, text: alignmentShareText })"
+              ><mat-icon>share</mat-icon> Share</button>
+            </div>
+            <div class="card-section">
+              <div class="toggle-group-wrapper">
+                <mat-button-toggle-group class="toggle-group" [(ngModel)]="selectedAlignmentType">
+                  <mat-button-toggle value="high-alignment">High alignment</mat-button-toggle>
+                  <mat-button-toggle value="low-alignment">Low alignment</mat-button-toggle>
+                  <mat-button-toggle value="high-uncertainty">Uncertainty</mat-button-toggle>
+                </mat-button-toggle-group>
+              </div>
+              <div class="overview-description">
+                <p>Across <strong>all topics and subtopics</strong>, participants found the {{ alignmentString }} on the following statements.</p>
+              </div>
+              <div class="statement-card-group">
+                <app-statement-card
+                  *ngFor="let card of alignmentCards"
+                  [type]="selectedAlignmentType"
+                  [data]="card"
+                  [truncate]="true"
+                ></app-statement-card>
+              </div>
+            </div>
+          </section>
+          <div class="heading-badge-wrapper">
+            <div class="heading-badge">{{ topicNumber | number }} topics identified</div>
+          </div>
+          <section class="card" *ngFor="let topic of topicData" id="{{ topic.name }}">
+            <div class="card-header">
+              <h2>{{ topic.name }}</h2>
+              @let topicShareTitle = "Share " + "'" + topic.name + "'";
+              @let topicShareText = "Copy link to share this topic";
+              <button
+                mat-stroked-button
+                class="icon-button-subtle"
+                (click)="openShareReportDialog({ elementId: topic.name, title: topicShareTitle, text: topicShareText })"
+              ><mat-icon>share</mat-icon> Share</button>
+            </div>
+            <div class="topic-breakdown-wrapper">
+              <div class="topic-breakdown">
+                <div class="topic-breakdown-item">
+                  <div class="pill">{{ topic.subtopicStats.length | number }}</div>
+                  <div class="topic-breakdown-item-text">Subtopics</div>
+                </div>
+                <div class="topic-breakdown-item">
+                  <div class="pill">{{ topic.commentCount | number }}</div>
+                  <div class="topic-breakdown-item-text">Total statements</div>
+                </div>
+                <div class="topic-breakdown-item">
+                  <div class="pill">{{ topic.voteCount | number }}</div>
+                  <div class="topic-breakdown-item-text">Total votes</div>
+                </div>
+              </div>
+            </div>
+            <div class="card-section">
+              <div class="toggle-group-wrapper">
+                <mat-button-toggle-group
+                  class="toggle-group"
+                  [value]="topicAlignmentViews[topic.name]"
+                  (change)="updateTopicView(topic.name, $event.value)">
+                    <mat-button-toggle value="solid">Groupings</mat-button-toggle>
+                    <mat-button-toggle value="waffle">Statements</mat-button-toggle>
+                </mat-button-toggle-group>
+              </div>
+              <div class="topic-visualization">
+                <app-sensemaking-chart-wrapper
+                  [chartId]="'chart-' + topic.name"
+                  chartType="topic-alignment"
+                  [view]="topicAlignmentViews[topic.name]"
+                  [topicFilter]="topic.name"
+                  [colors]="['#3A708A', '#589AB7', '#8bc3da', '#757575']"
+                  [data]="commentData"
+                  [summaryData]="summaryData"
+                ></app-sensemaking-chart-wrapper>
+              </div>
+            </div>
+            <div class="card-section accordion-general">
+              <mat-accordion displayMode="flat">
+                <mat-expansion-panel
+                  *ngFor="let subtopic of topic.subtopicStats"
+                  id="{{ subtopic.id }}"
+                  #subtopicPanel
+                  (afterExpand)="afterSubtopicPanelOpen(subtopic.id)"
+                >
+                  <mat-expansion-panel-header>
+                    <h3>{{ subtopic.name }}</h3>
+                  </mat-expansion-panel-header>
+                  <div class="subtopic-sections-group">
+                    <section class="subtopic-section">
+                      <div class="subtopic-breakdown">
+                        <div class="subtopic-breakdown-item">
+                          <div class="pill">{{ subtopic.commentCount | number }}</div>
+                          <div class="subtopic-breakdown-item-text">Total statements</div>
+                        </div>
+                        <div class="subtopic-breakdown-item">
+                          <div class="pill">{{ subtopic.voteCount | number }}</div>
+                          <div class="subtopic-breakdown-item-text">Total votes</div>
+                        </div>
+                        <div class="breakdown-divider"></div>
+                        <div class="subtopic-breakdown-description">This subtopic had <strong>{{ subtopic.relativeAlignment }}</strong> and <strong>{{ subtopic.relativeEngagement }}</strong> compared to the other subtopics.</div>
+                      </div>
+                      <h4>Prominent themes emerged from all statements submitted:</h4>
+                      <div class="subtopic-themes-group">
+                        <markdown>{{ getSubtopicThemesText(topic.name, subtopic.name) }}</markdown>
+                      </div>
+                    </section>
+                    <section class="subtopic-section">
+                      <h4>Participants found the highest alignment on the following statements:</h4>
+                      <div class="subtopic-section-summary">
+                        <p>70% or more of participants agreed or disagreed with these statements.</p>
+                      </div>
+                      @let topStatementsHighAlignment = getTopSubtopicStatements(topic.name, subtopic.name, "high-alignment");
+                      @if (topStatementsHighAlignment.length) {
+                        <div class="statement-card-group">
+                          <app-statement-card
+                            *ngFor="let card of topStatementsHighAlignment"
+                            [data]="card"
+                            type="high-alignment"
+                            [truncate]="true"
+                          ></app-statement-card>
+                        </div>
+                      } @else {
+                        <div class="subtopic-section-description">
+                          <mat-icon>info</mat-icon>
+                          <p>There were no statements in this subtopic that fit within the threshold of “high alignment.”</p>
+                        </div>
+                      }
+                    </section>
+                    <section class="subtopic-section">
+                      <h4>Participants found the lowest alignment on the following statements:</h4>
+                      <div class="subtopic-section-summary">
+                        <p>Opinions were split. 40–60% of voters either agreed or disagreed with these statements.</p>
+                      </div>
+                      @let topStatementsLowAlignment = getTopSubtopicStatements(topic.name, subtopic.name, "low-alignment");
+                      @if (topStatementsLowAlignment.length) {
+                        <div class="statement-card-group">
+                          <app-statement-card
+                            *ngFor="let card of topStatementsLowAlignment"
+                            [data]="card"
+                            type="low-alignment"
+                            [truncate]="true"
+                          ></app-statement-card>
+                        </div>
+                      } @else {
+                        <div class="subtopic-section-description">
+                          <mat-icon>info</mat-icon>
+                          <p>There were no statements in this subtopic that fit within the threshold of “low alignment.”</p>
+                        </div>
+                      }
+                    </section>
+                    <section class="subtopic-section">
+                      <h4>There were high levels of uncertainty on the following statements:</h4>
+                      <div class="subtopic-section-summary">
+                        <p>Statements in this category were among the 25% most passed on in the conversation as a whole or were passed on by at least 20% of participants.</p>
+                      </div>
+                      @let topStatementsHighUncertainty = getTopSubtopicStatements(topic.name, subtopic.name, "high-uncertainty");
+                      @if (topStatementsHighUncertainty.length) {
+                        <div class="statement-card-group">
+                          <app-statement-card
+                            *ngFor="let card of topStatementsHighUncertainty"
+                            [data]="card"
+                            type="high-uncertainty"
+                            [truncate]="true"
+                          ></app-statement-card>
+                        </div>
+                      } @else {
+                        <div class="subtopic-section-description">
+                          <mat-icon>info</mat-icon>
+                          <p>There were no statements in this subtopic that fit within the threshold of “uncertainty.”</p>
+                        </div>
+                      }
+                    </section>
+                    <section class="subtopic-section centered">
+                      <button mat-stroked-button class="icon-button-main" (click)="openStatementDrawer(subtopic)">
+                        <mat-icon>visibility</mat-icon> View all statements in {{ subtopic.name }}
+                      </button>
+                    </section>
+                  </div>
+                </mat-expansion-panel>
+              </mat-accordion>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </mat-sidenav-content>
+  <mat-sidenav class="drawer" [opened]="isStatementDrawerOpen" position="end">
+    <div class="drawer-header">
+      <h4>{{ drawerSubtopicName }} ({{ drawerSubtopicStatementNumber }})</h4>
+      <button
+        mat-icon-button
+        class="drawer-close-button"
+        aria-label="Close drawer"
+        (click)="closeStatementDrawer()"
+      ><mat-icon>close</mat-icon></button>
+    </div>
+    <div class="drawer-content">
+      <div class="drawer-statement-group">
+        <h5>High alignment statements ({{ drawerSubtopicStatementsHighAlignment.length }})</h5>
+        <p>70% or more of participants agreed or disagreed with these statements.</p>
+        @if (drawerSubtopicStatementsHighAlignment.length) {
+          <div class="drawer-statement-list">
+            <app-statement-card
+              *ngFor="let card of drawerSubtopicStatementsHighAlignment"
+              type="high-alignment"
+              [data]="card"
+            ></app-statement-card>
+          </div>
+        } @else {
+          <div>--</div>
+        }
+      </div>
+      <div class="drawer-statement-group">
+        <h5>Low alignment statements ({{ drawerSubtopicStatementsLowAlignment.length }})</h5>
+        <p>Opinions were split. 40–60% of voters either agreed or disagreed with these statements.</p>
+        @if (drawerSubtopicStatementsLowAlignment.length) {
+          <div class="drawer-statement-list">
+            <app-statement-card
+              *ngFor="let card of drawerSubtopicStatementsLowAlignment"
+              type="low-alignment"
+              [data]="card"
+            ></app-statement-card>
+          </div>
+        } @else {
+          <div>--</div>
+        }
+      </div>
+      <div class="drawer-statement-group">
+        <h5>High uncertainty statements ({{ drawerSubtopicStatementsHighUncertainty.length }})</h5>
+        <p>Statements in this category were among the 25% most passed on in the conversation as a whole or were passed on by at least 20% of participants.</p>
+        @if (drawerSubtopicStatementsHighUncertainty.length) {
+          <div class="drawer-statement-list">
+            <app-statement-card
+              *ngFor="let card of drawerSubtopicStatementsHighUncertainty"
+              type="high-uncertainty"
+              [data]="card"
+            ></app-statement-card>
+          </div>
+        } @else {
+          <div>--</div>
+        }
+      </div>
+      <div class="drawer-statement-group">
+        <h5>Uncategorized statements ({{ drawerSubtopicStatementsUncategorized.length }})</h5>
+        <p>These statements do not meet criteria for high alignment, low alignment, or high uncertainty.</p>
+        @if (drawerSubtopicStatementsUncategorized.length) {
+          <div class="drawer-statement-list">
+            <app-statement-card
+              *ngFor="let card of drawerSubtopicStatementsUncategorized"
+              type="uncategorized"
+              [data]="card"
+            ></app-statement-card>
+          </div>
+        } @else {
+          <div>--</div>
+        }
+      </div>
+    </div>
+  </mat-sidenav>
+</mat-sidenav-container>

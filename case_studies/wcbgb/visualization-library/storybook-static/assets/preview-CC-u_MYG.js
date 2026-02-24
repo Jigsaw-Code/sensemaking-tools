@@ -1,0 +1,1 @@
+import{U as a}from"./index-COZDKLvM.js";const e=a({base:"light",brandTitle:"Sensemaker Visualization Library",brandUrl:"https://jigsaw-code.github.io/sensemaking-tools/",brandImage:"logo.svg",brandTarget:"_self"}),r={parameters:{controls:{matchers:{color:/(background|color)$/i,date:/Date$/i}},docs:{theme:e}}};export{r as default};

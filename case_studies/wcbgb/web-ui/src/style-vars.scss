@@ -1,0 +1,40 @@
+$main-font: "Noto Sans", "Helvetica Neue", sans-serif;
+
+// colors
+$alto: #DEDEDE;
+$black-squeeze: #F0F4F9;
+$boulder: #757575;
+$cape-cod: #444746;
+$cape-cod-2: #3C4043;
+$cloud-burst: #1E2656;
+$concrete: #F2F2F2;
+$congress-blue: #0842A0;
+$gray-nurse: #E1E3E1;
+$hawkes-blue: #D3E3FD;
+$iron: #DADCE0;
+$link-water: #DDDCF5;
+$link-water-2: #F8FAFD;
+$link-water-3: #EDEFFA;
+$magic-mint: #A5EFBA;
+$mine-shaft: #1F1F1F;
+$mine-shaft-2: #303030;
+$mystic: #DDE1EB;
+$mystic-2: #DDE3EA;
+$off-white: #FDFDFD;
+$periwinkle-gray: #D1CFEC;
+$science-blue: #0B57D0;
+$selago: #E2EAFB;
+$shark: #252526;
+$shuttle-gray: #5F6368;
+$silver: #CACACA;
+$whisper: #ECEBF5;
+$white: #FFF;
+$white-lilac: #EDEFF9;
+$your-pink: #FFBFBD;
+
+@mixin truncateText($numberOfLines) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: $numberOfLines;
+  overflow: hidden;
+}
