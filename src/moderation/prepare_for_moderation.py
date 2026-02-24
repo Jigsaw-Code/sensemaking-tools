@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ from typing import Any, Callable
 
 from google.cloud import dlp_v2
 from src.evals.eval_metrics import INPUT_EVAL_METRICS
+from src.get_gemini_scores_lib import ContentScorer
 from src.get_perspective_scores_lib import init_client
 from src.get_perspective_scores_lib import score_text
 from src.qualtrics.process_qualtrics_output import DataType
@@ -264,6 +265,12 @@ def main() -> None:
       required=True,
       help="API key for the Perspective API.",
   )
+  parser.add_argument(
+      "--scorer_type",
+      choices=["GEMINI", "PERSPECTIVE"],
+      default="GEMINI",
+      help="Backend to use for generating moderation scores.",
+  )
   args = parser.parse_args()
 
   api_key = args.api_key
@@ -273,7 +280,6 @@ def main() -> None:
         file=sys.stderr,
     )
     sys.exit(1)
-  client = init_client(api_key=api_key)
 
   dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": api_key})
 
@@ -332,14 +338,52 @@ def main() -> None:
 
   attributes_to_score = ["TOXICITY", "SEVERE_TOXICITY", "PROFANITY"]
 
-  scores_df = df[text_column].apply(
-      lambda t: pd.Series(
-          get_max_scores(client, str(t), attributes_to_score, text_splitter)
-      )
-  )
-  df[_PROFANITY_SCORE] = scores_df["PROFANITY"]
-  df[_TOXICITY_SCORE] = scores_df["TOXICITY"]
-  df[_SEVERE_TOXICITY_SCORE] = scores_df["SEVERE_TOXICITY"]
+  if args.scorer_type == "GEMINI":
+    print("Using Gemini for moderation scoring...")
+    scorer = ContentScorer(api_key=api_key)
+
+    # Batch Scoring with Gemini
+    scoring_tasks = []
+    for idx, row in df.iterrows():
+      text = str(row[text_column])
+      snippets = text_splitter(text)
+      for snippet in snippets:
+        scoring_tasks.append({"text": snippet, "row_id": idx})
+
+    batch_results = scorer.score(scoring_tasks, attributes_to_score)
+
+    # Aggregate results (MAX per row)
+    row_scores = collections.defaultdict(lambda: collections.defaultdict(list))
+    for res in batch_results:
+      rid = res["row_id"]
+      for attr, val in res["scores"].items():
+        row_scores[rid][attr].append(val)
+
+    for attr in attributes_to_score:
+      df[attr] = 0.0
+      for rid, scores_dict in row_scores.items():
+        if attr in scores_dict:
+          df.at[rid, attr] = max(scores_dict[attr])
+
+    df[_PROFANITY_SCORE] = df["PROFANITY"]
+    df[_TOXICITY_SCORE] = df["TOXICITY"]
+    df[_SEVERE_TOXICITY_SCORE] = df["SEVERE_TOXICITY"]
+
+  elif args.scorer_type == "PERSPECTIVE":
+    print("Using Perspective API for moderation scoring...")
+    client = init_client(api_key=api_key)
+
+    scores_df = df[text_column].apply(
+        lambda t: pd.Series(
+            get_max_scores(client, str(t), attributes_to_score, text_splitter)
+        )
+    )
+    df[_PROFANITY_SCORE] = scores_df["PROFANITY"]
+    df[_TOXICITY_SCORE] = scores_df["TOXICITY"]
+    df[_SEVERE_TOXICITY_SCORE] = scores_df["SEVERE_TOXICITY"]
+  else:
+    raise ValueError(f"Unknown scorer_type: {args.scorer_type}")
+
   # Force scores to be from 0-1 with higher scores being worse.
   # Use the 90th percentile logest duration to be more robust to outliers.
   df[_TOO_FAST_SCORE] = (1 - df[DURATION] / df[DURATION].quantile(0.9)).clip(
