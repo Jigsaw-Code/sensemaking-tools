@@ -11,7 +11,7 @@ class PromptsTest(unittest.TestCase):
         'rid': [1, 2],
         'topic': ['Topic A', 'Topic A'],
         'opinion': ['Opinion A1', 'Opinion A2'],
-        'representative_text': ['Rep text 1', 'Rep text 2'],
+        'quote': ['Rep text 1', 'Rep text 2'],
         'Q1_Text': ['Full Q1', 'Full Q1'],
         'Q1': ['Full A1', 'Full A1_2'],
     })
@@ -85,13 +85,13 @@ class PromptsTest(unittest.TestCase):
       prompts.generate_r1_prompt_string(self.df_r1, 'rid', None, 'opinion')
     with self.assertRaisesRegex(ValueError, 'opinion'):
       prompts.generate_r1_prompt_string(self.df_r1, 'rid', 'topic', None)
-    with self.assertRaisesRegex(ValueError, 'representative text'):
+    with self.assertRaisesRegex(ValueError, 'quote'):
       prompts.generate_r1_prompt_string(
           self.df_r1,
           'rid',
           'topic',
           'opinion',
-          representative_text_column_name=None,
+          quote_column_name=None,
       )
 
   def test_generate_r1_prompt_string_defaults(self):
@@ -121,7 +121,7 @@ class PromptsTest(unittest.TestCase):
         'rid',
         'topic',
         'opinion',
-        should_use_representative_text=False,
+        should_use_quote=False,
     )
     self.assertIn('<question_1>Full Q1</question_1>', prompt)
     self.assertIn('<answer_1>Full A1</answer_1>', prompt)

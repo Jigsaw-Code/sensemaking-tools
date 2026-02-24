@@ -532,7 +532,7 @@ async def main():
           user_id_column_name="rid",
           topic_column_name="topic",
           opinion_column_name="opinion",
-          representative_text_column_name="representative_text",
+          quote_column_name="quote",
       )
       r2_prompt = prompts.generate_r2_prompt_string(
           df=row["r2_df"],

@@ -37,7 +37,7 @@ class WorldModelBuilderTest(unittest.TestCase):
             "Opinion C1",
             "Some other opinion",
         ],
-        "representative_text": [
+        "quote": [
             "text a1",
             "text a2",
             "text b1",
@@ -93,7 +93,7 @@ class WorldModelBuilderTest(unittest.TestCase):
         "rid": [1],
         "topic": ["Topic A"],
         "opinion": ["Opinion A1"],
-        "representative_text": ["text a1"],
+        "quote": ["text a1"],
     })
 
   def tearDown(self):

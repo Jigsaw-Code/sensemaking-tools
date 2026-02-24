@@ -70,7 +70,7 @@ if __name__ == "__main__":
   )
   parser.add_argument(
       "--text_column",
-      default="representative_text",
+      default="quote",
       help="Text column in CSV to score with Perspective API.",
   )
   args = parser.parse_args()

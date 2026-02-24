@@ -190,8 +190,8 @@ def generate_r1_prompt_string(
     user_id_column_name: str,
     topic_column_name: str,
     opinion_column_name: str,
-    should_use_representative_text: bool = True,
-    representative_text_column_name: str = "representative_text",
+    should_use_quote: bool = True,
+    quote_column_name: str = "quote",
     should_use_opinion_sharding: bool = True,
 ) -> str:
   """
@@ -203,20 +203,20 @@ def generate_r1_prompt_string(
     user_id_column_name: The name of the column containing user ID associated with the comments.
     topic_column_name: The name of the column containing the topic the row is associated with.
     opinion_column_name: The name of the column containing the opinion the row is associated with.
-    should_use_representative_text: Bool flag that indicates if to use representative text or full survey data.
-    representative_text_column_name: The name of the column containing representative text.
+    should_use_quote: Bool flag that indicates if to use quote or full survey data.
+    quote_column_name: The name of the column containing quote.
     should_use_opinion_sharding: Bool flag indicating whether to shard by opinion or topic.
 
   Returns:
     The prompt to be added to the context window.
   """
 
-  if should_use_representative_text and (
-      representative_text_column_name is None
-      or representative_text_column_name not in df.columns
+  if should_use_quote and (
+      quote_column_name is None
+      or quote_column_name not in df.columns
   ):
     raise ValueError(
-        "Column name for representative text must not be empty and should"
+        "Column name for quote must not be empty and should"
         " exist in the DataFrame."
     )
 
@@ -246,8 +246,8 @@ def generate_r1_prompt_string(
   for _, row in df.iterrows():
     user_id_text = row[user_id_column_name]
 
-    # Use representative text instead of full text.
-    if should_use_representative_text:
+    # Use quote instead of full text.
+    if should_use_quote:
       prompt += f"""<participant id={user_id_text}>"""
 
       # If the topic and opinion strings have not been moved to the top add
@@ -256,12 +256,12 @@ def generate_r1_prompt_string(
         prompt += f"""\n<topic>{row[topic_column_name]}</topic>
 <opinion>{row[opinion_column_name]}</opinion>\n"""
 
-      # Add representative text.
+      # Add quote.
       newline = "\n"
-      prompt += f"""{row[representative_text_column_name].replace(newline, " ").replace('"', '')}"""
+      prompt += f"""{row[quote_column_name].replace(newline, " ").replace('"', '')}"""
     else:
 
-      # Use full text instead of representative text.
+      # Use full text instead of quote.
       prompt += f"""<participant id={user_id_text}>"""
 
       # If the topic and opinion strings have not been moved to the top add

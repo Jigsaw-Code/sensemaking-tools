@@ -29,13 +29,13 @@ class CategorizationRunnerTest(unittest.TestCase):
             'rid': 's1',
             'topic': 'Topic 1',
             'opinion': 'Opinion 1',
-            'representative_text': 'quote 1',
+            'quote': 'quote 1',
         },
         {
             'rid': 's2',
             'topic': 'Topic 1',
             'opinion': 'Opinion 1',
-            'representative_text': 'quote 2',
+            'quote': 'quote 2',
         },
     ]
     output_file_base = '/tmp/test'
@@ -54,14 +54,14 @@ class CategorizationRunnerTest(unittest.TestCase):
     self.assertEqual(len(topic['opinions']), 1)
     opinion = topic['opinions'][0]
     self.assertEqual(opinion['opinion_text'], 'Opinion 1')
-    self.assertEqual(len(opinion['representative_texts']), 2)
+    self.assertEqual(len(opinion['quotes']), 2)
     self.assertIn(
         {'statement_id': 's1', 'text': 'quote 1'},
-        opinion['representative_texts'],
+        opinion['quotes'],
     )
     self.assertIn(
         {'statement_id': 's2', 'text': 'quote 2'},
-        opinion['representative_texts'],
+        opinion['quotes'],
     )
 
   def test_set_topics_on_csv_rows_opinion_categorization(self):
@@ -95,8 +95,8 @@ class CategorizationRunnerTest(unittest.TestCase):
     )
     self.assertEqual(len(output_rows), 1)
     row = output_rows[0]
-    self.assertIn('representative_text', row)
-    self.assertEqual(row['representative_text'], 'Quote 1')
+    self.assertIn('quote', row)
+    self.assertEqual(row['quote'], 'Quote 1')
     self.assertIn('topic', row)
     self.assertEqual(row['topic'], 'Topic A')
     self.assertIn('opinion', row)
@@ -145,7 +145,7 @@ class CategorizationRunnerTest(unittest.TestCase):
     for row in output_rows:
       self.assertEqual(row['rid'], '1')
       self.assertEqual(row['survey_text'], 'Statement 1')
-      self.assertEqual(row['representative_text'], 'Quote 1')
+      self.assertEqual(row['quote'], 'Quote 1')
       self.assertEqual(row['topic'], 'Topic A')
 
   def test_set_topics_on_csv_rows_with_brackets_in_quote(self):
@@ -177,8 +177,8 @@ class CategorizationRunnerTest(unittest.TestCase):
         [{
             'rid': '1',
             'survey_text': 'Statement 1',
-            'representative_text': 'a quote with brackets and ... some s---',
-            'representative_text_with_brackets': (
+            'quote': 'a quote with brackets and ... some s---',
+            'quote_with_brackets': (
                 '[a quote with brackets] and [...] some [s---]'
             ),
             'topic': 'Topic A',

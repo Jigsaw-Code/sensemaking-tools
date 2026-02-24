@@ -89,7 +89,7 @@ def prepare_opinion_eval_prompts(
     for key, template in pointwise_metric.criteria.items():
       formatted_criteria[key] = template.format(
           topic=parent_topic_name,
-          representative_text=quote_text,
+          quote=quote_text,
           all_opinions=all_opinions_str,
       )
     criteria_str = json.dumps(formatted_criteria, indent=2)

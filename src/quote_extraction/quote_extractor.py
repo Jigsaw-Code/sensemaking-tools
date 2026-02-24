@@ -40,7 +40,7 @@ from .quote_extraction_lib import extract_quotes_from_text
 SURVEY_TEXT_COL = "survey_text"
 TOPICS_COL = "topics"
 TOPIC_COL = "topic"
-REPRESENTATIVE_TEXT_COL = "representative_text"
+QUOTE_COL = "quote"
 
 
 async def main(args):
@@ -129,21 +129,21 @@ async def main(args):
       for quote in statement.quotes:
         original_row = original_rows[int(statement.id)]
         output_row = original_row.copy()
-        output_row[REPRESENTATIVE_TEXT_COL] = quote.text
+        output_row[QUOTE_COL] = quote.text
         output_row[TOPIC_COL] = quote.topic.name
         processed_results.append(output_row)
 
   try:
     with open(args.output_csv, "w", newline="", encoding="utf-8") as outfile:
-      # Ensure all original columns are present, plus the new representative text
+      # Ensure all original columns are present, plus the new quote
       output_fieldnames = list(input_fieldnames)
       # Rename 'topics' -> 'topic' column
       if TOPICS_COL in output_fieldnames:
         output_fieldnames.remove(TOPICS_COL)
       if TOPIC_COL not in output_fieldnames:
         output_fieldnames.append(TOPIC_COL)
-      if REPRESENTATIVE_TEXT_COL not in output_fieldnames:
-        output_fieldnames.append(REPRESENTATIVE_TEXT_COL)
+      if QUOTE_COL not in output_fieldnames:
+        output_fieldnames.append(QUOTE_COL)
 
       writer = csv.DictWriter(
           outfile, fieldnames=output_fieldnames, extrasaction="ignore"

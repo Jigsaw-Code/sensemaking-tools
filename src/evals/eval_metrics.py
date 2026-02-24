@@ -105,7 +105,7 @@ _INPUT_DATA_CRITERIA = {
 _OPINION_QUALITY_CRITERIA = {
     "correctness": (
         """
-  You are evaluating an opinion that was identified based on representative texts extracted from human responses in a survey.
+  You are evaluating an opinion that was identified based on quotes extracted from human responses in a survey.
   Criteria for a correct opinion:
   * **Distinct:** Within a single topic, opinions should represent unique viewpoints. Opinions should be meaningfully distinct and different within the topic.
   * **Substantive:** Opinions should be substantive. Do not create single-quote opinions.
@@ -118,7 +118,7 @@ _OPINION_QUALITY_CRITERIA = {
   * **Merge Overlaps:** If two or more opinions express the same fundamental idea, they **must be merged**.
   * **Efficiency:** Keep the number of opinions as low as possible. Actively consolidate opinions when their content can be logically grouped.
   VERY IMPORTANT:
-  A single representative text may contain information relevant to multiple opinions. When evaluating, consider only the part of the representative text that is directly related to the current opinion.
+  A single quote may contain information relevant to multiple opinions. When evaluating, consider only the part of the quote that is directly related to the current opinion.
   It does not need to capture other themes present in the text, as those will be evaluated separately under their own opinions.
   For example, if an opinion is about "freedom of expression," it does not need to cover other themes within the same text, such as "freedom of choice" or "freedom from fear."
     """
@@ -128,7 +128,7 @@ _OPINION_QUALITY_CRITERIA = {
 _OTHER_OPINION_CRITERIA = {
     "non_compatibility": (
         """
-You are evaluating a representative text (quote) that has been categorized under the "Other" opinion for a given topic.
+You are evaluating a quote (quote) that has been categorized under the "Other" opinion for a given topic.
 
 - **Topic**: {topic}
 - **Existing Opinions**:
@@ -159,7 +159,7 @@ _OPINION_CATEGORIZATION_CORRECTNESS_CRITERIA = {
 You are evaluating if a quote has been correctly assigned to one or more opinions.
 The user's response will contain the list of opinions assigned to a single quote.
 
-- **Quote**: {representative_text}
+- **Quote**: {quote}
 - **Topic**: {topic}
 - **All Available Opinions for the Topic**:
 {all_opinions}
@@ -176,7 +176,7 @@ Based on these rules, evaluate if each of the assigned opinions in the `response
 You are evaluating if a quote has been assigned the minimum necessary number of opinions.
 The user's response will contain the list of opinions assigned to a single quote.
 
-- **Quote**: {representative_text}
+- **Quote**: {quote}
 - **Topic**: {topic}
 - **All Available Opinions for the Topic**:
 {all_opinions}
@@ -495,9 +495,9 @@ class OtherOpinionPointwiseEvaluationMetric(PointwiseEvaluationMetric):
   def get_evaluation_data(self, input_data: pd.DataFrame) -> pd.DataFrame:
     """Creates a dataset to check if "Other" quotes fit in other opinions."""
     evaluation_rows = []
-    if quote_extractor.REPRESENTATIVE_TEXT_COL not in input_data.columns:
+    if quote_extractor.QUOTE_COL not in input_data.columns:
       raise ValueError(
-          f"Column '{quote_extractor.REPRESENTATIVE_TEXT_COL}' not found in"
+          f"Column '{quote_extractor.QUOTE_COL}' not found in"
           " input data."
       )
     if quote_extractor.TOPIC_COL not in input_data.columns:
@@ -513,7 +513,7 @@ class OtherOpinionPointwiseEvaluationMetric(PointwiseEvaluationMetric):
       topic_data = input_data[input_data[quote_extractor.TOPIC_COL] == topic]
       is_other_opinion = topic_data["opinion"] == "Other"
       other_quotes = (
-          topic_data[is_other_opinion][quote_extractor.REPRESENTATIVE_TEXT_COL]
+          topic_data[is_other_opinion][quote_extractor.QUOTE_COL]
           .unique()
           .tolist()
       )
@@ -550,7 +550,7 @@ class OtherOpinionEvaluationMetrics(EvaluationMetrics):
         "existing_opinions",
     ]
     # The response to evaluate is the quote text itself.
-    response_name = quote_extractor.REPRESENTATIVE_TEXT_COL
+    response_name = quote_extractor.QUOTE_COL
 
     custom_pointwise_metric = OtherOpinionPointwiseEvaluationMetric(
         name=name,
@@ -580,9 +580,9 @@ class OpinionCategorizationCorrectnessPointwiseEvaluationMetric(
 
   def get_evaluation_data(self, input_data: pd.DataFrame) -> pd.DataFrame:
     """Creates a dataset to check for opinion categorization correctness."""
-    if quote_extractor.REPRESENTATIVE_TEXT_COL not in input_data.columns:
+    if quote_extractor.QUOTE_COL not in input_data.columns:
       raise ValueError(
-          f"Column '{quote_extractor.REPRESENTATIVE_TEXT_COL}' not found in"
+          f"Column '{quote_extractor.QUOTE_COL}' not found in"
           " input data."
       )
     if quote_extractor.TOPIC_COL not in input_data.columns:
@@ -595,7 +595,7 @@ class OpinionCategorizationCorrectnessPointwiseEvaluationMetric(
     # Group by topic and quote to find all opinions assigned to each quote.
     opinions_by_quote = (
         input_data.groupby(
-            [quote_extractor.TOPIC_COL, quote_extractor.REPRESENTATIVE_TEXT_COL]
+            [quote_extractor.TOPIC_COL, quote_extractor.QUOTE_COL]
         )["opinion"]
         .apply(list)
         .reset_index()
@@ -605,7 +605,7 @@ class OpinionCategorizationCorrectnessPointwiseEvaluationMetric(
       return pd.DataFrame(
           columns=[
               quote_extractor.TOPIC_COL,
-              quote_extractor.REPRESENTATIVE_TEXT_COL,
+              quote_extractor.QUOTE_COL,
               "all_opinions",
               "response",
           ]
@@ -621,7 +621,7 @@ class OpinionCategorizationCorrectnessPointwiseEvaluationMetric(
     evaluation_rows = []
     for _, row in opinions_by_quote.iterrows():
       topic = row[quote_extractor.TOPIC_COL]
-      quote = row[quote_extractor.REPRESENTATIVE_TEXT_COL]
+      quote = row[quote_extractor.QUOTE_COL]
       assigned_opinions = row["opinion"]
 
       all_opinions_in_topic = topic_opinions.get(topic, [])
@@ -630,7 +630,7 @@ class OpinionCategorizationCorrectnessPointwiseEvaluationMetric(
 
       evaluation_rows.append({
           quote_extractor.TOPIC_COL: topic,
-          quote_extractor.REPRESENTATIVE_TEXT_COL: quote,
+          quote_extractor.QUOTE_COL: quote,
           "all_opinions": all_opinions_str,
           "response": assigned_opinions_str,
       })
@@ -646,7 +646,7 @@ class OpinionCategorizationEvaluationMetrics(EvaluationMetrics):
     criteria = _OPINION_CATEGORIZATION_CORRECTNESS_CRITERIA
     additional_input_variables = [
         quote_extractor.TOPIC_COL,
-        quote_extractor.REPRESENTATIVE_TEXT_COL,
+        quote_extractor.QUOTE_COL,
         "all_opinions",
     ]
     # The response to evaluate is the list of assigned opinions.
@@ -680,7 +680,7 @@ QUOTE_EXTRACTION_METRICS = EvaluationMetrics(
         quote_extractor.TOPIC_COL,
         quote_extractor.SURVEY_TEXT_COL,
     ],
-    response_name="representative_text_with_brackets",
+    response_name="quote_with_brackets",
 )
 
 INPUT_EVAL_METRICS = EvaluationMetrics(
@@ -693,12 +693,12 @@ INPUT_EVAL_METRICS = EvaluationMetrics(
 OPINION_QUALITY_METRICS = EvaluationMetrics(
     name="OpinionQuality",
     criteria=_OPINION_QUALITY_CRITERIA,
-    additional_input_variables=["representative_text_aggregated"],
+    additional_input_variables=["quote_aggregated"],
     # The aggregated version of this column is used.
     response_name="opinion",
     group_by_config=GroupByConfig(
         group_by_col="opinion",
-        agg_col=quote_extractor.REPRESENTATIVE_TEXT_COL,
+        agg_col=quote_extractor.QUOTE_COL,
     ),
 )
 

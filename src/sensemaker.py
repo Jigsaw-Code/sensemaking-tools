@@ -236,8 +236,8 @@ def _prepare_semifinal_csv_rows(
     for quote in statement.quotes:
       new_row = base_row_data.copy()
       new_row["quote_id"] = str(quote.id)
-      new_row["representative_text_with_brackets"] = quote.text
-      new_row["representative_text"] = re.sub(r"[\[\]]", "", quote.text)
+      new_row["quote_with_brackets"] = quote.text
+      new_row["quote"] = re.sub(r"[\[\]]", "", quote.text)
       new_row["topic"] = quote.topic.name
       output_rows.append(new_row)
 

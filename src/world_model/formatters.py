@@ -130,12 +130,12 @@ def format_participant_card(record):
   card.append(f"Topic: {record.get('topic', 'N/A')}")
   card.append(separator)
 
-  # --- Core Opinion and Representative Text ---
+  # --- Core Opinion and quote ---
   card.append("\n--- Stated Opinion ---")
   card.append(record.get("opinion", "N/A"))
 
-  card.append("\n--- Representative Text ---")
-  card.append(record.get("representative_text", "N/A"))
+  card.append("\n--- quote ---")
+  card.append(record.get("quote", "N/A"))
 
   # --- R1 Q&A ---
   card.append("\n--- Survey Responses (R1) ---")

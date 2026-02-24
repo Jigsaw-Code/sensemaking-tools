@@ -19,7 +19,7 @@ def is_r1_df_missing_required_column(df: pd.DataFrame) -> str:
       "rid",
       "topic",
       "opinion",
-      "representative_text",
+      "quote",
   ]
   df_r1_columns_lower = {col.lower() for col in df.columns}
   for col in required_r1_columns:

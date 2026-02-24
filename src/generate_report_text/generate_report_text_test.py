@@ -108,7 +108,7 @@ class GenerateReportTextTest(unittest.TestCase):
     categorized_quotes_df = pd.DataFrame({
         'topic': ['t1', 't2', 't2', 't2'],
         'opinion': ['o1', 'o2', 'o3', 'o3'],
-        'representative_text': ['q1', 'q2', 'q3', 'q4'],
+        'quote': ['q1', 'q2', 'q3', 'q4'],
     })
     opinion_summaries_df = asyncio.run(
         generate_report_text.generate_opinion_summaries(
@@ -134,7 +134,7 @@ class GenerateReportTextTest(unittest.TestCase):
     categorized_quotes_df = pd.DataFrame({
         'topic': ['t1', 't2', 't2', 't2'],
         'opinion': ['o1', 'o2', 'o3', 'o3'],
-        'representative_text': ['q1', 'q2', 'q3', 'q4'],
+        'quote': ['q1', 'q2', 'q3', 'q4'],
     })
     # and opinion summaries for each opinion
     opinion_summaries_df = pd.DataFrame({

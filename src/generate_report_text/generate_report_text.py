@@ -14,7 +14,7 @@
 """
 Generates report text based on categorized quotes spreadsheet.
 
-Input csv should contain topic, opinion, and representative_text columns.
+Input csv should contain topic, opinion, and quote columns.
 Additional context file can be plain text or contain markdown.
 
 Example usage:
@@ -129,7 +129,7 @@ async def generate_opinion_summaries(
     topic_df = categorized_quotes_df[categorized_quotes_df['topic'] == topic]
     for opinion in opinions:
       quotes = topic_df[topic_df['opinion'] == opinion][
-          'representative_text'
+          'quote'
       ].tolist()
       opinion_summaries_request_prompts.append({
           'prompt': generate_report_text_prompts.get_opinion_summary_prompt(

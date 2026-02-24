@@ -47,11 +47,11 @@ class RunnerUtilsTest(unittest.TestCase):
         "opinions": [
             {
                 "opinion_text": "Opinion 1.1",
-                "representative_texts": ["Quote 1.1"],
+                "quotes": ["Quote 1.1"],
             },
             {
                 "opinion_text": "Opinion 1.2",
-                "representative_texts": ["Quote 1.2"],
+                "quotes": ["Quote 1.2"],
             },
         ],
     }]

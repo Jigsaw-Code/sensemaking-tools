@@ -59,15 +59,15 @@ def convert_csv_rows_to_statements(
   statements: List[custom_types.Statement] = []
   for i, row in enumerate(csv_rows):
     survey_text = row.get("survey_text")
-    representative_text = row.get("representative_text_with_brackets")
+    quote = row.get("quote_with_brackets")
     topic_name = row.get("topic")
     rid = row.get("rid")
 
     if not survey_text:
       raise ValueError(f"Row {i+1} is missing 'survey_text'.")
-    if not representative_text:
+    if not quote:
       raise ValueError(
-          f"Row {i+1} is missing 'representative_text_with_brackets'."
+          f"Row {i+1} is missing 'quote_with_brackets'."
       )
     if not topic_name:
       raise ValueError(f"Row {i+1} is missing 'topic'.")
@@ -76,7 +76,7 @@ def convert_csv_rows_to_statements(
 
     quote = custom_types.Quote(
         id=rid,
-        text=representative_text,
+        text=quote,
         topic=custom_types.FlatTopic(name=topic_name),
     )
     statement = custom_types.Statement(id=rid, text=survey_text, quotes=[quote])

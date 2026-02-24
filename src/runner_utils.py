@@ -182,8 +182,8 @@ def write_dicts_to_csv(
       "rid",
       "survey_text",
       "response_text",
-      "representative_text_with_brackets",
-      "representative_text",
+      "quote_with_brackets",
+      "quote",
       "topics",
       "topic",
       "opinion",
@@ -282,7 +282,7 @@ def generate_and_save_topic_tree(
   for topic in topic_tree_data:
     topic["total_quotes"] = 0
     for opinion in topic["opinions"]:
-      count = len(opinion.get("representative_texts", []))
+      count = len(opinion.get("quotes", []))
       opinion["count"] = count
       topic["total_quotes"] += count
 

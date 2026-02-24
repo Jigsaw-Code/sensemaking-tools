@@ -116,7 +116,7 @@ def _convert_csv_rows_to_statements(
     statement_id = row.get("rid")
     statement_text = row.get("survey_text")
     csv_topics_string = row.get("topics")
-    quote_text = row.get("representative_text_with_brackets")
+    quote_text = row.get("quote_with_brackets")
     quote_topic_name = row.get("topic")
     quote_id = row.get("quote_id")
 
@@ -222,8 +222,8 @@ def _set_topics_on_csv_rows(
 
       for opinion in opinions:
         new_row_with_opinion = new_row.copy()
-        new_row_with_opinion["representative_text_with_brackets"] = quote.text
-        new_row_with_opinion["representative_text"] = re.sub(
+        new_row_with_opinion["quote_with_brackets"] = quote.text
+        new_row_with_opinion["quote"] = re.sub(
             r"[\[\]]", "", quote.text
         )
         new_row_with_opinion["topic"] = topic_name
@@ -266,19 +266,19 @@ def _process_and_print_topic_tree(
   """
   topics = collections.defaultdict(
       lambda: collections.defaultdict(
-          lambda: {"count": 0, "representative_texts": []}
+          lambda: {"count": 0, "quotes": []}
       )
   )
   for row in output_csv_rows:
     topic = row.get("topic", "").strip()
     opinion = row.get("opinion", "").strip()
-    representative_text = row.get("representative_text", "").strip()
+    quote = row.get("quote", "").strip()
     statement_id = row.get("rid", "").strip()
 
     if topic and opinion:
       topics[topic][opinion]["count"] += 1
-      topics[topic][opinion]["representative_texts"].append(
-          {"statement_id": statement_id, "text": representative_text}
+      topics[topic][opinion]["quotes"].append(
+          {"statement_id": statement_id, "text": quote}
       )
 
   # Prepare data for topic tree generation
@@ -288,7 +288,7 @@ def _process_and_print_topic_tree(
     for opinion, opinion_data in opinions.items():
       opinion_entry = {
           "opinion_text": opinion,
-          "representative_texts": opinion_data["representative_texts"],
+          "quotes": opinion_data["quotes"],
       }
       opinions_list.append(opinion_entry)
     topic_data = {"topic_name": topic, "opinions": opinions_list}
@@ -468,7 +468,7 @@ async def main():
   columns_to_keep = [
       "rid",
       "survey_text",
-      "representative_text",
+      "quote",
       "topic",
       "opinion",
   ]
