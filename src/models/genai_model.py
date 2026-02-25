@@ -603,6 +603,9 @@ class GenaiModel:
 
     self._log_retry_summary(llm_response)
 
+    # Ensure responses are sorted in the same order as the prompts.
+    llm_response = llm_response.sort_values(by='job_id').reset_index(drop=True)
+
     return llm_response, llm_response_stats
 
   def _log_retry_summary(self, results_df: pd.DataFrame):

@@ -1319,12 +1319,14 @@ def _find_missing_from_llm_response(
   ]
   if missing_statements:
     logging.warning(
-        f"Missing {len(missing_statements)} statement IDs in model's response"
+        f"Missing {len(missing_statements)} of {len(statements_sent_to_llm_batch)} statement IDs in model's response"
     )
     logging.debug(
         "Missing statements (up to 20):"
         f" {[s.id for s in missing_statements[:20]]}"
     )
+  else:
+    logging.info("No missing statements in model's response")
 
   return missing_statements
 
