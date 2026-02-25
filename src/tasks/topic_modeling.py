@@ -57,37 +57,35 @@ Response example:
 def learn_opinions_prompt(parent_topic: custom_types.Topic) -> str:
   return f"""
 You are an expert qualitative data analyst specializing in thematic analysis and data structuring.
-Your task is to analyze this entire data,
-identify the opinions on the following topic: "{parent_topic.name}" according to the criteria below,
-and then generate a JSON output with the identified opinions.
-
-Important Context:
-On later stages extracted quotes will be categorized into the identified opinions.
-There will be another round, where participants will be exploring topics and opinions, so it will be easier for them to tie everything together in their head, if they see opinions being linked to the corresponding topic.
-To facilitate this connection, we want opinion language to more explicitly connect to the overarching topic of "{parent_topic.name}". Opinion should be phrased so that it's clear that they cover different opinions on that topic.
+Your task is to analyze this entire dataset of quotes, identify the opinions on the following topic: "{parent_topic.name}" according to the criteria below, and then generate a JSON output with the identified opinions.
 
 ### **Criteria for Opinions**
 
-  * **Distinct:** Within a single topic, opinions should represent unique viewpoints. Opinions should be meaningfully distinct and different within the topic.
-  * **Substantive:** Opinions should be substantive. Do not create single-quote opinions.
-  * **Accurate:** The text of opinion should be a clear and well-phrased summary of the underlying quotes.
-  * **Concise:** The opinions should be concise and should not contain multiple claims.
-  * **Topic and Subject Linkage:** Opinions should be phrased to have a clear link to the overarching topic and the main subject of the survey.
-  * **Coherency:** Opinions should be logically consistent and easy to follow as you go over the list. E.g. for "Barriers to Freedom and Equality" topic, all the opinions could start with: "A key barrier to freedom and equality is ..."; for "Defining Equality" topic: "Equality is ...", etc.
-  * **Simplicity:** Phrase opinions in plain language. Aim for a 5th-grade reading level to ensure broad accessibility
-  * **No "Perception" terminology**: Do not use words like "perception" in the opinion text. For example, instead of "A key barrier to freedom and equality is the perception that...", write "A key barrier to freedom and equality is...".
-  * **Merge Overlaps:** If two or more opinions express the same fundamental idea, they **must be merged**.
-  * **Efficiency:** Keep the number of opinions as low as possible. Actively consolidate opinions when their content can be logically grouped while ensuring that opinions remain mutually disjoint and avoid making multiple claims.
+1.  **Active Voice & Direct Phrasing (Crucial):**
+    * Use strong, active verbs. Avoid passive voice (e.g., "It is believed that...").
+    * Avoid abstract policy speak. Instead of "To improve economic opportunity, there needs to be investment in...", write "Oklahoma must invest in..." or "Schools need better funding to..."
+    * **Do not** use words like "perception" or "sentiment." State the opinion as a fact as viewed by the participant.
 
-When creating opinions, keep in mind that on later stages extracted quotes will be categorized into the identified opinions.
-For that, the quote must holistically match the entire opinion. A partial match, where the quote only supports one piece of the opinion, is not sufficient.
-To be a match, the quote must explicitly support every key concept within the opinion.
-So avoid creating opinions that will be hard to completely match to quotes.
+2.  **Avoid Repetitive Sentence Starters:**
+    * **Do not** start every opinion with the same phrase (e.g., stop using "To strengthen the social safety net..." for every single item).
+    * Ensure the list has syntactic variety while remaining thematically tight.
 
-VERY IMPORTANT:
-Keep the explanation to minimum to avoid exceeding max token limit for the output.
+3.  **Simplify & Avoid Complex Parallelisms:**
+    * **One idea per opinion.** Avoid complex lists (e.g., "We need X, Y, and Z, while also ensuring A and B").
+    * Aim for a 5th-grade reading level. Keep it simple and punchy.
 
-RESPONSE STRUCTURE:
+4.  **Distinct & Substantive:**
+    * Opinions must represent unique viewpoints within the topic.
+    * Merge overlaps: Actively consolidate opinions when their content can be logically grouped.
+    * Do not create single-quote opinions or opinions with very few opinions compared to its peers. A long tail of opinions is extremely undesirable.
+    * Overall, we want to tightly curate opinions to help the user understand the main perspective within a topic, but we do not want to overwhelm them with a laundry list.  **Keep the number of opinions as low as possible.**
+
+5.  **Topic Linkage (Without Repetition):**
+    * The opinion must be clearly relevant to "{parent_topic.name}", but it should not rigidly repeat the topic name in the text.
+    * *Bad:* "A barrier to economic growth is the lack of jobs."
+    * *Good:* "A lack of quality jobs prevents the economy from growing."
+
+### **Response Structure**
 Respond only with the identified opinions, where top level is the overarching topic, and opinions are subtopics.
 The response should be in JSON format, that can be parse into the following class:
 class Topic:
