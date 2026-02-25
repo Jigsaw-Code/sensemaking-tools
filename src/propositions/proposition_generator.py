@@ -18,7 +18,7 @@ to generate a world model of propositions.
 
 Example Usage:
   python3 -m src.propositions.proposition_generator \
-    --prop_count=10 \
+    --prop_count=5 \
     --r1_input_file=/path/to/r1_data.csv \
     --r2_input_file=/path/to/r2_data.csv \
     --output_dir=/path/to/output \
@@ -340,7 +340,7 @@ async def main():
       "--prop_count",
       type=int,
       default=5,
-      help="How many propositions to generate per topic.",
+      help="How many propositions to generate per opinion.",
   )
   parser.add_argument(
       "--r1_input_file",
