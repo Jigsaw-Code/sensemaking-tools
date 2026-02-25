@@ -25,12 +25,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from case_studies.wtp.models import custom_types
 
 
-def setup_logging(log_level_str: str, output_dir: Optional[str] = None) -> None:
+def setup_logging(log_level_str: str, output_dir: Optional[str] = None) -> str:
   """Configures logging to both console and multi-level files.
 
   Args:
       log_level_str: The desired console logging level (e.g., "INFO").
       output_dir: Optional directory to store the .logs folder.
+
+  Returns:
+      The path to the created log directory.
   """
   log_level = getattr(logging, log_level_str.upper(), logging.INFO)
 
@@ -69,6 +72,7 @@ def setup_logging(log_level_str: str, output_dir: Optional[str] = None) -> None:
     logger.addHandler(file_handler)
 
   logging.info(f"Logging initialized. Files are saved in: {log_dir}")
+  return log_dir
 
 
 def estimate_tokens(text: str) -> int:

@@ -24,7 +24,8 @@ python -m case_studies.wtp.categorization_runner \
     --output_dir ~/categorization_outputs \
     --input_file ~/input.csv \
     --model_name gemini-3-pro-preview \
-    --additional_context_file ~/additional_context.md
+    --additional_context_file ~/additional_context.md \
+    --max_llm_retries 20
 """
 
 import argparse
@@ -299,7 +300,16 @@ def _process_and_print_topic_tree(
   )
 
 
-async def main():
+def _format_seconds(seconds: float) -> str:
+  """Formats seconds into a string with minutes or hours if applicable."""
+  if seconds >= 3600:
+    return f"{seconds:.2f}s ({seconds / 3600:.2f} hrs)"
+  if seconds >= 60:
+    return f"{seconds:.2f}s ({seconds / 60:.2f} mins)"
+  return f"{seconds:.2f}s"
+
+
+async def main() -> Optional[str]:
   """Main function to run the categorization runner."""
   parser = argparse.ArgumentParser(
       description="Categorize statements using Sensemaker."
@@ -361,10 +371,16 @@ async def main():
       action="store_true",
       help="If set, skip autorater evaluations as part of categorization.",
   )
+  parser.add_argument(
+      "--max_llm_retries",
+      type=int,
+      default=None,
+      help="Override the maximum LLM retries for API calls.",
+  )
 
   args = parser.parse_args()
 
-  runner_utils.setup_logging(args.log_level, args.output_dir)
+  log_dir = runner_utils.setup_logging(args.log_level, args.output_dir)
 
   original_csv_rows = _read_csv_to_dicts(args.input_file)
   statements_to_process = _convert_csv_rows_to_statements(original_csv_rows)
@@ -399,8 +415,12 @@ async def main():
       statement_item.topics = []
       statement_item.quotes = []
 
+  stats_log_file = os.path.join(log_dir, "stats.log")
+
   genai_llm = genai_model.GenaiModel(
       model_name=args.model_name,
+      max_llm_retries=args.max_llm_retries,
+      stats_log_file=stats_log_file,
   )
 
   sensemaker_instance = sensemaker.Sensemaker(
@@ -477,9 +497,26 @@ async def main():
   output_file_base = os.path.join(args.output_dir, "categorized")
   _process_and_print_topic_tree(output_csv_rows, output_file_base)
 
+  return log_dir
+
 
 if __name__ == "__main__":
   start_time = time.time()
-  asyncio.run(main())
+  log_dir_path = None
+  try:
+    log_dir_path = asyncio.run(main())
+  except Exception as e:
+    # Gracefully handle exceptions so the stack trace is saved to the log file.
+    logging.exception(f"Process crashed with an error: {e}")
+    raise
   end_time = time.time()
-  logging.info(f"Categorization completed in {end_time - start_time} seconds.")
+
+  if log_dir_path:
+    stats_file = os.path.join(log_dir_path, "stats.log")
+    if os.path.exists(stats_file):
+      with open(stats_file, "r") as f:
+        print(f.read())
+
+  logging.info(
+      f"Categorization completed in {_format_seconds(end_time - start_time)}."
+  )

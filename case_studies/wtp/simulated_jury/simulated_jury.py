@@ -463,7 +463,7 @@ async def run_simulated_jury(
     raise ValueError(f"Unsupported voting mode: {voting_mode}")
 
   start_time = time.monotonic()
-  llm_response_df, llm_response_stats_df = (
+  llm_response_df, llm_response_stats_df, _, _ = (
       await model.process_prompts_concurrently(
           jobs,
           response_parser=parser,

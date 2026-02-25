@@ -60,7 +60,7 @@ def _prepare_prompts(
             "prompt": prompt,
             "statement_id": statement_obj.id,
             "topic": topic,
-            "log_prefix_marker": "3",
+            "log_prefix_marker": "3 (Quote Extraction)",
         })
   return prompts_with_metadata
 
@@ -129,7 +129,7 @@ async def _get_quotes_realtime(
     return {"text": resp["text"], "error": resp.get("error")}
 
   # We use process_prompts_concurrently which handles retries and rate limiting
-  response_df, _ = await model.process_prompts_concurrently(
+  response_df, _, _, _ = await model.process_prompts_concurrently(
       prompts_with_metadata,
       response_parser=_parser,
   )

@@ -262,7 +262,7 @@ class WorldModelBuilderTest(unittest.TestCase):
           "thoughts_token_count": [2] * len(args[0]),
       })
       stats_df = pd.DataFrame({"combined_tokens": [100 * len(args[0])]})
-      return (response_df, stats_df)
+      return (response_df, stats_df, 0.0, 1.0)
 
     mock_model_instance.process_prompts_concurrently.side_effect = (
         mock_async_function

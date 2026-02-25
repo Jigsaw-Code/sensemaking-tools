@@ -177,7 +177,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     def simple_parser(text, job):
       return f"parsed_{job['opinion']}"
 
-    results_df, _ = asyncio.run(
+    results_df, _, _, _ = asyncio.run(
         model.process_prompts_concurrently(
             self.prompts,
             simple_parser,
@@ -231,7 +231,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     def simple_parser(resp, job):
       return f"{resp['text']}_{job['opinion']}"
 
-    results_df, _ = asyncio.run(
+    results_df, _, _, _ = asyncio.run(
         model.process_prompts_concurrently(
             self.prompts,
             simple_parser,
@@ -274,7 +274,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     ]
 
     model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
-    results_df, _ = asyncio.run(
+    results_df, _, _, _ = asyncio.run(
         model.process_prompts_concurrently(
             self.prompts,
             lambda resp, j: resp['text'],
@@ -333,7 +333,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
         },
     ]
     # Run the process
-    results_df, _ = asyncio.run(
+    results_df, _, _, _ = asyncio.run(
         self.model.process_prompts_concurrently(
             self.prompts,
             lambda resp, j: resp['text'],
@@ -400,18 +400,18 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
   def test_backoff_delay_is_capped(self, mock_call_gemini, mock_sleep):
     """Tests that the backoff delay does not exceed the maximum."""
 
-    # Setup: Fail 9 times (hitting the cap), then succeed
-    # We need attempts until we hit cap.
-    # retry_attempts=10, half=5.
-    # 1..4: 60
-    # 5: 60
-    # 6: 120
-    # 7: 240
-    # 8: 480
-    # 9: 960 -> 600
+    # Setup: Fail enough times to hit the 3600s cap, then succeed
+    # retry_attempts=20, half=10.
+    # 1..10: 60
+    # 11: 120
+    # 12: 240
+    # 13: 480
+    # 14: 960
+    # 15: 1920
+    # 16: 3840 -> 3600
     mock_call_gemini.side_effect = [
         {'error': google_exceptions.ServiceUnavailable('Service is down')}
-        for _ in range(9)
+        for _ in range(16)
     ] + [
         {
             'text': 'Success',
@@ -429,12 +429,12 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
         self.model.process_prompts_concurrently(
             self.prompts,
             lambda t, j: t,
-            retry_attempts=10,
+            retry_attempts=20,
         )
     )
 
     # Assertions
-    self.assertIn(unittest.mock.call(600.0), mock_sleep.call_args_list)
+    self.assertIn(unittest.mock.call(3600.0), mock_sleep.call_args_list)
 
   @patch('asyncio.sleep', new_callable=AsyncMock)
   @patch('case_studies.wtp.models.genai_model.GenaiModel.call_gemini')
@@ -485,7 +485,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     ]
 
     # Run the process
-    results_df, _ = await self.model.process_prompts_concurrently(
+    results_df, _, _, _ = await self.model.process_prompts_concurrently(
         self.prompts,
         lambda resp, j: resp['text'],
         retry_attempts=3,
@@ -536,7 +536,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     ]
 
     # Run the process
-    results_df, _ = await self.model.process_prompts_concurrently(
+    results_df, _, _, _ = await self.model.process_prompts_concurrently(
         self.prompts,
         lambda resp, j: resp['text'],
         retry_attempts=3,

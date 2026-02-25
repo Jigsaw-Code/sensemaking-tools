@@ -63,7 +63,7 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
         },
     ])
     mock_model.process_prompts_concurrently = AsyncMock(
-        return_value=(mock_results_df, None)
+        return_value=(mock_results_df, pd.DataFrame(), 0.0, 1.0)
     )
 
     # Execution

@@ -14,7 +14,7 @@
 
 import logging
 from typing import List, Optional
-from case_studies.wtp.models.genai_model import GenaiModel, MAX_LLM_RETRIES
+from case_studies.wtp.models.genai_model import GenaiModel
 from case_studies.wtp import sensemaker_utils
 from case_studies.wtp.tasks import topic_modeling_util
 from case_studies.wtp.models import custom_types
@@ -185,7 +185,7 @@ async def learn_topics(
   response_topics = await sensemaker_utils.retry_call(
       _generate_topics,
       _are_valid_topics,
-      MAX_LLM_RETRIES,
+      model.max_llm_retries,
       "Topic identification failed after multiple retries.",
       func_args=[model],
       is_valid_args=[],
@@ -263,7 +263,7 @@ async def learn_opinions(
   response_topic = await sensemaker_utils.retry_call(
       _generate_opinions,
       _is_valid_opinion,
-      MAX_LLM_RETRIES,
+      model.max_llm_retries,
       "Opinion identification or restructuring failed after multiple retries.",
       func_args=[model],
       is_valid_args=[topic],

@@ -156,13 +156,13 @@ async def generate_topics_with_chunking(
         "prompt": prompt_str,
         "chunk": f"topic_chunk_{i}/{chunk_count}",
         "response_schema": schema_to_expect,
-        "log_prefix_marker": "1",
+        "log_prefix_marker": "1 (Topic Identification)",
     })
 
   def parser(resp, job):
     return parse_response(resp["text"], job["response_schema"])
 
-  results_df, _ = await model.process_prompts_concurrently(
+  results_df, _, _, _ = await model.process_prompts_concurrently(
       prompts, response_parser=parser
   )
 
@@ -281,13 +281,13 @@ async def generate_opinions_with_chunking(
         "prompt": prompt_str,
         "chunk": f"opinion_chunk_{i}/{chunk_count}",
         "response_schema": schema_to_expect,
-        "log_prefix_marker": "4",
+        "log_prefix_marker": "4 (Opinion Identification)",
     })
 
   def parser(resp, job):
     return parse_response(resp["text"], job["response_schema"])
 
-  results_df, _ = await model.process_prompts_concurrently(
+  results_df, _, _, _ = await model.process_prompts_concurrently(
       prompts, response_parser=parser
   )
 

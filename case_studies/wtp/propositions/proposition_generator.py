@@ -590,6 +590,8 @@ async def main():
     (
         llm_response,
         llm_response_stats,
+        _,
+        _,
     ) = await model.process_prompts_concurrently(
         all_prompts,
         prompts_util.parse_proposition_response_json_reasoning
