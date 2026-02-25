@@ -43,7 +43,7 @@ async def generate_text_in_parallel(
 ) -> pd.DataFrame:
   # prompt_obj_list members should have prompt, optional topic, opinion fields
   # lambda function extracts text field from response
-  response_df, _ = await model.process_prompts_concurrently(
+  response_df, _, _, _ = await model.process_prompts_concurrently(
       prompt_obj_list, lambda x, _: x['text']
   )
   return response_df.sort_values('job_id', ascending=True)
@@ -52,7 +52,7 @@ async def generate_text_in_parallel(
 async def generate_text(model: genai_model.GenaiModel, prompt: str) -> str:
   """Utility function to run a single prompt through the model."""
   # lambda function extracts text field from response
-  response_df, _ = await model.process_prompts_concurrently(
+  response_df, _, _, _ = await model.process_prompts_concurrently(
       [{'prompt': prompt}], lambda x, _: x['text']
   )
   return response_df.iloc[0].result
@@ -129,9 +129,7 @@ async def generate_opinion_summaries(
   for topic, opinions in opinions_per_topic.items():
     topic_df = categorized_quotes_df[categorized_quotes_df['topic'] == topic]
     for opinion in opinions:
-      quotes = topic_df[topic_df['opinion'] == opinion][
-          'quote'
-      ].tolist()
+      quotes = topic_df[topic_df['opinion'] == opinion]['quote'].tolist()
       opinion_summaries_request_prompts.append({
           'prompt': generate_report_text_prompts.get_opinion_summary_prompt(
               topic, opinion, additional_context, quotes, opinions_per_topic

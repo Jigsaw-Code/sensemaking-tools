@@ -808,7 +808,7 @@ async def generate_nuanced_propositions(world_model, args, nuanced_props_model):
       reconstructed_top_props[row["topic"]] = selected_props
   top_propositions_by_topic = reconstructed_top_props
 
-  generated_nuanced_propositions_df, _ = (
+  generated_nuanced_propositions_df, _, _, _ = (
       await nuanced_propositions.combine_propositions(
           top_propositions_by_topic,
           model=nuanced_props_model,

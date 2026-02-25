@@ -50,6 +50,8 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
               ]
           }),
           pd.DataFrame(),
+          0.0,
+          1.0,
       )
       result = await topic_modeling_util.generate_topics_with_chunking(
           self.model,
@@ -81,6 +83,8 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       self.model.process_prompts_concurrently.return_value = (
           results_df,
           pd.DataFrame(),
+          0.0,
+          1.0,
       )
 
       # Mock call_gemini for merge step
@@ -124,6 +128,8 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
               ]
           }),
           pd.DataFrame(),
+          0.0,
+          1.0,
       )
       result = await topic_modeling_util.generate_opinions_with_chunking(
           self.model,
@@ -159,6 +165,8 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       self.model.process_prompts_concurrently.return_value = (
           results_df,
           pd.DataFrame(),
+          0.0,
+          1.0,
       )
 
       # Mock call_gemini for merge step

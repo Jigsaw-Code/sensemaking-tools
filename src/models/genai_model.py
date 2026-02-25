@@ -55,15 +55,15 @@ class Job(TypedDict, total=False):
 
 
 # The maximum number of times an LLM call should be retried.
-MAX_LLM_RETRIES = 10
+MAX_LLM_RETRIES = 20
 # How long in seconds to wait between successful LLM calls.
 WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS = 1
 # How long in seconds to wait between failed LLM calls.
 FAIL_RETRY_DELAY_SECONDS = 60
 # Maximum number of concurrent API calls. By default Genai limits to 10.
 MAX_CONCURRENT_CALLS = 100
-# Maximum delay in seconds for any retry attempt (10 minutes).
-MAX_RETRY_DELAY_SECONDS = 600
+# Maximum delay in seconds for any retry attempt (1 hour).
+MAX_RETRY_DELAY_SECONDS = 3600
 # Timeout in seconds for API calls. Default Gemini timeout is 10 minutes.
 TIMEOUT_SECONDS = 601
 # Default thinking level for Gemini.
@@ -86,6 +86,8 @@ class GenaiModel:
       model_name: str,
       api_key: str | None = None,
       safety_filters_on: bool = False,
+      max_llm_retries: int | None = None,
+      stats_log_file: str | None = None,
   ):
     """Initializes the GenaiModel.
 
@@ -94,6 +96,8 @@ class GenaiModel:
       api_key: The Google Generative AI API key. If not provided, the
         GOOGLE_API_KEY environment variable will be used.
       safety_filters_on: Whether to enable safety filters. Defaults to False.
+      max_llm_retries: Override for maximum LLM retries.
+      stats_log_file: Path to a file where exhausted retries will be logged.
     """
     if not api_key:
       api_key = os.getenv("GOOGLE_API_KEY")
@@ -148,8 +152,14 @@ class GenaiModel:
     # It's set by default, meaning workers can proceed.
     self._global_pause_event = asyncio.Event()
     self._global_pause_event.set()
+
+    self.max_llm_retries = (
+        max_llm_retries if max_llm_retries is not None else MAX_LLM_RETRIES
+    )
+    self.stats_log_file = stats_log_file
     # Lock to ensure only one worker handles a global pause at a time.
     self._global_pause_lock = asyncio.Lock()
+    self.total_wall_delay = 0.0
 
   def _parse_duration(self, duration_str: str) -> int:
     """Parses a duration string (e.g., '18s') into seconds."""
@@ -160,7 +170,9 @@ class GenaiModel:
   async def _handle_global_pause(self, delay: int):
     """Sleeps for a specified duration and then resumes all workers."""
     logging.info(f"   Global pause for {delay} seconds...")
+    start_time = time.time()
     await asyncio.sleep(delay)
+    self.total_wall_delay += time.time() - start_time
     logging.info("   Resuming all workers.")
     self._global_pause_event.set()
 
@@ -196,6 +208,11 @@ class GenaiModel:
         and e.response.status == 503
     )
     is_genai_error = isinstance(e, GenaiModelError)
+
+    if is_quota_error:
+      stats["429_errors"] = stats.get("429_errors", 0) + 1
+    if is_service_unavailable:
+      stats["503_errors"] = stats.get("503_errors", 0) + 1
     # Trigger global pause for 429, 503, or GenaiModelError (e.g. MAX_TOKENS)
     if (
         is_quota_error
@@ -281,8 +298,13 @@ class GenaiModel:
 
       # Cap at Max Delay
       delay = min(delay, float(MAX_RETRY_DELAY_SECONDS))
+
       logging.info(f"   Retrying in {delay:.2f} seconds...")
+      start_delay = time.time()
       await asyncio.sleep(delay)
+      stats["delay_seconds"] = stats.get("delay_seconds", 0.0) + (
+          time.time() - start_delay
+      )
     else:
       log_identifier = ""
       if opinion:
@@ -298,9 +320,19 @@ class GenaiModel:
         log_identifier = f"evaluation result for job {job_id}"
       else:
         log_identifier = f"job {job_id}"
-      logging.error(
+
+      failure_msg = (
           f"Failed to process {log_identifier} after {retry_attempts} attempts."
       )
+      logging.error(failure_msg)
+
+      if self.stats_log_file:
+        try:
+          with open(self.stats_log_file, "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {failure_msg}\\n")
+        except Exception as io_err:
+          logging.error(f"Failed to write to stats log file: {io_err}")
+
       # Mark this job as a complete failure in the stats
       stats["is_complete_failure"] = True
       # Append a failure result so that process_prompts_concurrently doesn't drop this job
@@ -355,6 +387,9 @@ class GenaiModel:
       stats = job["stats"]
       combined_tokens = stats.get("combined_tokens")
       retry_attempts = job.get("retry_attempts")
+      if retry_attempts is None:
+        retry_attempts = self.max_llm_retries
+        job["retry_attempts"] = retry_attempts
       system_prompt = job.get("system_prompt")
       response_mime_type = job.get("response_mime_type")
       response_schema = job.get("response_schema")
@@ -392,6 +427,11 @@ class GenaiModel:
       # Initialize failure tracking stats
       stats["non_quota_failures"] = 0
       stats["is_complete_failure"] = False
+      stats["api_calls_made"] = 0
+      stats["is_success"] = False
+      stats["429_errors"] = 0
+      stats["503_errors"] = 0
+      stats["delay_seconds"] = 0.0
 
       # This list tracks failures for this job, to be included in the final
       # results for debugging. It is not part of the retry logic itself.
@@ -402,7 +442,9 @@ class GenaiModel:
 
       while attempt < retry_attempts:
         # Wait here if a global pause is in effect.
+        start_wait = time.time()
         await self._global_pause_event.wait()
+        stats["delay_seconds"] += time.time() - start_wait
 
         resp = None  # Initialize resp for this attempt
         if stop_event.is_set():
@@ -415,6 +457,7 @@ class GenaiModel:
           logging.info(f"{log_prefix} {log_body} (Attempt {attempt + 1})")
 
           # Make the actual API call
+          stats["api_calls_made"] += 1
           resp = await self.call_gemini(
               prompt=prompt,
               run_name=opinion,
@@ -460,6 +503,7 @@ class GenaiModel:
           stats["total_token_used"] = resp["total_token_count"]
           stats["prompt_token_count"] = resp["prompt_token_count"]
           stats["candidates_token_count"] = resp["candidates_token_count"]
+          stats["is_success"] = True
           stats_list.append(stats)
 
           logging.info(f"{log_prefix} {log_body} ✅ Successfully processed.")
@@ -538,8 +582,9 @@ class GenaiModel:
       prompts: list[dict[str, Any]],
       response_parser: Callable[[str, dict[str, Any]], Any],
       max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
-      retry_attempts: int = MAX_LLM_RETRIES,
-  ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+      retry_attempts: int | None = None,
+      skip_log: bool = False,
+  ) -> Tuple[pd.DataFrame, pd.DataFrame, float, float]:
     """Orchestrates the process of generating prompts and processing them
     using a queue and concurrent workers.
 
@@ -549,14 +594,21 @@ class GenaiModel:
         max_concurrent_calls: The maximum number of concurrent API calls.
         retry_attempts: The maximum number of times an LLM call should be
           retried.
+        skip_log: If True, skip writing the summary block to the stats log file.
 
     Returns:
         A tuple containing:
         - llm_response: A DataFrame with the successful results.
-        - llm_response_stats: A DataFrame with statistics for each job that
-          produced a stats object. Note: This may not include entries for jobs
-          that fail in a way that prevents a stats object from being returned.
+        - llm_response_stats: A DataFrame with statistics for each job.
+        - wall_delay: Total wall-clock delay during this execution.
+        - duration: Total wall-clock duration of this execution.
     """
+    if retry_attempts is None:
+      retry_attempts = self.max_llm_retries
+
+    self.total_wall_delay = 0.0
+    stage_start_time = time.time()
+
     # Create and start the worker tasks
     (
         queue,
@@ -597,16 +649,82 @@ class GenaiModel:
       await asyncio.gather(*workers, return_exceptions=True)
       logging.info("Workers stopped.")
 
+    stage_duration = time.time() - stage_start_time
+    wall_delay = self.total_wall_delay
+
     # --- Create final DataFrames from the aggregated results ---
     llm_response = pd.DataFrame(final_results)
     llm_response_stats = pd.DataFrame(final_stats)
 
+    # Ensure responses are sorted in the same order as the prompts.
+    llm_response = llm_response.sort_values(by="job_id").reset_index(drop=True)
+
     self._log_retry_summary(llm_response)
 
-    # Ensure responses are sorted in the same order as the prompts.
-    llm_response = llm_response.sort_values(by='job_id').reset_index(drop=True)
+    if not skip_log and self.stats_log_file and final_stats:
+      stage_name = (
+          prompts[0].get("log_prefix_marker", "Unknown Stage")
+          if prompts
+          else "Unknown Stage"
+      )
+      self.log_stats_summary(
+          final_stats, stage_name, wall_delay, stage_duration
+      )
 
-    return llm_response, llm_response_stats
+    return llm_response, llm_response_stats, wall_delay, stage_duration
+
+  def _format_seconds(self, seconds: float) -> str:
+    """Formats seconds into a string with minutes or hours if applicable."""
+    if seconds >= 3600:
+      return f"{seconds:.2f}s ({seconds / 3600:.2f} hrs)"
+    if seconds >= 60:
+      return f"{seconds:.2f}s ({seconds / 60:.2f} mins)"
+    return f"{seconds:.2f}s"
+
+  def log_stats_summary(
+      self,
+      final_stats: list[dict],
+      stage_name: str,
+      wall_delay: float,
+      duration: float,
+  ):
+    """Logs a summary of the processing stats to the stats log file."""
+    if not self.stats_log_file or not final_stats:
+      return
+
+    total_calls = len(final_stats)
+    total_api_calls = sum(s.get("api_calls_made", 0) for s in final_stats)
+    total_succeeded = sum(1 for s in final_stats if s.get("is_success", False))
+    total_failed = total_calls - total_succeeded
+    total_max_retries = sum(
+        1 for s in final_stats if s.get("is_complete_failure", False)
+    )
+    total_503 = sum(s.get("503_errors", 0) for s in final_stats)
+    total_429 = sum(s.get("429_errors", 0) for s in final_stats)
+    total_delay = sum(s.get("delay_seconds", 0.0) for s in final_stats)
+
+    jobs_with_delay = sum(
+        1 for s in final_stats if s.get("delay_seconds", 0.0) > 0
+    )
+
+    summary_block = (
+        f"\n{'=' * 50}\nSTAGE:"
+        f" {stage_name}\n{'=' * 50}\nTotal"
+        f" Jobs Processed:     {total_calls}\nTotal API Calls Made:    "
+        f" {total_api_calls}\nTotal Succeeded:         "
+        f" {total_succeeded}\nTotal Failed:            "
+        f" {total_failed}\nReached Max Retries:      {total_max_retries}\nHit"
+        f" 503 (Unavailable):    {total_503}\nHit 429 (Exhausted):     "
+        f" {total_429}\nTotal Delay (seconds):    {total_delay:.2f}\n"
+        f"Jobs with delay:          {jobs_with_delay}\n"
+        f"Total delay (wall-clock): {self._format_seconds(wall_delay)}\n"
+        f"Total stage duration:     {self._format_seconds(duration)}\n"
+    )
+    try:
+      with open(self.stats_log_file, "a") as f:
+        f.write(summary_block)
+    except Exception as io_err:
+      logging.error(f"Failed to write summary to stats log file: {io_err}")
 
   def _log_retry_summary(self, results_df: pd.DataFrame):
     """Logs a summary of how many retries each job required."""

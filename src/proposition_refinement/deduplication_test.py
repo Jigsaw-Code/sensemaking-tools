@@ -92,7 +92,7 @@ class DeduplicationTest(unittest.TestCase):
       mock_response_df = pd.DataFrame(
           {'result': [{'equivalence_sets': [['0:0', '1:1'], ['0:1']]}]}
       )
-      return (mock_response_df, pd.DataFrame())
+      return (mock_response_df, pd.DataFrame(), 0.0, 1.0)
 
     mock_process_prompts.side_effect = mock_async_function
 
@@ -136,7 +136,7 @@ class DeduplicationTest(unittest.TestCase):
     # Mock the LLM response to select the second proposition
     async def mock_async_function(*args, **kwargs):
       mock_response_df = pd.DataFrame({'result': ['1:5']})
-      return (mock_response_df, pd.DataFrame())
+      return (mock_response_df, pd.DataFrame(), 0.0, 1.0)
 
     mock_process_prompts.side_effect = mock_async_function
 
