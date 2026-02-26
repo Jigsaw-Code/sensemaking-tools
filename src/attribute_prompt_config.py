@@ -102,7 +102,7 @@ CATEGORIES = {
             {"text": "The economy is struggling.", "score": 0.01, "reasoning": "Clean language."}
         ]
     },
-    "CURIOSITY_EXPERIMENTAL": {
+    "CURIOSITY": {
         "definition": "The comment asks questions, requests evidence, or challenges the other person to explain their view. INCLUDES: Critical or skeptical questions, requests for sources, and 'probing' challenges (e.g., 'Did you read the article?'). Even if the tone is rude or confrontational, if it asks for information or clarification, it counts as Curiosity.",
         "label": "Curiosity",
         "calibrated_examples": [
@@ -114,7 +114,7 @@ CATEGORIES = {
             {"text": "You are wrong.", "score": 0.05, "reasoning": "Statement, no question."}
         ]
     },
-    "REASONING_EXPERIMENTAL": {
+    "REASONING": {
         "definition": "The comment provides a logical argument where a claim is supported by evidence, facts, personal experience, or clear rationale. It must go beyond simple assertion to explain 'why'. Key Indicators: 'Because', 'Since', 'For example', or citing specific sources/events. Both formal logic and personal anecdotes count as reasoning if used to support a point.",
         "label": "Reasoning",
         "calibrated_examples": [
@@ -126,7 +126,7 @@ CATEGORIES = {
             {"text": "This policy is bad.", "score": 0.10, "reasoning": "Bare assertion with no support."}
         ]
     },
-    "PERSONAL_STORY_EXPERIMENTAL": {
+    "PERSONAL_STORY": {
         "definition": "The comment shares a first-hand experience, personal anecdote, or specific life event to illustrate a point. It uses 'I' statements and descriptive details about the author's own life.",
         "label": "Personal Story",
         "calibrated_examples": [
