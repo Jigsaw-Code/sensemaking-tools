@@ -1,0 +1,600 @@
+@import "../../../style-vars";
+
+@mixin breakdown-container {
+  background-color: $whisper;
+  border-radius: 13px;
+  padding: 13px 16px;
+  width: fit-content;
+}
+
+// style elements within <markdown> here
+:host ::ng-deep markdown {
+  li:not(:first-child) {
+    margin-top: 20px;
+  }
+}
+
+:host ::ng-deep button {
+  font-family: $main-font;
+
+  &.icon-button-subtle.mdc-button--outlined {
+    border-color: $gray-nurse;
+    color: $cape-cod;
+  }
+
+  &.icon-button-main.mdc-button--outlined {
+    background-color: $black-squeeze;
+    border: none;
+    color: $cape-cod;
+  }
+
+  &[mat-flat-button], &[mat-stroked-button] {
+    mat-icon {
+      flex-shrink: 0;
+    }
+  }
+}
+
+.accordion-general ::ng-deep {
+  .mat-expansion-panel {
+    background-color: $white;
+    box-shadow: none;
+
+    &:not(:first-child) {
+      border-top: 1px solid $iron;
+    }
+
+    &:first-of-type, &:last-of-type {
+      border-radius: 0;
+    }
+
+    .mat-expansion-indicator svg {
+      fill: $shuttle-gray;
+    }
+
+    &.mat-expanded {
+      border-radius: 16px;
+      border-top: none;
+      box-shadow: 0px 1px 2px 0px rgba(60, 64, 67, 0.30), 0px 1px 3px 1px rgba(60, 64, 67, 0.15);
+      margin-bottom: 5px; // ensures box-shadow isn't eclipsed by neighboring accordion member
+
+      + .mat-expansion-panel {
+        border-top: none;
+      }
+    }
+  }
+
+  .mat-expansion-panel-body {
+    padding: 0;
+  }
+
+  .mat-expansion-panel-content {
+    // set baseline font for accordion "content"
+    font-family: $main-font;
+    letter-spacing: 0px;
+  }
+
+  .mat-expansion-panel-header {
+    // set baseline font for accordion "header"
+    font-family: $main-font;
+    height: 60px;
+    letter-spacing: 0px;
+  }
+}
+
+// custom styling for material accordion (for navigation)
+.accordion-nav ::ng-deep {
+  mat-accordion {
+    display: flex;
+    flex-direction: column;
+    row-gap: 2px;
+  }
+
+  mat-expansion-panel.mat-expansion-panel {
+    border-radius: 4px;
+    box-shadow: none;
+
+    &:first-of-type {
+      border-top-left-radius: 30px;
+      border-top-right-radius: 30px;
+    }
+
+    &:last-of-type {
+      border-bottom-left-radius: 30px;
+      border-bottom-right-radius: 30px;
+    }
+  }
+
+  .mat-expansion-panel-body {
+    padding: 0;
+  }
+
+  .mat-expansion-panel-header {
+    background-color: $link-water-2;
+    padding-left: 14px;
+    padding-right: 22px;
+    height: 56px;
+  }
+}
+
+.breakdown {
+  display: flex;
+  align-items: center;
+  column-gap: 65px;
+}
+
+.breakdown-widget {
+  display: flex;
+  align-items: center;
+  column-gap: 12px;
+
+  .breakdown-data {
+    color: $cloud-burst;
+    letter-spacing: 0.1px;
+  }
+
+  .breakdown-icon {
+    background-color: $cloud-burst;
+    border-radius: 50%;
+    color: $white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 48px;
+    width: 48px;
+  }
+
+  .breakdown-number {
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .breakdown-subject {
+    font-size: 14px;
+    font-weight: 500;
+  }
+}
+
+button.icon-button-fancy {
+  background-color: $hawkes-blue;
+  color: $mine-shaft-2;
+  font-size: 12px;
+  font-weight: 700;
+  height: 56px;
+  letter-spacing: 0.1px;
+  line-height: 1.33;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  column-gap: 18px;
+  margin-bottom: 20px;
+  width: 100%;
+
+  mat-icon {
+    font-size: 24px;
+    height: 24px;
+    margin: 0;
+    width: 24px;
+  }
+}
+
+button[mat-icon-button] mat-icon {
+  transform: translateY(-2px);
+}
+
+.card {
+  background-color: $off-white;
+  border-radius: 16px;
+  margin-bottom: 22px;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    column-gap: 40px;
+    padding: 14px 30px;
+  }
+
+  .card-section {
+    border-top: 1px solid $white-lilac;
+    padding: 20px 30px;
+  }
+}
+
+.centered {
+  display: flex;
+  justify-content: center;
+}
+
+.drawer-close-button {
+  // shifting button position to account for empty space (padding) taken up by button
+  transform: translate(8px, -8px);
+}
+
+.drawer-header {
+  background-color: $link-water-2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  column-gap: 30px;
+  padding: 24px;
+  position: sticky;
+  top: 0;
+}
+
+.drawer-content {
+  display: flex;
+  flex-direction: column;
+  row-gap: 20px;
+  padding: 0 24px 24px 24px;
+}
+
+.drawer-statement-group {
+  h5 {
+    margin-bottom: 2px;
+  }
+
+  p {
+    color: $mine-shaft-2;
+    font-size: 12px;
+    letter-spacing: 0.1px;
+    line-height: 1.33;
+  }
+}
+
+.drawer-statement-list {
+  display: flex;
+  flex-direction: column;
+  row-gap: 6px;
+  margin-top: 12px;
+}
+
+h1 {
+  color: $shark;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.33;
+}
+
+h2 {
+  color: $shark;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.33;
+}
+
+h3 {
+  font-size: 22px;
+  line-height: 1.33;
+}
+
+h4 {
+  color: $shark;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.33;
+}
+
+h5 {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1.33;
+}
+
+.heading-badge {
+  background-color: $hawkes-blue;
+  border-radius: 500px;
+  color: $cape-cod;
+  font-size: 22px;
+  line-height: 1.2;
+  padding: 11px 20px;
+  width: fit-content;
+}
+
+.heading-badge-wrapper {
+  padding: 18px 0 20px;
+}
+
+.icon-vote {
+  margin-bottom: 3px;
+}
+
+// custom styling for material button toggle group
+mat-button-toggle-group.toggle-group {
+  border-color: $mystic;
+
+  mat-button-toggle {
+    border-color: $mystic;
+    color: $mine-shaft;
+
+    ::ng-deep .mat-button-toggle-button {
+      letter-spacing: 0.1px;
+    }
+
+    &.mat-button-toggle-checked {
+      background-color: $hawkes-blue;
+      color: $congress-blue;
+
+      // checkmark
+      ::ng-deep .mat-pseudo-checkbox::after {
+        color: $congress-blue;
+      }
+    }
+  }
+}
+
+mat-sidenav.drawer {
+  background-color: $link-water-2;
+  border-radius: 16px;
+  bottom: 10px;
+  right: 10px;
+  top: 10px;
+  width: 400px;
+}
+
+.nav {
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 10px 10px 62px;
+  width: 300px;
+
+  .nav-item {
+    font-family: $main-font; // must be set here to overcome font from material component
+    display: flex;
+    align-items: center;
+    column-gap: 10px;
+    margin-right: 15px;
+  }
+
+  .nav-subitem {
+    background-color: $selago;
+    font-family: $main-font; // must be set here to overcome font from material component
+    display: flex;
+    align-items: center;
+    column-gap: 10px;
+    padding: 14px;
+  }
+
+  .nav-subtitle {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.1px;
+    line-height: 1.3;
+  }
+
+  .nav-title {
+    color: $mine-shaft-2;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1px;
+    line-height: 1.5;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .pill {
+    background-color: $link-water;
+    color: $cloud-burst;
+    letter-spacing: 0.1px;
+  }
+}
+
+.nav-label {
+  color: $cape-cod;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  line-height: 1.33;
+  margin-bottom: 8px;
+  margin-left: 14px;
+}
+
+.overview-description {
+  margin-bottom: 30px;
+  margin-top: 20px;
+  text-align: center;
+}
+
+.overview-summary {
+  margin-bottom: 34px;
+}
+
+p {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.paragraphs > p:not(:first-child) {
+  margin-top: 1.25em;
+}
+
+.pill {
+  border-radius: 500px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  min-width: 53px;
+  padding: 4px 11px;
+  text-align: center;
+}
+
+.report-content {
+  flex-grow: 1;
+  max-width: 1175px;
+  overflow-y: auto;
+  padding: 10px 0 40px;
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  column-gap: 38px;
+  margin-bottom: 10px;
+  padding: 24px 30px;
+
+  .report-header-details {
+    flex-grow: 1;
+  }
+}
+
+.report-main {
+  display: flex;
+  column-gap: 26px;
+  flex-grow: 1;
+  overflow-y: hidden;
+  padding-left: 26px;
+  padding-right: 36px;
+}
+
+.report-page {
+  background-color: $link-water-3;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.statement-card-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 12px;
+}
+
+.subtopic-breakdown {
+  @include breakdown-container;
+  display: flex;
+  align-items: center;
+  column-gap: 30px;
+  margin: 10px 0 44px;
+
+  .breakdown-divider {
+    align-self: stretch;
+    border-left: 1px solid $cloud-burst;
+  }
+
+  .subtopic-breakdown-description {
+    color: $cloud-burst;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+}
+
+.subtopic-breakdown-item {
+  display: flex;
+  align-items: center;
+  column-gap: 7px;
+  flex-shrink: 0;
+
+  .pill {
+    background-color: $cloud-burst;
+    color: $white;
+    font-size: 14px;
+  }
+
+  .subtopic-breakdown-item-text {
+    color: $cloud-burst;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+}
+
+.subtopic-section {
+  padding: 40px 30px;
+
+  &:first-child {
+    padding-top: 0px;
+  }
+
+  &:not(:first-child) {
+    border-top: 1px solid $mystic-2;
+  }
+}
+
+.subtopic-section-description {
+  background-color: $concrete;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  column-gap: 10px;
+  max-width: fit-content;
+  padding: 12px 18px;
+
+  > mat-icon {
+    color: $cape-cod;
+    flex-shrink: 0;
+  }
+}
+
+.subtopic-section-summary {
+  margin: 8px 0 30px;
+
+  p {
+    color: $mine-shaft-2;
+    font-size: 14px;
+    line-height: 1.33;
+    letter-spacing: 0.1px;
+  }
+}
+
+.subtopic-themes-group {
+  margin-top: 25px;
+}
+
+.toggle-group-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.tooltip-trigger {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+}
+
+.topic-breakdown {
+  @include breakdown-container;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 30px;
+  row-gap: 18px;
+}
+
+.topic-breakdown-item {
+  display: flex;
+  align-items: center;
+  column-gap: 7px;
+
+  .pill {
+    background-color: $cloud-burst;
+    color: $white;
+    font-size: 14px;
+  }
+
+  .topic-breakdown-item-text {
+    color: $cloud-burst;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+}
+
+.topic-breakdown-wrapper {
+  padding: 0 30px 15px;
+}
+
+@media screen and (max-width: 1000px) {
+  .report-main {
+    flex-direction: column;
+    overflow-y: visible;
+  }
+
+  .report-page {
+    height: auto;
+  }
+}

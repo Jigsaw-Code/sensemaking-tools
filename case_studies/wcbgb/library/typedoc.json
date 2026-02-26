@@ -1,0 +1,6 @@
+{
+  "entryPoints": ["./src/sensemaker.ts", "./src/types.ts", "./src/models/model.ts"],
+  "includeVersion": true,
+  "name": "Sensemaking Tools Documentation",
+  "out": "./docs"
+}

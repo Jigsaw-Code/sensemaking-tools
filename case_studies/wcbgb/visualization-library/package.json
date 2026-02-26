@@ -1,0 +1,55 @@
+{
+    "name": "@conversationai/sensemaker-visualizations",
+    "version": "1.0.46",
+    "description": "Interactive visualization components for sensemaker data",
+    "type": "module",
+    "main": "dist/sensemaker-chart.cjs.js",
+    "module": "dist/sensemaker-chart.es.js",
+    "types": "dist/sensemaker-chart.d.ts",
+    "unpkg": "dist/sensemaker-chart.umd.js",
+    "jsdelivr": "dist/sensemaker-chart.umd.js",
+    "exports": {
+        ".": {
+            "import": "./dist/sensemaker-chart.es.js",
+            "require": "./dist/sensemaker-chart.cjs.js",
+            "types": "./dist/sensemaker-chart.d.ts"
+        },
+        "./dist/sensemaker-viz-components.css": "./dist/sensemaker-viz-components.css"
+    },
+    "files": [
+        "dist"
+    ],
+    "peerDependencies": {
+        "d3": "^7.0.0"
+    },
+    "homepage": "https://github.com/Jigsaw-Code/sensemaking-tools/tree/main/visualization-library#readme",
+    "devDependencies": {
+        "@storybook/addon-essentials": "^8.6.12",
+        "@storybook/blocks": "^8.6.12",
+        "@storybook/test": "^8.6.12",
+        "@storybook/web-components": "^8.6.12",
+        "@storybook/web-components-vite": "^8.6.12",
+        "lit": "^3.3.0",
+        "storybook": "^8.6.12",
+        "vite": "^6.3.5",
+        "d3": "^7.9.0"
+    },
+    "scripts": {
+        "build": "vite build",
+        "test": "echo \"No test specified\"",
+        "storybook": "storybook dev -p 6006",
+        "build-storybook": "storybook build",
+        "prepublishOnly": "npm run build"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Jigsaw-Code/sensemaking-tools.git",
+        "directory": "visualization-library"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "bugs": {
+        "url": "https://github.com/Jigsaw-Code/sensemaking-tools/issues"
+    }
+}

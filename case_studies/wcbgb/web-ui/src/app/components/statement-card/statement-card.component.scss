@@ -1,0 +1,134 @@
+@import "../../../style-vars";
+
+@mixin card-shape {
+  border-radius: 16px 16px 16px 0;
+}
+
+.inline-card {
+  @include card-shape;
+  background-color: $white;
+  border: 1px solid $mystic;
+  height: 100%; // needed for usage of element in grid to ensure it takes up any empty space in the grid row
+  padding: 12px;
+
+  &:hover {
+    background-color: $mystic-2;
+  }
+}
+
+p {
+  font-size: 12px;
+  line-height: 1.33;
+  letter-spacing: 0.1px;
+
+  &.truncated {
+    @include truncateText(3);
+  }
+}
+
+.pill {
+  border-radius: 500px;
+  color: $mine-shaft;
+  font-size: 10px;
+  letter-spacing: 0.1px;
+  line-height: 1.2;
+  padding: 3px 8px;
+  width: fit-content;
+
+  &.blank {
+    background-color: $white;
+    border: 1px solid $silver;
+    padding: 2px 7px;
+  }
+
+  &.neg {
+    background-color: $your-pink;
+  }
+
+  &.neutral {
+    background-color: $alto;
+  }
+
+  &.pos {
+    background-color: $magic-mint;
+  }
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 5px;
+  row-gap: 5px;
+  margin-bottom: 8px;
+}
+
+.popup-card {
+  @include card-shape;
+  background-color: $white;
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.15), 0px 1px 2px rgba(0, 0, 0, 0.30);
+  max-width: 250px;
+
+  .popup-bottom {
+    padding: 12px;
+  }
+
+  .popup-top {
+    border-bottom: 1px solid $mystic;
+    padding: 12px;
+  }
+}
+
+.subheading {
+  color: $cape-cod-2;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1.33;
+}
+
+.topic-breakdown {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+
+.vote-breakdown {
+  color: $cape-cod-2;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1.33;
+  display: grid;
+  grid-template-columns: max-content auto;
+  gap: 7px 25px;
+  margin-top: 5px;
+}
+
+.vote-dot {
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  height: 4px;
+  width: 4px;
+
+  &.agree {
+    background-color: $magic-mint;
+  }
+
+  &.disagree {
+    background-color: $your-pink;
+  }
+
+  &.pass {
+    background-color: $white;
+    border: 0.5px solid $boulder;
+  }
+}
+
+.vote-type {
+  display: flex;
+  align-items: center;
+  column-gap: 5px;
+}

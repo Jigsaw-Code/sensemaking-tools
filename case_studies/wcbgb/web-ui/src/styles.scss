@@ -1,0 +1,23 @@
+/* You can add global styles to this file, and also import other style files */
+
+@import "style-vars";
+
+html, body {
+  height: 100%;
+}
+
+body {
+  color: #1F1F1F;
+  font-family: $main-font;
+  margin: 0;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+h1, h2, h3, h4, h5, h6, p, ul {
+  color: #1F1F1F;
+  font-weight: 400;
+  margin: 0;
+}

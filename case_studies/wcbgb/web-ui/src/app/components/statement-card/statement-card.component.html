@@ -1,0 +1,51 @@
+<ng-template #mainStatement let-truncated="truncated">
+  <div class="pills" [ngSwitch]="type">
+    <ng-container *ngSwitchCase="'high-alignment'">
+      <div class="pill pos" *ngIf="isOverallAgree">{{ agreePercent }}% voted agree</div>
+      <div class="pill neg" *ngIf="!isOverallAgree">{{ disagreePercent }}% voted disagree</div>
+    </ng-container>
+    <ng-container *ngSwitchCase="'low-alignment'">
+      <div class="pill neutral">{{ agreePercent }}% voted agree</div>
+      <div class="pill neutral">{{ disagreePercent }}% voted disagree</div>
+    </ng-container>
+    <ng-container *ngSwitchCase="'high-uncertainty'">
+      <div class="pill blank">{{ passPercent }}% voted "unsure/pass"</div>
+    </ng-container>
+    <ng-container *ngSwitchCase="'uncategorized'">
+      <div class="pill blank">{{ agreePercent }}% voted agree</div>
+      <div class="pill blank">{{ disagreePercent }}% voted disagree</div>
+    </ng-container>
+  </div>
+  <p [class.truncated]="truncated">{{ data?.text }}</p>
+</ng-template>
+<article class="inline-card" [customTooltip]="tooltipTemplate">
+  <ng-container *ngTemplateOutlet="mainStatement; context: { truncated: truncate }"></ng-container>
+</article>
+<ng-template #tooltipTemplate>
+  <div class="popup-card">
+    <div class="popup-top">
+      <ng-container *ngTemplateOutlet="mainStatement"></ng-container>
+      <div class="topic-breakdown">Topic(s): {{ topics }}</div>
+    </div>
+    <div class="popup-bottom">
+      <div class="subheading">{{ voteTotal }} total votes</div>
+      <div class="vote-breakdown">
+        <div class="vote-type">
+          <div class="vote-dot agree"></div>
+          <div>Agree</div>
+        </div>
+        <div>{{ agreeTotal }}</div>
+        <div class="vote-type">
+          <div class="vote-dot disagree"></div>
+          <div>Disagree</div>
+        </div>
+        <div>{{ disagreeTotal }}</div>
+        <div class="vote-type">
+          <div class="vote-dot pass"></div>
+          <div>"Unsure/Pass"</div>
+        </div>
+        <div>{{ passTotal }}</div>
+      </div>
+    </div>
+  </div>
+</ng-template>

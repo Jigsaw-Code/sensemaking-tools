@@ -1,34 +1,23 @@
 # To build the docker container
 Run all the following commands from the root directory
 ### Build and Run your service:
-```sh
-docker compose up --build -d
-```
-
+`docker compose up --build -d`
 ### Find the container name:
-```sh
-docker ps
-```
+`docker ps`
 
 Should look something like:
-```txt
+```
 CONTAINER ID   IMAGE                             COMMAND               CREATED         STATUS         PORTS     NAMES
 7b2de3be0087   participation-project-napolitan   "tail -f /dev/null"   5 seconds ago   Up 4 seconds             participation-project-napolitan-1
 ```
 
 ### Execute a bash shell inside the container:
-Use the name from above.
-```sh
-docker exec -it participation-project-napolitan-1 bash
-```
+Use the name from above.\
+`docker exec -it participation-project-napolitan-1 bash`
 
 ### Setup gcloud cli project and authenticate:
-```sh
-gcloud auth application-default login && \
-gcloud config set project <project_name>
-```
+`gcloud auth application-default login && \`\
+`gcloud config set project <project_name>`
 
 # To delete docker container
-```sh
-docker compose down --rmi all --volumes
-```
+`docker compose down --rmi all --volumes`
