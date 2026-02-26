@@ -158,7 +158,9 @@ function groupOpinions(opinions) {
   // 1. Group by high-level Topic
   const byTopic = groupBy(opinions, "topic");
 
-  const o = byTopic.map(([topicText, topicOpinions]) => {
+  const o = byTopic
+    .filter(([topicText]) => !config.excludedTopics.includes(topicText))
+    .map(([topicText, topicOpinions]) => {
     // 2. Find matching AI summary (stripping markdown headers)
     const topicMatch = summary.sub_contents.find(
       (t) => t.title.replace("## ", "") === topicText,
@@ -358,7 +360,7 @@ topics.sort((a, b) => b.quoteCount - a.quoteCount);
 
 // 5. Prepare outputs
 const executiveSummary = parseSummary(cleanMarkdown(summary.text || ""));
-const title = summary.title.replace("# ", "");
+const title = config.title || summary.title?.replace("# ", "") || "";
 
 const baseOutput = {
   ...options,
