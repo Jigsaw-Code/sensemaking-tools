@@ -1,0 +1,31 @@
+{
+  "name": "jigsaw-sensemaking-generator",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dev.js",
+  "scripts": {
+    "predev": "node build.js dev",
+    "dev": "node dev.js",
+    "static": "node build.js static",
+    "inline": "node build.js inline",
+    "build": "node build.js",
+    "github": "node build.js github",
+    "preview": "node build.js preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/polygraph-cool/jigsaw-sensemaking-generator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/polygraph-cool/jigsaw-sensemaking-generator/issues"
+  },
+  "homepage": "https://github.com/polygraph-cool/jigsaw-sensemaking-generator#readme",
+  "devDependencies": {
+    "browser-sync": "^3.0.4",
+    "express": "^5.2.1",
+    "mustache": "^4.2.0"
+  }
+}
