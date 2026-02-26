@@ -1,3 +1,7 @@
 {
-  "logo": "logo.svg"
+  "logo": "logo.svg",
+  "title": "Report Title",
+  "excludedTopics": [
+    "Other"
+  ]
 }
