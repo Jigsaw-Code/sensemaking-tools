@@ -12,7 +12,7 @@ Jigsaw explored the application of AI to public opinion research through two pro
 
 What Could BG Be? was a month-long public consultation crowdsourcing ideas to inform the 25-year plan for Warren County, Kentucky. [Visit the case study section of this repository to learn more about the project and explore the code base](case_studies/wcbgb/).
 
-We the People was a nationally representative public opinion research initiative, combining the depth of focus groups with the breadth of polls with an aim to identify areas of broad public agreement on the topic of freedom and equality in America. [Visit the case study section of this repository to learn more about the project and explore the code base](case_studies/wtp/).
+We the People was a nationally representative public opinion research initiative, combining the depth of focus groups with the breadth of polls with an aim to identify areas of broad public agreement on the topic of freedom and equality in America. Replication code for this project will be released soon.
 
 ## Our Approach
 
