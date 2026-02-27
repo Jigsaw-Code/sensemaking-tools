@@ -14,7 +14,7 @@ import fs from "fs";
  * @property {string} topic - The high-level topic category.
  * @property {string} opinion - The specific opinion text.
  * @property {string} quote - The actual quote text.
- * @property {string} rid - Representative ID (Participant ID).
+ * @property {string} participant_id - Representative ID (Participant ID).
  * @property {string|number} [AVERAGE_OF_2_BRIDGING] - Used for sorting.
  */
 
@@ -128,7 +128,7 @@ function generateId(str, useFirstWords = false) {
 /**
  * Extracts quotes from raw values, cleans them, and sorts them by bridging score.
  * @param {RawOpinion[]} values
- * @returns {Object[]} Sorted quotes with text, RID, and bridging score.
+ * @returns {Object[]} Sorted quotes with text, participant_id, and bridging score.
  */
 function sortAndExtractQuotes(values) {
   return (
@@ -136,7 +136,7 @@ function sortAndExtractQuotes(values) {
       .map((v) => ({
         index: v.index,
         text: v.quote,
-        rid: v.rid,
+        participant_id: v.participant_id,
         // Convert bridging score to number, default to 0
         avg_bridging: v.AVERAGE_OF_2_BRIDGING ? +v.AVERAGE_OF_2_BRIDGING : 0,
       }))
@@ -169,7 +169,9 @@ function groupOpinions(opinions) {
     const topicId = generateId(topicText, true);
 
     // 3. Group by specific Opinion within the Topic
-    const byOpinion = groupBy(topicOpinions, "opinion").map(([_, values]) => ({
+      const byOpinion = groupBy(topicOpinions, "opinion")
+        .filter(([opinionText]) => !config.excludedOpinions || !config.excludedOpinions.includes(opinionText))
+        .map(([_, values]) => ({
       opinionID: generateId(values[0].opinion),
       // fullID is crucial: it links the UI chart to the specific quotes list
       fullID: `${topicId}-${generateId(values[0].opinion)}`,
@@ -238,7 +240,7 @@ const globalSampleParticipants = new Set();
 
 /**
  * Selects a small subset of quotes for the sample quotes.
- * Attempts to prioritize participants (RIDs) who haven't been featured yet
+ * Attempts to prioritize participants (participant_ids) who haven't been featured yet
  * to maximize the diversity of voices shown in the initial view.
  *
  * @param {Object[]} quotes - The full list of quotes for an opinion.
@@ -258,7 +260,7 @@ function getSampleQuotes(opinions) {
   const selected = [];
   // loop through the number of quotes we want to show in the sample
   for (let i = 0; i < options.sampleQuoteCount; i++) {
-    // loop through the sorted quotes and find the first quote whose participant (RID) hasn't been featured yet in the globalSampleParticipants set
+    // loop through the sorted quotes and find the first quote whose participant (participant_id) hasn't been featured yet in the globalSampleParticipants set
     // loop through each opinion
     for (let o of opinions) {
       const possible = allQuotes.filter((q) => q.fullID === o.fullID);
@@ -266,12 +268,12 @@ function getSampleQuotes(opinions) {
       // find the first quote in this opinion from a participant we haven't featured at all yet
       let newQuote = possible.find(
         (q) =>
-          !globalSampleParticipants.has(q.rid) &&
-          !selected.find((s) => s.rid === q.rid),
+          !globalSampleParticipants.has(q.participant_id) &&
+          !selected.find((s) => s.participant_id === q.participant_id),
       );
       // now try someone that hasn't been featured in this opinion's sample yet, even if they have been featured in other opinions' samples
       if (!newQuote) {
-        newQuote = possible.find((q) => !selected.find((s) => s.rid === q.rid));
+        newQuote = possible.find((q) => !selected.find((s) => s.participant_id === q.participant_id));
       }
 
       // now try someone that has already been featured in this same topic
@@ -282,7 +284,7 @@ function getSampleQuotes(opinions) {
 
       if (newQuote) {
         selected.push({ ...newQuote });
-        globalSampleParticipants.add(newQuote.rid);
+        globalSampleParticipants.add(newQuote.participant_id);
       }
     }
   }
@@ -292,18 +294,18 @@ function getSampleQuotes(opinions) {
 }
 
 /**
- * Counts the number of unique participants (RIDs) in a list of opinions.
+ * Counts the number of unique participants (participant_ids) in a list of opinions.
  * @param {Object[]} opinions
  * @returns {number} Unique participant count.
  */
 function getUniqueQuoteCount(opinions) {
-  const uniqueRids = new Set();
+  const uniqueParticipants = new Set();
   opinions.forEach((o) => {
     o.quotes.forEach((q) => {
-      uniqueRids.add(q.rid);
+      uniqueParticipants.add(q.participant_id);
     });
   });
-  return uniqueRids.size;
+  return uniqueParticipants.size;
 }
 
 // --- Main Execution ---

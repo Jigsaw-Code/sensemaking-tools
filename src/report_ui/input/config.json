@@ -3,5 +3,8 @@
   "title": "Report Title",
   "excludedTopics": [
     "Other"
+  ],
+  "excludedOpinions": [
+    "Other"
   ]
 }
