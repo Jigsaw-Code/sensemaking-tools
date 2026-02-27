@@ -309,7 +309,7 @@ function getUniqueQuoteCount(opinions) {
 // --- Main Execution ---
 
 // 1. Calculate aggregate statistics
-const byParticipant = groupBy(opinions, "rid");
+const byParticipant = groupBy(opinions, "participant_id");
 const totalParticipants = addComma(byParticipant.length);
 const propositionsGenerated = 0; // Placeholder / Todo
 

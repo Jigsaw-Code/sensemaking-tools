@@ -179,7 +179,7 @@ def write_dicts_to_csv(
     all_keys.update(row.keys())
 
   preferred_order = [
-      "rid",
+      "participant_id",
       "survey_text",
       "response_text",
       "quote_with_brackets",

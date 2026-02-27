@@ -16,7 +16,7 @@ def is_r1_df_missing_required_column(df: pd.DataFrame) -> str:
       missing column name or None if all columns are present.
   """
   required_r1_columns = [
-      "rid",
+      "participant_id",
       "topic",
       "opinion",
       "quote",
@@ -40,7 +40,7 @@ def is_r2_df_missing_required_column(df: pd.DataFrame) -> str:
   Returns:
       missing column name or None if all columns are present.
   """
-  required_r2_columns = ["rid"] + [
+  required_r2_columns = ["participant_id"] + [
       item
       for i in range(2, 7)
       for item in (

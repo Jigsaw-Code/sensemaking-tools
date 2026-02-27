@@ -28,7 +28,7 @@ def format_simulation_result_card(record):
   # --- Header with short, important fields ---
   card.append(separator)
   card.append(f"Topic: {record.get('topic', 'N/A')}")
-  card.append(f"Participant (rid): {record.get('rid', 'N/A')}")
+  card.append(f"Participant (rid): {record.get('participant_id', 'N/A')}")
   card.append(f"Job ID: {record.get('job_id', 'N/A')}")
   card.append(f"Tokens Used: {record.get('total_token_used', 'N/A')}")
 
@@ -99,7 +99,7 @@ def format_failed_try_card(record):
   # --- Header ---
   card.append(separator)
   card.append(f"Topic: {record.get('topic', 'N/A')}")
-  card.append(f"Participant (rid): {record.get('rid', 'N/A')}")
+  card.append(f"Participant (rid): {record.get('participant_id', 'N/A')}")
   card.append(f"Attempt Index: {record.get('attempt_index', 'N/A')}")
   card.append(separator)
 
@@ -126,7 +126,7 @@ def format_participant_card(record):
 
   # --- Header ---
   card.append(separator)
-  card.append(f"Participant (rid): {record.get('rid', 'N/A')}")
+  card.append(f"Participant (rid): {record.get('participant_id', 'N/A')}")
   card.append(f"Topic: {record.get('topic', 'N/A')}")
   card.append(separator)
 

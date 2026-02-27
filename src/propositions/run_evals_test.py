@@ -11,7 +11,7 @@ class RunEvalsTest(unittest.TestCase):
 
   def setUp(self):
     self.df_r2 = pd.DataFrame({
-        "rid": [1, 2, 3, 4],
+        "participant_id": [1, 2, 3, 4],
         "question_1_topic": ["q1a", "q1a", "q1a", "q1a"],
         "answer_1": ["a1a", "a1a", "a1a", "a1a"],
         "question_2_opinion": ["q2b", "q2b", "q2b", "q2b"],

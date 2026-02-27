@@ -426,7 +426,7 @@ async def run_simulated_jury(
       random.shuffle(shuffled_batch)
 
       prompt = generate_vote_prompt(
-          row["rid"],
+          row["participant_id"],
           participation.get_prompt_representation(row),
           shuffled_batch,
           voting_mode,
@@ -441,7 +441,7 @@ async def run_simulated_jury(
 
       jobs.append({
           "job_id": f"{i}-{j}",
-          "participant_rid": row["rid"],  # Add rid for later merging
+          "participant_rid": row["participant_id"],  # Add for later merging
           "topic": topic_name,
           "opinion": opinion_name,
           "prompt": prompt,
@@ -515,7 +515,7 @@ def build_approval_matrix(
   """Builds a participant-by-proposition approval matrix from raw results."""
   approvals = []
   for _, row in approval_results_df.iterrows():
-    participant_id = row["data_row"]["rid"]
+    participant_id = row["data_row"]["participant_id"]
     # The result is a dictionary mapping proposition to boolean approval
     for proposition, approved in row["result"].items():
       if proposition == "error":

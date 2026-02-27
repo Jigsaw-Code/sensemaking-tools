@@ -204,12 +204,12 @@ class SimulatedJuryTest(unittest.TestCase):
 
     data = [
         {
-            'data_row': {'rid': 'p1'},
+            'data_row': {'participant_id': 'p1'},
             'result': {'error': 'Failed after 4 attempts'},
         },
-        {'data_row': {'rid': 'p2'}, 'result': {'Prop1': True, 'Prop2': False}},
+        {'data_row': {'participant_id': 'p2'}, 'result': {'Prop1': True, 'Prop2': False}},
         {
-            'data_row': {'rid': 'p3'},
+            'data_row': {'participant_id': 'p3'},
             'result': {
                 'Prop1': False,
                 'Prop2': True,

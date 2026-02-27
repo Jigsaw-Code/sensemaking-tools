@@ -133,7 +133,7 @@ async def run_agreement_evals_on_r2(
       q_num = match.group(1)
       answer_col = f"answer_{q_num}"
       if answer_col in df.columns:
-        temp_df = df[["rid", col, answer_col]].copy()
+        temp_df = df[["participant_id", col, answer_col]].copy()
         temp_df.rename(
             columns={col: "question", answer_col: "answer"}, inplace=True
         )
@@ -158,7 +158,7 @@ async def run_agreement_evals_on_r2(
       combined_eval_df,
       metric,
       input_mapping={"question": "question", "response": "answer"},
-      metadata_cols=["rid"],
+      metadata_cols=["participant_id"],
   )
 
   runner = eval_runner.EvalRunner(model)
@@ -180,7 +180,7 @@ async def run_agreement_evals_on_r2(
         continue
       answer_col = row["original_answer_col"]
       agrees_col = f"{answer_col}_agrees"
-      df.loc[df["rid"] == row["rid"], agrees_col] = row["agrees"]
+      df.loc[df["participant_id"] == row["participant_id"], agrees_col] = row["agrees"]
 
     logging.info("Agreement evaluations completed successfully.")
   else:

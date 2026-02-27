@@ -339,7 +339,7 @@ def generate_r2_prompt_string(
 
   # Add the rest of the data by row.
   for _, row in r2_df.iterrows():
-    user_id = row["rid"]
+    user_id = row["participant_id"]
     # Note user's id.
     r2_prompt += f"<participant id={user_id}>"
     # Build the user data for prompt.

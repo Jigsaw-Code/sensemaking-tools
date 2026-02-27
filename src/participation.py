@@ -37,7 +37,7 @@ class ParticipantResponse:
           'ParticipantResponse must be initialized with a pandas Series.'
       )
     self.data = series.copy()
-    self.id = self.data.get('rid', 'N/A')
+    self.id = self.data.get('participant_id', 'N/A')
 
   # --- R1 Data Accessors ---
 
@@ -247,8 +247,8 @@ def de_duplicate_columns(df):
 def load_and_merge_participant_data(
     r1_url: str = None,
     r2_url: str = None,
-    r1_merge_col: str = 'rid',
-    r2_merge_col: str = 'rid',
+    r1_merge_col: str = 'participant_id',
+    r2_merge_col: str = 'participant_id',
 ) -> pd.DataFrame:
   """Loads and merges participant data from R1 and R2 Google Sheets."""
   creds, _ = google.auth.default(

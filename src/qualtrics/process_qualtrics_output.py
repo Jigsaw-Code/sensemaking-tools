@@ -76,6 +76,7 @@ ROUND_2_RESPONSE_TEXT_COLUMNS = [
 SURVEY_TEXT = "survey_text"
 RESPONSE_TEXT = "response_text"
 RESPONDENT_ID = "rid"
+PARTICIPANT_ID = "participant_id"
 DURATION = "Duration (in seconds)"
 
 # Columns for filtering out data.
@@ -482,6 +483,9 @@ def process_csv(
   output_dir = os.path.dirname(output_path)
   if output_dir:
     os.makedirs(output_dir, exist_ok=True)
+
+  processed_surveys = processed_surveys.rename(columns={
+      RESPONDENT_ID: PARTICIPANT_ID})
 
   processed_surveys.to_csv(output_path, index=False)
   logging.info(f"Processed data saved to {output_path}")
