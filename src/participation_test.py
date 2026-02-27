@@ -8,7 +8,7 @@ class ParticipantTest(unittest.TestCase):
 
   def test_get_prompt_representation_with_all_data(self):
     data = {
-        'rid': '1',
+        'participant_id': '1',
         'question_1': 'What is your favorite color?',
         'answer_1': 'Blue',
         'question_2': 'Some quote',
@@ -28,7 +28,7 @@ class ParticipantTest(unittest.TestCase):
 
   def test_get_prompt_representation_with_missing_r1_data(self):
     data = {
-        'rid': '2',
+        'participant_id': '2',
         # question_1 and answer_1 are missing
         'question_2': 'Some quote',
         'answer_2': 'Some answer',
@@ -46,7 +46,7 @@ class ParticipantTest(unittest.TestCase):
 
   def test_get_prompt_representation_with_missing_r2_data(self):
     data = {
-        'rid': '3',
+        'participant_id': '3',
         'question_1': 'What is your favorite color?',
         'answer_1': 'Blue',
         'question_2': 'Some quote',
@@ -64,7 +64,7 @@ class ParticipantTest(unittest.TestCase):
 
   def test_get_prompt_representation_with_only_base_data(self):
     data = {
-        'rid': '4',
+        'participant_id': '4',
     }
     row = pd.Series(data)
     prompt = participation.get_prompt_representation(row)
@@ -72,7 +72,7 @@ class ParticipantTest(unittest.TestCase):
 
   def test_dynamic_column_discovery(self):
     data = {
-        'rid': '5',
+        'participant_id': '5',
         'question_1': 'Intro question',
         'answer_1': 'Intro answer',
         'question_3': 'Gov 3',
@@ -112,8 +112,8 @@ class ParticipantTest(unittest.TestCase):
     # Mock the return value of google.auth.default
     mock_google_auth.return_value = (None, None)
     # Mock the return value of load_sheet_as_df
-    df_r1 = pd.DataFrame({'rid': ['1', '2'], 'r1_col': ['a', 'b']})
-    df_r2 = pd.DataFrame({'rid': ['1', '3'], 'r2_col': ['c', 'd']})
+    df_r1 = pd.DataFrame({'participant_id': ['1', '2'], 'r1_col': ['a', 'b']})
+    df_r2 = pd.DataFrame({'participant_id': ['1', '3'], 'r2_col': ['c', 'd']})
     mock_load_sheet_as_df.side_effect = [df_r1, df_r2]
     mock_get_sheet_name_from_gid.return_value = 'sheet_name'
 

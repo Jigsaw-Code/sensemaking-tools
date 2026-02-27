@@ -26,13 +26,13 @@ class CategorizationRunnerTest(unittest.TestCase):
   def test_process_and_print_topic_tree(self, mock_generate_and_save):
     output_csv_rows = [
         {
-            'rid': 's1',
+            'participant_id': 's1',
             'topic': 'Topic 1',
             'opinion': 'Opinion 1',
             'quote': 'quote 1',
         },
         {
-            'rid': 's2',
+            'participant_id': 's2',
             'topic': 'Topic 1',
             'opinion': 'Opinion 1',
             'quote': 'quote 2',
@@ -66,7 +66,7 @@ class CategorizationRunnerTest(unittest.TestCase):
 
   def test_set_topics_on_csv_rows_opinion_categorization(self):
     original_csv_rows = [
-        {'rid': '1', 'survey_text': 'Statement 1'},
+        {'participant_id': '1', 'survey_text': 'Statement 1'},
     ]
     categorized_statements = [
         custom_types.Statement(
@@ -104,7 +104,7 @@ class CategorizationRunnerTest(unittest.TestCase):
 
   def test_set_topics_on_csv_rows_multiple_opinions(self):
     original_csv_rows = [
-        {'rid': '1', 'survey_text': 'Statement 1'},
+        {'participant_id': '1', 'survey_text': 'Statement 1'},
     ]
     categorized_statements = [
         custom_types.Statement(
@@ -143,14 +143,14 @@ class CategorizationRunnerTest(unittest.TestCase):
     self.assertEqual(opinions, {'Opinion A', 'Opinion B'})
 
     for row in output_rows:
-      self.assertEqual(row['rid'], '1')
+      self.assertEqual(row['participant_id'], '1')
       self.assertEqual(row['survey_text'], 'Statement 1')
       self.assertEqual(row['quote'], 'Quote 1')
       self.assertEqual(row['topic'], 'Topic A')
 
   def test_set_topics_on_csv_rows_with_brackets_in_quote(self):
     original_csv_rows = [
-        {'rid': '1', 'survey_text': 'Statement 1'},
+        {'participant_id': '1', 'survey_text': 'Statement 1'},
     ]
     categorized_statements = [
         custom_types.Statement(
@@ -175,7 +175,7 @@ class CategorizationRunnerTest(unittest.TestCase):
     self.assertEqual(
         output_rows,
         [{
-            'rid': '1',
+            'participant_id': '1',
             'survey_text': 'Statement 1',
             'quote': 'a quote with brackets and ... some s---',
             'quote_with_brackets': (
@@ -191,7 +191,7 @@ class CategorizationRunnerTest(unittest.TestCase):
   ):
     """Tests that we don't crash if a quote has a FlatTopic."""
     original_csv_rows = [
-        {'rid': '1', 'survey_text': 'Statement 1'},
+        {'participant_id': '1', 'survey_text': 'Statement 1'},
     ]
     categorized_statements = [
         custom_types.Statement(
@@ -241,7 +241,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         log_level='INFO',
         skip_autoraters=False,
     )
-    mock_read_csv.return_value = [{'rid': '1', 'survey_text': 'test'}]
+    mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
     mock_convert.return_value = [
         custom_types.Statement(id='1', text='test', topics=[], quotes=[])
     ]

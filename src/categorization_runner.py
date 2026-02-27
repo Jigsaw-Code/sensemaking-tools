@@ -15,7 +15,7 @@
 """
 Learns and assigns topics and opinions to a CSV of statements.
 
-The input CSV must contain "survey_text" and "rid" fields.
+The input CSV must contain "survey_text" and "participant_id" fields.
 The output CSV will contain all input fields plus new "topic" and "opinion" fields.
 The additional_context_file is optional but can be used to clarify goals and context.
 
@@ -113,7 +113,7 @@ def _convert_csv_rows_to_statements(
   statements_map: Dict[str, custom_types.Statement] = {}
 
   for i, row in enumerate(csv_rows):
-    statement_id = row.get("rid")
+    statement_id = row.get("participant_id")
     statement_text = row.get("survey_text")
     csv_topics_string = row.get("topics")
     quote_text = row.get("quote_with_brackets")
@@ -121,7 +121,7 @@ def _convert_csv_rows_to_statements(
     quote_id = row.get("quote_id")
 
     if not statement_id:
-      raise ValueError(f"Row {i+1} is missing 'rid'.")
+      raise ValueError(f"Row {i+1} is missing 'participant_id'.")
     if not statement_text:
       raise ValueError(
           f"Row {i+1} (ID: {statement_id}) is missing 'survey_text'."
@@ -193,7 +193,7 @@ def _set_topics_on_csv_rows(
 
   original_rows_map: Dict[str, StatementCsvRow] = {}
   for row in original_csv_rows:
-    statement_id = row.get("rid")
+    statement_id = row.get("participant_id")
     if statement_id and statement_id not in original_rows_map:
       original_rows_map[statement_id] = row
 
@@ -213,7 +213,7 @@ def _set_topics_on_csv_rows(
 
     base_row_data = original_rows_map.get(statement_id, {})
     new_row = base_row_data.copy()
-    new_row["rid"] = categorized_statement.id
+    new_row["participant_id"] = categorized_statement.id
     new_row["survey_text"] = categorized_statement.text
 
     for quote in categorized_statement.quotes:
@@ -273,7 +273,7 @@ def _process_and_print_topic_tree(
     topic = row.get("topic", "").strip()
     opinion = row.get("opinion", "").strip()
     quote = row.get("quote", "").strip()
-    statement_id = row.get("rid", "").strip()
+    statement_id = row.get("participant_id", "").strip()
 
     if topic and opinion:
       topics[topic][opinion]["count"] += 1
@@ -387,7 +387,7 @@ async def main():
     skipped_rows = []
     skipped_ids = {s.id for s in skipped_statements}
     for row in original_csv_rows:
-      if row.get("rid") in skipped_ids:
+      if row.get("participant_id") in skipped_ids:
         skipped_rows.append(row)
 
     runner_utils.write_dicts_to_csv(skipped_rows, skipped_csv_path)
@@ -466,7 +466,7 @@ async def main():
 
   output_csv_path = os.path.join(args.output_dir, "categorized_filtered.csv")
   columns_to_keep = [
-      "rid",
+      "participant_id",
       "survey_text",
       "quote",
       "topic",

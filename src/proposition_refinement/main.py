@@ -89,7 +89,7 @@ def reconstitute_participant_data(by_opinion_df, args):
   # concatenate these dataframes together to get the full dataset.
   full_r1_df = (
       pd.concat(all_r1_dfs)
-      .drop_duplicates(subset=["rid"])
+      .drop_duplicates(subset=["participant_id"])
       .reset_index(drop=True)
   )
   all_r2_dfs = [
@@ -106,10 +106,10 @@ def reconstitute_participant_data(by_opinion_df, args):
     # column to reconstruct the full R2 dataset. This is a bit tricky.
     # TODO: Ideally, this reconstituted data should be a first-class
     # entry in the world model structure so we don't have to compute it here.
-    reconstituted_r2_df = all_r2_dfs[0].set_index("rid")
+    reconstituted_r2_df = all_r2_dfs[0].set_index("participant_id")
     for i in range(1, len(all_r2_dfs)):
       reconstituted_r2_df = reconstituted_r2_df.combine_first(
-          all_r2_dfs[i].set_index("rid")
+          all_r2_dfs[i].set_index("participant_id")
       )
     reconstituted_r2_df = reconstituted_r2_df.reset_index()
     # This is the merge of the R1 and R2 data. It is computed as an outer merge
@@ -118,7 +118,7 @@ def reconstitute_participant_data(by_opinion_df, args):
     merged_df = pd.merge(
         full_r1_df,
         reconstituted_r2_df,
-        on="rid",
+        on="participant_id",
         how="outer",
         indicator=True,
     )
@@ -150,7 +150,7 @@ def validate_jury_pool_data(jury_pool_df: pd.DataFrame):
   num_ranking_tasks_expected = 4
 
   for i, row in jury_pool_df.head(sample_size).iterrows():
-    print(f"\n  --- Participant {row.get('rid', 'N/A')} ---")
+    print(f"\n  --- Participant {row.get('participant_id', 'N/A')} ---")
 
     # Check for R1 data
     if spec["R1 Conversation Data"] in row and pd.notna(
@@ -218,7 +218,7 @@ def _extract_full_r1_data(by_opinion_df: pd.DataFrame) -> pd.DataFrame:
   all_r1_dfs = [row["r1_df"] for _, row in by_opinion_df.iterrows()]
   return (
       pd.concat(all_r1_dfs)
-      .drop_duplicates(subset=["rid"])
+      .drop_duplicates(subset=["participant_id"])
       .reset_index(drop=True)
   )
 
@@ -236,8 +236,8 @@ def _create_all_participant_data(
   full_r2_df = pd.read_csv(processed_r2_path)
 
   # 2. Validation Check
-  r1_pids = set(full_r1_df["rid"])
-  r2_pids = set(full_r2_df["rid"])
+  r1_pids = set(full_r1_df["participant_id"])
+  r2_pids = set(full_r2_df["participant_id"])
   print(f"  - Found {len(r1_pids)} unique participants in R1 data.")
   print(f"  - Found {len(r2_pids)} unique participants in R2 data.")
   print(
@@ -247,7 +247,7 @@ def _create_all_participant_data(
 
   # 3. Merge into the final DataFrame
   merged_df = pd.merge(
-      full_r1_df, full_r2_df, on="rid", how="outer", suffixes=("_r1", "_r2")
+      full_r1_df, full_r2_df, on="participant_id", how="outer", suffixes=("_r1", "_r2")
   )
   print(
       f"--- Created 'all_participant_data' with {len(merged_df)} total"
@@ -329,7 +329,7 @@ async def run_r2_opinion_ranking(world_model, args, jury_pool_df):
   ranking_col_pattern = re.compile(r"ranking_(\d+)_a_(\d+)")
   preferences_by_topic = collections.defaultdict(list)
 
-  for rid, group in jury_pool_df.groupby("rid"):
+  for rid, group in jury_pool_df.groupby("participant_id"):
     participant_rankings_by_topic = collections.defaultdict(list)
     for col_name in group.columns:
       match = ranking_col_pattern.match(str(col_name))
@@ -1147,7 +1147,7 @@ async def main():
   if args.verbose:
     print("\n--- Sample Participant Records for Jury ---")
     for i, row in jury_pool_df.head(3).iterrows():
-      print(f"\n--- Participant {row['rid']} ---")
+      print(f"\n--- Participant {row['participant_id']} ---")
       print(participation.get_prompt_representation(row))
 
   # --- Pipeline Execution ---

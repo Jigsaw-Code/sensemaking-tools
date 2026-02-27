@@ -95,7 +95,7 @@ async def _get_r2_data_by_opinion(
     return pd.DataFrame(columns=["opinion", "vote"])
 
   # Filter the DataFrame to get only the rows for the specified opinion
-  filtered_columns = ["rid"]
+  filtered_columns = ["participant_id"]
   # Track the answer columns to use to filter the rows down if there is no data.
   answer_columns = []
   for i in gallery_nums:
@@ -529,7 +529,7 @@ async def main():
       )
       r1_prompt = prompts.generate_r1_prompt_string(
           df=row["r1_df"],
-          user_id_column_name="rid",
+          user_id_column_name="participant_id",
           topic_column_name="topic",
           opinion_column_name="opinion",
           quote_column_name="quote",

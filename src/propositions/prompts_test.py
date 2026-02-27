@@ -8,7 +8,7 @@ class PromptsTest(unittest.TestCase):
 
   def setUp(self):
     self.df_r1 = pd.DataFrame({
-        'rid': [1, 2],
+        'participant_id': [1, 2],
         'topic': ['Topic A', 'Topic A'],
         'opinion': ['Opinion A1', 'Opinion A2'],
         'quote': ['Rep text 1', 'Rep text 2'],
@@ -16,7 +16,7 @@ class PromptsTest(unittest.TestCase):
         'Q1': ['Full A1', 'Full A1_2'],
     })
     self.df_r2 = pd.DataFrame({
-        'rid': [1, 2]
+        'participant_id': [1, 2]
         # Other columns will be mocked by prompts_util
     })
     self.opinion_list = ['Opinion A1', 'Opinion B1', 'Opinion C1']
@@ -82,13 +82,13 @@ class PromptsTest(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, 'user_id_column_name'):
       prompts.generate_r1_prompt_string(self.df_r1, None, 'topic', 'opinion')
     with self.assertRaisesRegex(ValueError, 'topic'):
-      prompts.generate_r1_prompt_string(self.df_r1, 'rid', None, 'opinion')
+      prompts.generate_r1_prompt_string(self.df_r1, 'participant_id', None, 'opinion')
     with self.assertRaisesRegex(ValueError, 'opinion'):
-      prompts.generate_r1_prompt_string(self.df_r1, 'rid', 'topic', None)
+      prompts.generate_r1_prompt_string(self.df_r1, 'participant_id', 'topic', None)
     with self.assertRaisesRegex(ValueError, 'quote'):
       prompts.generate_r1_prompt_string(
           self.df_r1,
-          'rid',
+          'participant_id',
           'topic',
           'opinion',
           quote_column_name=None,
@@ -96,7 +96,7 @@ class PromptsTest(unittest.TestCase):
 
   def test_generate_r1_prompt_string_defaults(self):
     prompt = prompts.generate_r1_prompt_string(
-        self.df_r1, 'rid', 'topic', 'opinion'
+        self.df_r1, 'participant_id', 'topic', 'opinion'
     )
     self.assertIn('<R1_DATA>', prompt)
     self.assertIn('<topic>Topic A</topic>', prompt)
@@ -110,7 +110,7 @@ class PromptsTest(unittest.TestCase):
 
   def test_generate_r1_prompt_string_no_sharding(self):
     prompt = prompts.generate_r1_prompt_string(
-        self.df_r1, 'rid', 'topic', 'opinion', should_use_opinion_sharding=False
+        self.df_r1, 'participant_id', 'topic', 'opinion', should_use_opinion_sharding=False
     )
     self.assertEqual(prompt.count('<topic>'), 2)
     self.assertEqual(prompt.count('<opinion>'), 2)
@@ -118,7 +118,7 @@ class PromptsTest(unittest.TestCase):
   def test_generate_r1_prompt_string_full_text(self):
     prompt = prompts.generate_r1_prompt_string(
         self.df_r1,
-        'rid',
+        'participant_id',
         'topic',
         'opinion',
         should_use_quote=False,

@@ -61,7 +61,7 @@ def convert_csv_rows_to_statements(
     survey_text = row.get("survey_text")
     quote = row.get("quote_with_brackets")
     topic_name = row.get("topic")
-    rid = row.get("rid")
+    participant_id = row.get("participant_id")
 
     if not survey_text:
       raise ValueError(f"Row {i+1} is missing 'survey_text'.")
@@ -72,7 +72,7 @@ def convert_csv_rows_to_statements(
     if not topic_name:
       raise ValueError(f"Row {i+1} is missing 'topic'.")
     if not rid:
-      raise ValueError(f"Row {i+1} is missing 'rid'.")
+      raise ValueError(f"Row {i+1} is missing 'participant_id'.")
 
     quote = custom_types.Quote(
         id=rid,

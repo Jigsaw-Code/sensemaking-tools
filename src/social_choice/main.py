@@ -57,7 +57,7 @@ def extract_rankings_from_csv(file_path: str) -> Dict[int, Dict]:
   ranking_col_pattern = re.compile(r"ranking_(\d+)_a_(\d+)")
   preferences_by_topic = {}
 
-  for rid, group in df.groupby("rid"):
+  for rid, group in df.groupby("participant_id"):
     participant_rankings_by_topic = defaultdict(list)
     for col_name in group.columns:
       match = ranking_col_pattern.match(col_name)

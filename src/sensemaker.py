@@ -223,7 +223,7 @@ def _prepare_semifinal_csv_rows(
 
   original_rows_map = {}
   for row in original_csv_rows:
-    statement_id = row.get("rid")
+    statement_id = row.get("participant_id")
     if statement_id and statement_id not in original_rows_map:
       original_rows_map[statement_id] = row
 

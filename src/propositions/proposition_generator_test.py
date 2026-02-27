@@ -20,7 +20,7 @@ class WorldModelBuilderTest(unittest.TestCase):
 
     # Create dummy R1 data
     self.r1_data = {
-        "rid": [1, 2, 3, 4, 5, 6],
+        "participant_id": [1, 2, 3, 4, 5, 6],
         "topic": [
             "Topic A",
             "Topic A",
@@ -50,7 +50,7 @@ class WorldModelBuilderTest(unittest.TestCase):
 
     # Create dummy R2 data that mimics the structure of pilot_r2_processed.csv
     self.r2_data = {
-        "rid": [1, 2, 3],
+        "participant_id": [1, 2, 3],
         "ranking_1_topic": ["Topic A", "Topic A", "Topic A"],
         "ranking_1_q_1": ["Opinion A1", "Opinion A1", "Opinion A1"],
         "ranking_1_a_1": [1, 2, 1],
@@ -90,7 +90,7 @@ class WorldModelBuilderTest(unittest.TestCase):
     }
     self.df_r2 = pd.DataFrame(self.r2_data)
     self.mock_r1_df_content = pd.DataFrame({
-        "rid": [1],
+        "participant_id": [1],
         "topic": ["Topic A"],
         "opinion": ["Opinion A1"],
         "quote": ["text a1"],
@@ -134,7 +134,7 @@ class WorldModelBuilderTest(unittest.TestCase):
     """Tests that rows with all empty answers are filtered out for an opinion."""
     df_r2_with_empty = self.df_r2.copy()
     new_row_data = {
-        "rid": [4],
+        "participant_id": [4],
         "ranking_1_topic": ["Topic A"],
         "ranking_1_q_1": ["Opinion A1"],
         "ranking_1_a_1": [1],
@@ -172,7 +172,7 @@ class WorldModelBuilderTest(unittest.TestCase):
         )
     )
     self.assertEqual(len(result_df_A1), 3)
-    self.assertNotIn(4, result_df_A1["rid"].values)
+    self.assertNotIn(4, result_df_A1["participant_id"].values)
 
     # For Opinion B1, the new row (rid=4) has a valid answer_2, so it should be included.
     result_df_B1 = asyncio.run(
@@ -181,7 +181,7 @@ class WorldModelBuilderTest(unittest.TestCase):
         )
     )
     self.assertEqual(len(result_df_B1), 4)
-    self.assertIn(4, result_df_B1["rid"].values)
+    self.assertIn(4, result_df_B1["participant_id"].values)
 
   def test_analyze_and_allocate_by_opinion_weighted(self):
     """Tests weighted allocation by opinion."""

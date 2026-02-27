@@ -101,7 +101,7 @@ class ProcessQualtricsOutputTest(unittest.TestCase):
 
     self.assertEqual(len(df), 1)
     self.assertEqual(
-        df.iloc[0][process_qualtrics_output.RESPONDENT_ID], "resp1"
+        df.iloc[0][process_qualtrics_output.PARTICIPANT_ID], "resp1"
     )
     expected_survey_text = "\n\n".join([
         "<question>Q1 text</question>\n<response>Ans1</response>",
@@ -317,7 +317,7 @@ class ProcessQualtricsOutputTest(unittest.TestCase):
     )
 
     df = pd.read_csv(self.output_csv_path)
-    self.assertEqual(df.iloc[0]["rid"], "fallback_id")
+    self.assertEqual(df.iloc[0]["participant_id"], "fallback_id")
 
     # Test 2: rid missing, rdud missing -> sequential generation
     # Reset file
@@ -340,7 +340,7 @@ class ProcessQualtricsOutputTest(unittest.TestCase):
     )
 
     df = pd.read_csv(self.output_csv_path)
-    self.assertEqual(df.iloc[0]["rid"], 1)  # Should be int 1
+    self.assertEqual(df.iloc[0]["participant_id"], 1)  # Should be int 1
 
   def test_process_csv_round_2(self):
     # Define all columns required for a Round 2 CSV

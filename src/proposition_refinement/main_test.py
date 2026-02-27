@@ -45,14 +45,14 @@ class PropositionRefinementMainTest(unittest.TestCase):
             pd.DataFrame({"proposition": ["T2O3_P1", "T2O3_P2", "T2O3_P3"]}),
         ],
         "r1_df": [
-            pd.DataFrame({"rid": ["r1", "r2"]}),
-            pd.DataFrame({"rid": ["r3"]}),
-            pd.DataFrame({"rid": ["r4", "r5"]}),
+            pd.DataFrame({"participant_id": ["r1", "r2"]}),
+            pd.DataFrame({"participant_id": ["r3"]}),
+            pd.DataFrame({"participant_id": ["r4", "r5"]}),
         ],
         "r2_df": [
-            pd.DataFrame({"rid": ["r1"], "data": ["d1"]}),
-            pd.DataFrame({"rid": ["r3"], "data": ["d3"]}),
-            pd.DataFrame({"rid": ["r4"], "data": ["d4"]}),
+            pd.DataFrame({"participant_id": ["r1"], "data": ["d1"]}),
+            pd.DataFrame({"participant_id": ["r3"], "data": ["d3"]}),
+            pd.DataFrame({"participant_id": ["r4"], "data": ["d4"]}),
         ],
     })
 
@@ -83,7 +83,7 @@ class PropositionRefinementMainTest(unittest.TestCase):
     self.assertEqual(len(jury_pool), 5)  # 5 unique rids
     self.assertIn("data", jury_pool.columns)
     # Check that the outer merge worked by finding a row that only existed in R1
-    self.assertTrue(jury_pool[jury_pool["rid"] == "r2"]["data"].isnull().all())
+    self.assertTrue(jury_pool[jury_pool["participant_id"] == "r2"]["data"].isnull().all())
 
   @patch(
       "src.proposition_refinement.main.simulated_jury.run_simulated_jury",
@@ -585,7 +585,7 @@ class PropositionRefinementMainTest(unittest.TestCase):
     handling both fractional (0.0 < n < 1.0) and integer (n > 1.0) values.
     """
     # Setup valid mock data.
-    large_jury_pool = pd.DataFrame({"rid": [f"r{i}" for i in range(100)]})
+    large_jury_pool = pd.DataFrame({"participant_id": [f"r{i}" for i in range(100)]})
 
     # Configure default mock arguments.
     self.mock_args.input_pkl = "dummy.pkl"

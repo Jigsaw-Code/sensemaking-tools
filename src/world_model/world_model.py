@@ -227,17 +227,17 @@ def get_participant_data(world_model_data, data_source='both'):
     return pd.DataFrame()
 
   if data_source == 'r1':
-    return pd.concat(r1_dfs, ignore_index=True).drop_duplicates(subset=['rid'])
+    return pd.concat(r1_dfs, ignore_index=True).drop_duplicates(subset=['participant_id'])
   elif data_source == 'r2':
-    return pd.concat(r2_dfs, ignore_index=True).drop_duplicates(subset=['rid'])
+    return pd.concat(r2_dfs, ignore_index=True).drop_duplicates(subset=['participant_id'])
   else:  # both
     r1_full = pd.concat(r1_dfs, ignore_index=True).drop_duplicates(
-        subset=['rid']
+        subset=['participant_id']
     )
     r2_full = pd.concat(r2_dfs, ignore_index=True).drop_duplicates(
-        subset=['rid']
+        subset=['participant_id']
     )
-    return pd.merge(r1_full, r2_full, on='rid', how='outer')
+    return pd.merge(r1_full, r2_full, on='participant_id', how='outer')
 
 
 def get_simulation_results(world_model_data, aggregation='by_topic'):
@@ -280,7 +280,7 @@ def get_failed_tries(world_model_data, aggregation='by_topic'):
   for _, row in sim_results.iterrows():
     failures = row.get('failed_tries')
     if isinstance(failures, pd.DataFrame) and not failures.empty:
-      failures['rid'] = row.get('rid')
+      failures['participant_id'] = row.get('participant_id')
       if 'topic' in row:
         failures['topic'] = row['topic']
       all_failures.append(failures)
