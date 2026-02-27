@@ -280,11 +280,16 @@ def generate_and_save_topic_tree(
   """
   # First, let's calculate the counts and prepare for sorting
   for topic in topic_tree_data:
-    topic["total_quotes"] = 0
+    # Since the same quote could appear in multiple opinions,
+    # we need to create a set of unique quotes and get it's length
+    # to calculate total_quotes in the topic.
+    topic_quotes_set = set()
     for opinion in topic["opinions"]:
-      count = len(opinion.get("representative_texts", []))
-      opinion["count"] = count
-      topic["total_quotes"] += count
+      # all quotes in the opinion are unique, so the count is the array length
+      quotes_for_opinion = opinion.get("representative_texts", [])
+      opinion["count"] = len(quotes_for_opinion)
+      topic_quotes_set.update(quotes_for_opinion)
+    topic["total_quotes"] = len(topic_quotes_set)
 
   # Sort topics by total quotes
   sorted_topics = sorted(
