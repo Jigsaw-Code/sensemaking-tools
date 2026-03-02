@@ -55,14 +55,8 @@ class CategorizationRunnerTest(unittest.TestCase):
     opinion = topic['opinions'][0]
     self.assertEqual(opinion['opinion_text'], 'Opinion 1')
     self.assertEqual(len(opinion['quotes']), 2)
-    self.assertIn(
-        {'statement_id': 's1', 'text': 'quote 1'},
-        opinion['quotes'],
-    )
-    self.assertIn(
-        {'statement_id': 's2', 'text': 'quote 2'},
-        opinion['quotes'],
-    )
+    self.assertIn('quote 1', opinion['quotes'])
+    self.assertIn('quote 2', opinion['quotes'])
 
   def test_set_topics_on_csv_rows_opinion_categorization(self):
     original_csv_rows = [

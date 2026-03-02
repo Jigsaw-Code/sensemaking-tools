@@ -257,6 +257,12 @@ def _get_topics_and_opinions_from_csv(csv_path: str):
   return return_topics
 
 
+def _drop_other(rows):
+  """"Drops both Other topic and opinion rows."""
+  rows = [row for row in rows if row.get("topic") != "Other"]
+  return [row for row in rows if row.get("opinion") != "Other"]
+
+
 def _process_and_print_topic_tree(
     output_csv_rows: List[Dict[str, Any]], output_file_base: str
 ) -> None:
@@ -273,13 +279,10 @@ def _process_and_print_topic_tree(
     topic = row.get("topic", "").strip()
     opinion = row.get("opinion", "").strip()
     quote = row.get("quote", "").strip()
-    statement_id = row.get("participant_id", "").strip()
 
     if topic and opinion:
       topics[topic][opinion]["count"] += 1
-      topics[topic][opinion]["quotes"].append(
-          {"statement_id": statement_id, "text": quote}
-      )
+      topics[topic][opinion]["quotes"].append(quote)
 
   # Prepare data for topic tree generation
   topic_tree_data = []
@@ -461,21 +464,28 @@ async def main():
       original_csv_rows, categorized_statements
   )
 
-  categorized_csv_path = os.path.join(args.output_dir, "categorized.csv")
-  runner_utils.write_dicts_to_csv(output_csv_rows, categorized_csv_path)
-
-  output_csv_path = os.path.join(args.output_dir, "categorized_filtered.csv")
-  columns_to_keep = [
+  filtered_columns = [
       "participant_id",
       "survey_text",
       "quote",
       "topic",
       "opinion",
   ]
-  _filter_csv_columns(categorized_csv_path, output_csv_path, columns_to_keep)
 
-  output_file_base = os.path.join(args.output_dir, "categorized")
+  # Write version of data with "Other" topics and opinions
+  categorized_csv_path = os.path.join(args.output_dir, "categorized_with_other.csv")
+  runner_utils.write_dicts_to_csv(output_csv_rows, categorized_csv_path)
+  output_csv_path = os.path.join(args.output_dir, "categorized_with_other_filtered.csv")
+  _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
+  output_file_base = os.path.join(args.output_dir, "categorized_with_other")
   _process_and_print_topic_tree(output_csv_rows, output_file_base)
+
+  # Create another version without "Other" topics and opinions
+  csv_rows_without_other = _drop_other(output_csv_rows)
+  categorized_csv_path = os.path.join(args.output_dir, "categorized_without_other.csv")
+  runner_utils.write_dicts_to_csv(csv_rows_without_other, categorized_csv_path)
+  output_csv_path = os.path.join(args.output_dir, "categorized_without_other_filtered.csv")
+  _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
 
 
 if __name__ == "__main__":
