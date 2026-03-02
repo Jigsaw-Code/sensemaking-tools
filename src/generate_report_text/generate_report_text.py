@@ -20,7 +20,7 @@ Additional context file can be plain text or contain markdown.
 Example usage:
 python3 -m src.generate_report_text.generate_report_text \
   --input_csv <INPUT_CSV> \
-  --additional_context <ADDITIONAL_CONTEXT_TEXT_FILE> \
+  --additional_context_file <ADDITIONAL_CONTEXT_TEXT_FILE> \
   --output_dir <OUTPUT_DIR> \
   --model_name gemini-2.5-pro
 """
@@ -33,6 +33,7 @@ import logging
 import os
 import pandas as pd
 
+from src import runner_utils
 from src.models import genai_model
 from src.generate_report_text import generate_report_text_prompts
 
@@ -210,10 +211,9 @@ async def main():
       required=True,
       help='Path to CSV output of categorization_runner.py',
   )
-  parser.add_argument(
-      '--additional_context_file',
-      required=True,
-      help='Path to additional context text file',
+  runner_utils.add_additional_context_args(
+      parser,
+      help_str="Additional context for the categorization.",
   )
   parser.add_argument(
       '--output_dir', required=True, help='Path to output directory.'
@@ -230,8 +230,7 @@ async def main():
 
   # Load data and additional context
   categorized_quotes_df = pd.read_csv(args.input_csv)
-  with open(args.additional_context_file, 'r') as file:
-    additional_context = file.read()
+  additional_context = runner_utils.get_additional_context(args)
 
   # Drop Other from both topics and opinions
   categorized_quotes_df = categorized_quotes_df[
