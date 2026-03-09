@@ -19,6 +19,7 @@ import logging
 import os
 import random
 import time
+import tqdm.asyncio
 from typing import Any, Callable, Tuple, TypedDict
 from google import genai
 from google.api_core import exceptions as google_api_core_exceptions
@@ -169,11 +170,11 @@ class GenaiModel:
 
   async def _handle_global_pause(self, delay: int):
     """Sleeps for a specified duration and then resumes all workers."""
-    logging.info(f"   Global pause for {delay} seconds...")
+    logging.debug(f"   Global pause for {delay} seconds...")
     start_time = time.time()
     await asyncio.sleep(delay)
     self.total_wall_delay += time.time() - start_time
-    logging.info("   Resuming all workers.")
+    logging.debug("   Resuming all workers.")
     self._global_pause_event.set()
 
   async def _handle_api_error(
@@ -226,7 +227,7 @@ class GenaiModel:
               f"{log_prefix} Error encountered: {e}. Initiating global pause."
           )
           self._global_pause_event.clear()
-          logging.info(f"{log_prefix} I am the leader. Pausing all workers.")
+          logging.debug(f"{log_prefix} I am the leader. Pausing all workers.")
           delay = FAIL_RETRY_DELAY_SECONDS
           # Try to prefer retryDelay from 429 error if available and > 60
           if is_quota_error:
@@ -266,9 +267,9 @@ class GenaiModel:
     stack = repr(e)
     error_parts.append(f"attempt {attempt + 1}: {stack[:150]}")
     error_msg = ", ".join(error_parts)
-    logging.error(error_msg)
+    logging.debug(error_msg)
     if "Model response failed Pydantic validation" in stack:
-      logging.error(f"Raw response: \n{resp}")
+      logging.debug(f"Raw response: \n{resp}")
     # Increment the non-quota failure count in the stats object
     stats["non_quota_failures"] += 1
     if resp and "total_token_count" in resp:
@@ -299,7 +300,7 @@ class GenaiModel:
       # Cap at Max Delay
       delay = min(delay, float(MAX_RETRY_DELAY_SECONDS))
 
-      logging.info(f"   Retrying in {delay:.2f} seconds...")
+      logging.debug(f"   Retrying in {delay:.2f} seconds...")
       start_delay = time.time()
       await asyncio.sleep(delay)
       stats["delay_seconds"] = stats.get("delay_seconds", 0.0) + (
@@ -362,6 +363,7 @@ class GenaiModel:
       stop_event: asyncio.Event,
       response_parser: Callable[[str, dict[str, Any]], Any],
       max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+      pbar: Any = None,
   ):
     """Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
@@ -448,13 +450,13 @@ class GenaiModel:
 
         resp = None  # Initialize resp for this attempt
         if stop_event.is_set():
-          logging.info(
+          logging.debug(
               f"{log_prefix} {log_body} Stop event received, terminating."
           )
           break
 
         try:
-          logging.info(f"{log_prefix} {log_body} (Attempt {attempt + 1})")
+          logging.debug(f"{log_prefix} {log_body} (Attempt {attempt + 1})")
 
           # Make the actual API call
           stats["api_calls_made"] += 1
@@ -506,7 +508,7 @@ class GenaiModel:
           stats["is_success"] = True
           stats_list.append(stats)
 
-          logging.info(f"{log_prefix} {log_body} ✅ Successfully processed.")
+          logging.debug(f"{log_prefix} {log_body} ✅ Successfully processed.")
 
           # Add a delay after a successful call to respect rate limits.
           await asyncio.sleep(WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS)
@@ -529,12 +531,15 @@ class GenaiModel:
 
       # Always append the stats object to the list, regardless of success.
       stats_list.append(stats)
+      if pbar is not None:
+        pbar.update(1)
       queue.task_done()
 
   def start_concurrent_workers(
       self,
       response_parser: Callable[[str, dict[str, Any]], Any],
       max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+      pbar: Any = None,
   ) -> Tuple[
       asyncio.Queue,
       list[asyncio.Task],
@@ -571,6 +576,7 @@ class GenaiModel:
                 stop_event,
                 response_parser,
                 max_concurrent_calls,
+                pbar,
             )
         )
         for i in range(max_concurrent_calls)
@@ -609,6 +615,8 @@ class GenaiModel:
     self.total_wall_delay = 0.0
     stage_start_time = time.time()
 
+    pbar = tqdm.asyncio.tqdm(total=len(prompts), desc="Processing prompts")
+
     # Create and start the worker tasks
     (
         queue,
@@ -616,7 +624,9 @@ class GenaiModel:
         final_results,
         final_stats,
         stop_event,
-    ) = self.start_concurrent_workers(response_parser, max_concurrent_calls)
+    ) = self.start_concurrent_workers(
+        response_parser, max_concurrent_calls, pbar
+    )
 
     for i, prompt_data in enumerate(prompts):
       if stop_event.is_set():
@@ -648,6 +658,8 @@ class GenaiModel:
       # Wait for workers to finish gracefully
       await asyncio.gather(*workers, return_exceptions=True)
       logging.info("Workers stopped.")
+    finally:
+      pbar.close()
 
     stage_duration = time.time() - stage_start_time
     wall_delay = self.total_wall_delay
