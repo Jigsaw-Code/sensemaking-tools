@@ -220,7 +220,7 @@ def parse_llm_ranking_response(resp: dict, job: dict) -> dict:
           >= job.get("retry_attempts", genai_model.MAX_LLM_RETRIES) - 1
       )
       if is_last_attempt:
-        logging.warning(
+        logging.debug(
             "Accepting partial ranking on final attempt (%d of %d statements).",
             len(ranking),
             len(statements),
@@ -232,13 +232,13 @@ def parse_llm_ranking_response(resp: dict, job: dict) -> dict:
         )
 
   except json.JSONDecodeError as e:
-    logging.warning(
+    logging.debug(
         "Could not parse ranking from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
     raise ValueError(f"Parsing failed with JSONDecodeError: {e}") from e
   except (IndexError, KeyError, ValueError) as e:
-    logging.warning(
+    logging.debug(
         "Could not parse ranking from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
@@ -280,13 +280,13 @@ def parse_llm_approval_response(resp: dict, job: dict) -> dict:
     return approval_dict
 
   except json.JSONDecodeError as e:
-    logging.warning(
+    logging.debug(
         "Could not parse approval from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
     raise ValueError(f"Parsing failed with JSONDecodeError: {e}") from e
   except (IndexError, KeyError, ValueError) as e:
-    logging.warning(
+    logging.debug(
         "Could not parse approval from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )

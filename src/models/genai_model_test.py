@@ -287,6 +287,47 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     failed_job = results_df[results_df['job_id'] == 1].iloc[0]
     self.assertIn('Failed after 2 attempts', str(failed_job['result']))
 
+  @patch('src.models.genai_model.logging.error')
+  @patch('src.models.genai_model.logging.debug')
+  @patch('src.models.genai_model.GenaiModel.call_gemini')
+  def test_process_prompts_logging_levels(
+      self, mock_call_gemini, mock_debug, mock_error, mock_genai_client
+  ):
+    """Tests that intermediate failures log as debug and permanent failures log as error."""
+    mock_call_gemini.side_effect = [
+        Exception('API Error 1'),  # Job 1, Attempt 1 (intermediate failure)
+        Exception('API Error 2'),  # Job 1, Attempt 2 (permanent failure)
+    ]
+
+    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    results_df, _, _, _ = asyncio.run(
+        model.process_prompts_concurrently(
+            [{'job_id': 0, 'opinion': 'Opinion 1', 'prompt': 'p1'}],
+            lambda resp, j: resp['text'],
+            retry_attempts=2,
+            skip_log=True,
+        )
+    )
+
+    # Assert intermediate failures are logged at debug level
+    debug_calls = [c[0][0] for c in mock_debug.call_args_list]
+    self.assertTrue(
+        any('attempt 1: Exception' in str(call) for call in debug_calls)
+    )
+    self.assertTrue(
+        any('attempt 2: Exception' in str(call) for call in debug_calls)
+    )
+
+    # Assert permanent failures are logged at error level
+    error_calls = [c[0][0] for c in mock_error.call_args_list]
+    self.assertTrue(
+        any(
+            'Failed to process opinion' in str(call)
+            and 'after 2 attempts' in str(call)
+            for call in error_calls
+        )
+    )
+
   @patch('src.models.genai_model.GenaiModel._log_retry_summary')
   def test_log_retry_summary(self, mock_log, mock_genai_client):
     """Tests that the retry summary is logged correctly."""
