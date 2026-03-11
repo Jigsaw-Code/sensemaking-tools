@@ -58,7 +58,7 @@ class Job(TypedDict, total=False):
 # The maximum number of times an LLM call should be retried.
 MAX_LLM_RETRIES = 20
 # How long in seconds to wait between successful LLM calls.
-WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS = 1
+WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS = 0.1
 # How long in seconds to wait between failed LLM calls.
 FAIL_RETRY_DELAY_SECONDS = 60
 # Maximum number of concurrent API calls. By default Genai limits to 10.
@@ -162,6 +162,12 @@ class GenaiModel:
     self._global_pause_lock = asyncio.Lock()
     self.total_wall_delay = 0.0
 
+    # --- Service Availability Backoff ---
+    # Constants for the exponential backoff delay
+    self._initial_backoff_delay = 2
+    self._max_backoff_delay = 64
+    self._backoff_delay = self._initial_backoff_delay
+
   def _parse_duration(self, duration_str: str) -> int:
     """Parses a duration string (e.g., '18s') into seconds."""
     duration_proto = duration_pb2.Duration()
@@ -176,6 +182,82 @@ class GenaiModel:
     self.total_wall_delay += time.time() - start_time
     logging.debug("   Resuming all workers.")
     self._global_pause_event.set()
+
+  async def _extract_error_details(
+      self, e: Exception
+  ) -> Tuple[bool, bool, int]:
+    """Extracts error type and potential retry delay from an exception."""
+    is_quota_error = (
+        isinstance(e, google_genai_errors.ClientError)
+        and e.response is not None
+        and e.response.status == 429
+    )
+    is_service_unavailable = (
+        isinstance(e, google_genai_errors.ServerError)
+        and e.response is not None
+        and e.response.status == 503
+    ) or isinstance(e, google_exceptions.ServiceUnavailable)
+
+    delay = FAIL_RETRY_DELAY_SECONDS
+    if is_quota_error:
+      try:
+        error_details = await e.response.json()
+        for detail in error_details.get("error", {}).get("details", []):
+          if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+            retry_delay_str = detail.get("retryDelay", "60s")
+            delay = self._parse_duration(retry_delay_str) + 1
+            break
+          else:
+            logging.debug(
+                f"{log_prefix} Error detail did not contain retry info, using"
+                f" default. Detail: {detail}"
+            )
+      except (ValueError, AttributeError, TypeError, IndexError) as e:
+        logging.debug(
+            f"{log_prefix} Error parsing retry info. Did Gemini Response"
+            f" structure change? Error: {e}"
+        )
+    elif is_service_unavailable:
+      delay = self._backoff_delay
+      # Increase the backoff for the next potential failure
+      self._backoff_delay = min(self._backoff_delay**2, self._max_backoff_delay)
+
+    return is_quota_error, is_service_unavailable, delay
+
+  async def _handle_infrastructure_error(
+      self,
+      e: Exception,
+      is_quota_error: bool,
+      is_service_unavailable: bool,
+      delay: int,
+      log_prefix: str,
+  ):
+    """Triggers a global pause for infrastructure-level errors."""
+    async with self._global_pause_lock:
+      # Event is set by default, so this means a pause is not yet in effect.
+      if self._global_pause_event.is_set():
+        self._global_pause_event.clear()
+        reason = "Quota limit hit" if is_quota_error else "Service unavailable"
+        logging.warning(
+            f"{log_prefix} {reason}. Initiating global pause for {delay}s."
+        )
+        asyncio.create_task(self._handle_global_pause(delay))
+
+  def _record_failed_try(
+      self,
+      e: Exception,
+      attempt: int,
+      resp: dict[str, Any] | None,
+      prompt: str | None,
+      failed_tries: list[dict[str, Any]],
+  ):
+    """Records details of a failed attempt for later debugging."""
+    failed_tries.append({
+        "attempt_index": attempt,
+        "error_message": str(e),
+        "raw_response": resp.get("text", "") if resp else "",
+        "prompt": prompt,
+    })
 
   async def _handle_api_error(
       self,
@@ -197,59 +279,25 @@ class GenaiModel:
     response_schema = job.get("response_schema")
     combined_tokens = stats.get("combined_tokens")
     prompt = job.get("prompt")
-    allocations = job.get("allocations")
     retry_attempts = job.get("retry_attempts")
-    # Check if this is a Resource Exhausted error (429) or Service Unavailable (503)
-    is_quota_error = (
-        isinstance(e, google_genai_errors.ClientError)
-        and e.response.status == 429
+
+    is_quota_error, is_service_unavailable, delay = (
+        await self._extract_error_details(e)
     )
-    is_service_unavailable = (
-        isinstance(e, google_genai_errors.ServerError)
-        and e.response.status == 503
-    )
-    is_genai_error = isinstance(e, GenaiModelError)
 
     if is_quota_error:
       stats["429_errors"] = stats.get("429_errors", 0) + 1
     if is_service_unavailable:
       stats["503_errors"] = stats.get("503_errors", 0) + 1
-    # Trigger global pause for 429, 503, or GenaiModelError (e.g. MAX_TOKENS)
-    if (
-        is_quota_error
-        or is_service_unavailable
-        or is_genai_error
-        or "limit" in str(e).lower()
-    ):
-      async with self._global_pause_lock:
-        if self._global_pause_event.is_set():
-          logging.warning(
-              f"{log_prefix} Error encountered: {e}. Initiating global pause."
-          )
-          self._global_pause_event.clear()
-          logging.debug(f"{log_prefix} I am the leader. Pausing all workers.")
-          delay = FAIL_RETRY_DELAY_SECONDS
-          # Try to prefer retryDelay from 429 error if available and > 60
-          if is_quota_error:
-            try:
-              # Extract the dictionary from the error message
-              error_details = await e.response.json()
-              # Find the retryDelay in the details
-              for detail in error_details.get("error", {}).get("details", []):
-                if (
-                    detail.get("@type")
-                    == "type.googleapis.com/google.rpc.RetryInfo"
-                ):
-                  retry_delay_str = detail.get("retryDelay", "60s")
-                  parsed_delay = self._parse_duration(retry_delay_str) + 1
-                  if parsed_delay > delay:
-                    delay = parsed_delay
-                  break
-            except (ValueError, AttributeError, TypeError, IndexError):
-              pass
 
-          asyncio.create_task(self._handle_global_pause(delay))
-    # --- Generic Error Handling ---
+    # Infrastructure Errors: Global pause, do NOT increment attempt/temperature
+    if is_quota_error or is_service_unavailable:
+      await self._handle_infrastructure_error(
+          e, is_quota_error, is_service_unavailable, delay, log_prefix
+      )
+      return attempt, temperature
+
+    # --- Job Error Handling (Generic/Parse/Safety) ---
     error_parts = [f"{log_prefix} ❌"]
     if opinion:
       opinion_str = getattr(opinion, "name", str(opinion))
@@ -262,50 +310,36 @@ class GenaiModel:
       error_parts.append(f"Error on chunk '{chunk_str[:150]}'")
     elif response_schema == custom_types.EvaluationResult:
       error_parts.append(f"Error on evaluation result for job {job_id}")
+
     if combined_tokens is not None:
       error_parts.append(f"input_token: {combined_tokens}")
+
     stack = repr(e)
     error_parts.append(f"attempt {attempt + 1}: {stack[:150]}")
     error_msg = ", ".join(error_parts)
     logging.debug(error_msg)
-    if "Model response failed Pydantic validation" in stack:
+
+    if "Model response failed Pydantic validation" in stack and resp:
       logging.debug(f"Raw response: \n{resp}")
+
     # Increment the non-quota failure count in the stats object
     stats["non_quota_failures"] += 1
     if resp and "total_token_count" in resp:
       stats["total_token_used"] = resp.get("total_token_count")
       stats["prompt_token_count"] = resp.get("prompt_token_count")
       stats["candidates_token_count"] = resp.get("candidates_token_count")
-    failed_tries.append({
-        "attempt_index": attempt,
-        "error_message": str(e),
-        "raw_response": resp.get("text", "") if resp else "",
-        "prompt": prompt,
-    })
+
+    self._record_failed_try(e, attempt, resp, prompt, failed_tries)
+
     attempt += 1
     temperature += 0.02
+
     if attempt < retry_attempts:
-      # New Hybrid Backoff Strategy
-      # Attempts 1 to (Max/2 - 1): Wait standard delay
-      # Attempts (Max/2) to Max: Exponential increasing delay
-      delay = float(FAIL_RETRY_DELAY_SECONDS)
-
-      half_retries = int(retry_attempts / 2)
-      # Start exponential backoff from halfway point
-      if attempt >= half_retries:
-        # Calculate exponential delay
-        exponent = attempt - half_retries
-        delay = FAIL_RETRY_DELAY_SECONDS * (2**exponent)
-
-      # Cap at Max Delay
-      delay = min(delay, float(MAX_RETRY_DELAY_SECONDS))
-
-      logging.debug(f"   Retrying in {delay:.2f} seconds...")
-      start_delay = time.time()
-      await asyncio.sleep(delay)
-      stats["delay_seconds"] = stats.get("delay_seconds", 0.0) + (
-          time.time() - start_delay
-      )
+      # Job errors (parsing, safety, etc.) should retry ASAP.
+      # We use a very small delay instead of random jitter to maximize throughput.
+      retry_delay = 0.1
+      logging.debug(f"   Job error. Retrying in {retry_delay:.2f} seconds...")
+      await asyncio.sleep(retry_delay)
     else:
       log_identifier = ""
       if opinion:
@@ -330,19 +364,18 @@ class GenaiModel:
       if self.stats_log_file:
         try:
           with open(self.stats_log_file, "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {failure_msg}\\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {failure_msg}\n")
         except Exception as io_err:
           logging.error(f"Failed to write to stats log file: {io_err}")
 
       # Mark this job as a complete failure in the stats
       stats["is_complete_failure"] = True
+
       # Append a failure result so that process_prompts_concurrently doesn't drop this job
       failed_result_data = {
-          "result": {
-              "error": f"Failed after {retry_attempts} attempts"
-          },  # Or None, or a specific error object
+          "result": {"error": f"Failed after {retry_attempts} attempts"},
           "propositions": [],
-          "allocations": allocations,
+          "allocations": job.get("allocations"),
           "total_token_used": 0,
           "prompt_token_count": 0,
           "candidates_token_count": 0,
@@ -368,6 +401,10 @@ class GenaiModel:
     """Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
     """
+    # Stagger the initial start of workers to prevent a thundering herd.
+    initial_jitter = random.uniform(0, 1)
+    await asyncio.sleep(initial_jitter)
+
     while not stop_event.is_set():
       try:
         # Use a timeout to periodically check the stop_event
@@ -488,6 +525,7 @@ class GenaiModel:
           result_data = {
               "result": result,
               "propositions": result,  # For backward compatibility
+              "temperature": temperature,
               "allocations": allocations,
               "total_token_used": resp["total_token_count"],
               "prompt_token_count": resp["prompt_token_count"],
@@ -507,6 +545,9 @@ class GenaiModel:
           stats["candidates_token_count"] = resp["candidates_token_count"]
           stats["is_success"] = True
           stats_list.append(stats)
+
+          # On success, reset the availability backoff delay
+          self._backoff_delay = self._initial_backoff_delay
 
           logging.debug(f"{log_prefix} {log_body} ✅ Successfully processed.")
 
