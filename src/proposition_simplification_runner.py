@@ -16,12 +16,12 @@
 Runs simplification on a CSV of propositions.
 
 Example input CSV (`input.csv`):
-original
+proposition
 the cat sat on the mat
 the dog chased the ball
 
 Example output CSV (`output.csv`):
-original,simplification
+proposition,simplification
 the cat sat on the mat,The cat was on the mat.
 the dog chased the ball,The dog ran after the ball.
 
@@ -71,7 +71,7 @@ Apply this exact process to the list below.
 async def generate_text_in_parallel(
     model: genai_model.GenaiModel, prompt_obj_list: list[dict]
 ) -> pd.DataFrame:
-  response_df, _ = await model.process_prompts_concurrently(
+  response_df, _, _, _ = await model.process_prompts_concurrently(
       prompt_obj_list, lambda x, _: x['text']
   )
   return response_df
@@ -96,11 +96,11 @@ async def main(args):
 
   df = pd.read_csv(args.input_csv)
 
-  # For each proposition in the "original" column, run the simplification prompt
+  # For each proposition, run the simplification prompt
   prompt_objs = []
   for i, row in df.iterrows():
     prompt_objs.append({
-      'prompt': get_full_prompt(args.prompt, row['original'])
+      'prompt': get_full_prompt(args.prompt, row[args.proposition_column])
     })
   response_df = await generate_text_in_parallel(model, prompt_objs)
 
@@ -143,6 +143,12 @@ def get_args():
       type=str,
       default="gemini-2.5-pro",
       help="The name of the AI model to use. Default: gemini-2.5-pro.",
+  )
+  parser.add_argument(
+      "--proposition_column",
+      type=str,
+      default="proposition",
+      help="The name of the proposition column to use. Default: proposition.",
   )
   return parser.parse_args()
 
