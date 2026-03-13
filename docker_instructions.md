@@ -18,7 +18,7 @@ CONTAINER ID   IMAGE                             COMMAND               CREATED  
 
 ### Execute a bash shell inside the container:
 Use the name from above.
-```
+```sh
 docker exec -it participation-project-napolitan-1 bash
 ```
 
@@ -29,4 +29,6 @@ gcloud config set project <project_name>
 ```
 
 # To delete docker container
-`docker compose down --rmi all --volumes`
+```sh
+docker compose down --rmi all --volumes
+```
