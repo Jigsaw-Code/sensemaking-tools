@@ -16,11 +16,12 @@ import logging
 from typing import List, Optional
 from src.models.genai_model import GenaiModel
 from src import sensemaker_utils
+from src import prompts
 from src.tasks import topic_modeling_util
 from src.models import custom_types
 
 
-LEARN_TOPICS_PROMPT = """
+topic_modeling_learn_topics_prompt = """
 You are an expert qualitative data analyst specializing in thematic analysis and data structuring.
 Your task is to analyze this entire data,
 identify the topics according to the criteria below,
@@ -146,9 +147,9 @@ async def learn_topics(
     additional_context: Optional[str] = None,
 ) -> list[custom_types.FlatTopic]:
   """Learns top-level topics from a list of statements."""
-  instructions = LEARN_TOPICS_PROMPT
+  instructions = prompts.topic_modeling_learn_topics_prompt
   schema_to_expect = custom_types.FlatTopicList
-  logging.debug("Using LEARN_TOPICS_PROMPT (expecting FlatTopicList)")
+  logging.debug("Using topic_modeling_learn_topics_prompt (expecting FlatTopicList)")
 
   prompt_input_data = [statement_item.text for statement_item in statements]
 
@@ -221,11 +222,11 @@ async def learn_opinions(
     )
     return custom_types.NestedTopic(name=topic.name, subtopics=[])
 
-  instructions = learn_opinions_prompt(topic)
+  instructions = prompts.get_topic_modeling_opinions_prompt(topic.name)
   # Use non-recursive schema to avoid RecursionError in SDK
   schema_to_expect = custom_types.OpinionResponseSchema
   logging.debug(
-      f"Using learn_opinions_prompt for topic: {topic.name} (expecting"
+      f"Using get_topic_modeling_opinions_prompt for topic: {topic.name} (expecting"
       " OpinionResponseSchema)"
   )
 

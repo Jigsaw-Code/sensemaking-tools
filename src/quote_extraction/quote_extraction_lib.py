@@ -18,29 +18,12 @@ from typing import List, Optional, cast
 
 from src.models.genai_model import GenaiModel
 from src import checkpoint_utils
+from src import prompts
 from src.models.custom_types import FlatTopic, NestedTopic, Quote, Statement, Topic
 
 
 def _create_quote_extraction_prompt(text: str, context: str, topic: str) -> str:
-  """Creates a prompt for extracting a quote from text."""
-  context_block = (
-      f"<additionalContext>\n  {context}\n</additionalContext>\n"
-      if context
-      else ""
-  )
-  return f"""{context_block}Extract the most representative quote that represents participant opinion on <topic>{topic}</topic> topic from the following text:
-<text>{text}</text>
-
-- You are a professional journalist quoting from a participant's responses in a transcript to create a coherent quotation that represents the participant's opinion on the given topic.
-- Use best practices of professional journalists to achieve that. Specifically and **sparingly**, using brackets to enclose your modifications, you can lightly edit, correct misspelling, miscapitalizations or mispunctations, redact any profanity (e.g., replace a profane word with its first letter followed by dashes, like "[s---]"), or add clarifying information so that the quote is understandable even without seeing the original question. No change can be made to the response outside of brackets.
-- You may also merge elements from across multiple questions for coherence. You must use ellipses to show when you are doing this, and you cannot modify the original sentence order.
-- Other than the bracketed modifications, the quotation should be an ellipsis-delimited concatenation of substrings of the participant's response that obeys the original sentence order.
-- We want to surface powerful and personal nuances a person shared on the opinion while keeping the quote concise and scannable. Stories about the participants' lives are especially valuable to feature. The quotation should feel punchy and profound, like an incisive portrait of the participant's humanity.
-- The quote should only cover the given topic. We may extract several quotes from this transcript and must avoid redundancy.
-- If there's not enough text for personal nuances, the quote should be just what the person expressed (e.g.: "I don't know"), and it's okay for it to be short.
-- Do not add any extra commentary or markdown to the quote.
-- Please output only the quotation. You should not enclose the quotation in quotation marks.
-"""
+  return prompts.get_quote_extraction_prompt(text, context, topic)
 
 
 def _prepare_prompts(

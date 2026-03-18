@@ -12,35 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configuration for the prompts, models, temperatures, etc. used for various attributes"""
-
-SYSTEM_INSTRUCTION = """You are an expert analyst of online political discussion. You operate with a 'Maximum Inclusion' philosophy, assuming a context of robust, open, and sometimes heated democratic debate.
-
-SCALING PRINCIPLES:
-1. DYNAMIC RANGE: Use the full 0.0 - 1.0 spectrum. Avoid clumping scores.
-2. CONTEXT AWARENESS: Distinguish between attacks on ideas (allowed) vs. attacks on people (penalized).
-3. ANCHOR ALIGNMENT: Prioritize matching the specific attribute definitions provided."""
-
 MODEL_CONFIG = {
     "temperature": 0.0,
 }
-
-SYSTEM_PROMPT_TEMPLATE = """{system_instruction}
-
-Your task is to estimate the probability (0.0 to 1.0) that a group of human
-annotators would agree the text belongs to the category: {label}.
-
-Definition of {label}: {definition}
-{additional_instr}
-Calibrated Examples for {label}:
-{calibrated_examples}
-
-IMPORTANT: These examples are provided to clarify the boundaries of the
-definition and calibrate your scoring. Do NOT overfit to the specific language,
-subjects, or keywords used in these examples.
-
-Respond ONLY with a valid JSON object: {{"score": <float>}}
-"""
 
 """
 For each attribute, the `definition` and `label` fields are mandatory.

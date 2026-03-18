@@ -17,6 +17,7 @@ import logging
 import pydantic
 from typing import Any
 from src import attribute_prompt_config
+from src import prompts
 from src.models import genai_model
 from src.models import custom_types
 
@@ -68,8 +69,8 @@ class ContentScorer:
 
         additional_instr = f"\nAdditional Guidance for {cat_info['label']}:\n{cat_info['additional_instruction']}\n" if "additional_instruction" in cat_info else ""
 
-        system_prompt = attribute_prompt_config.SYSTEM_PROMPT_TEMPLATE.format(
-            system_instruction=attribute_prompt_config.SYSTEM_INSTRUCTION,
+        system_prompt = prompts.scoring_system_prompt_template.format(
+            system_instruction=prompts.scoring_system_instruction,
             label=cat_info['label'],
             definition=cat_info['definition'],
             additional_instr=additional_instr,
