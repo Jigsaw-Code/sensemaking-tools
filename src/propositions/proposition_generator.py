@@ -42,13 +42,12 @@ import re
 import typing
 
 import pandas as pd
-
+from src import prompts
+from src import runner_utils
 from src.models import genai_model
 from src.propositions import input_csv_validation
-from src.propositions import prompts
 from src.propositions import prompts_util
 from src.propositions import world_model_util
-from src import runner_utils
 
 
 async def _get_r2_data_by_opinion(
@@ -518,23 +517,23 @@ async def main():
     all_prompts = []
     for index, row in split_dfs.iterrows():
 
-      preamble = prompts.generate_preamble_prompt(
+      preamble = prompts.proposition_generation_generate_preamble_prompt(
           opinion_list=split_dfs["opinion"].tolist(),
           additional_context=additional_context,
       )
-      instructions_prompt = prompts.generate_instructions_prompt(
+      instructions_prompt = prompts.proposition_generation_generate_instructions_prompt(
           number_of_propositions=args.prop_count,
           reasoning=turn_on_reasoning,
           include_opinion=args.include_opinion,
       )
-      r1_prompt = prompts.generate_r1_prompt_string(
+      r1_prompt = prompts.proposition_generation_generate_r1_prompt_string(
           df=row["r1_df"],
           user_id_column_name="participant_id",
           topic_column_name="topic",
           opinion_column_name="opinion",
           quote_column_name="quote",
       )
-      r2_prompt = prompts.generate_r2_prompt_string(
+      r2_prompt = prompts.proposition_generation_generate_r2_prompt_string(
           df=row["r2_df"],
           include_non_gov_sections=False,
       )

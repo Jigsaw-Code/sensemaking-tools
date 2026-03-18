@@ -16,6 +16,7 @@ import asyncio
 import functools
 import itertools
 import json
+from src import prompts
 import logging
 import os
 import re
@@ -44,8 +45,8 @@ from src.evals.autorater_evals import (
     prepare_opinion_eval_prompts,
     parse_eval_response,
 )
-from src.tasks.categorization_rules import OPINION_CATEGORIZATION_MAIN_RULES
 from src.tasks import topic_modeling, topic_modeling_util
+from src import prompts
 from src.tasks.topic_modeling import learn_topics, learn_opinions
 
 
@@ -294,7 +295,7 @@ async def learn_global_opinions(
         continue
 
       # Prepare Merge Prompt
-      merge_instructions = topic_modeling_util.merge_opinions_prompt(topic_obj)
+      merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(topic_obj.name)
       prompt_str = get_prompt(
           merge_instructions, combined_opinions, additional_context
       )
@@ -594,7 +595,7 @@ def _prepare_opinion_prompts_for_pending_work(
     opinion_categorization_prompts = _prepare_categorization_prompts(
         pending_statements,
         opinions,
-        _opinion_categorization_prompt(opinions),
+        prompts.get_categorization_opinion_prompt(json.dumps([{"name": op.name} for op in opinions])),
         StatementRecordList,
         additional_context,
         parent_topic_name=topic.name,
@@ -879,6 +880,9 @@ class StatementRecord(BaseModel):
 class Topic(BaseModel):
     name: str
 
+You must follow the rules for the instructions strictly.
+Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
+
 Response must be a valid JSON object matching StatementRecordList schema. Example:
 {{
   "items": [
@@ -891,56 +895,6 @@ Response must be a valid JSON object matching StatementRecordList schema. Exampl
 """
 
 
-def _opinion_categorization_prompt(opinions: list[Topic]) -> str:
-  """Generates the prompt for categorizing quotes into opinions."""
-  opinions_json_list = [{"name": op.name} for op in opinions]
-
-  return f"""
-Categorize the following quotes based on the provided opinions.
-
-Input Opinions:
-{json.dumps(opinions_json_list)}
-
-{OPINION_CATEGORIZATION_MAIN_RULES}
-
-Other rules:
-- Prioritize using the existing opinions whenever possible.
-- Use "Other" opinion if the quote is completely off-topic and doesn't really fit any of the opinions. Keep the "Other" opinion to minimum, ideally keep it empty.
-- All quotes must be assigned at least one existing opinion.
-- Do not create any new opinions that are not listed in the Input Opinions.
-- Respond with a JSON array of objects, each with "id", "quote_id" (which is the id of the quote), and "topics" (A list of opinions assigned to the quote, each with a "name" key).
-- When generating the JSON output, minimize the size of the response. For example, prefer this compact format: {{"id": "5258", "quote_id": "q1", "topics": [{{"name": "Opinion from the Input list"}}]}} instead of adding unnecessary whitespace or newlines.
-
-VERY IMPORTANT:
-Double check to make sure that all quote ids and topic names are in the input. For example, if an input quote_id is '1183-Defining Freedom', then the output quote_id should be the same '1183-Defining Freedom', and not anything else like '1183' or '1188-Defining Freedom'.
-
-class StatementRecordList(BaseModel):
-    items: list[StatementRecord]
-
-class StatementRecord(BaseModel):
-    id: str = Field(description="The unique identifier of the statement.")
-    quote_id: str = Field(description="The unique identifier of the quote.")
-    topics: list[Topic] = Field(description="A list of opinions assigned to the quote.")
-
-class Topic(BaseModel):
-    name: str
-
-You must follow the rules for the instructions strictly.
-Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
-
-Response must be a valid JSON object matching StatementRecordList schema. Example:
-{{
-  "items": [
-     {{
-       "id": "5258",
-       "quote_id": "q1",
-       "topics": [
-          {{"name": "An opinion assigned to the quote."}}
-       ]
-     }}
-  ]
-}}
-"""
 
 
 def _create_token_based_batches(
@@ -988,7 +942,7 @@ def _prepare_categorization_prompts(
     attempt: int = 1,
 ) -> list[dict[str, Any]]:
   """Prepares prompts for a batch of statements."""
-  prompts = []
+  prompt_jobs = []
 
   # Create batches
   batches = _create_token_based_batches(
@@ -1033,7 +987,7 @@ def _prepare_categorization_prompts(
         instructions, statements_for_model_prompt_data, additional_context
     )
 
-    prompts.append({
+    prompt_jobs.append({
         "prompt": prompt_str,
         "topic": f"{parent_topic_name or 'topics'}_batch_{i}_attempt_{attempt}",
         "batch_items": batch,
@@ -1045,7 +999,7 @@ def _prepare_categorization_prompts(
         ),
     })
 
-  return prompts
+  return prompt_jobs
 
 
 async def _process_topic_categorization(
@@ -1095,7 +1049,7 @@ async def _process_topic_categorization(
     batches = _create_token_based_batches(
         uncategorized_for_retry, MAX_BATCH_TOKENS, max_items=MAX_ITEMS_PER_BATCH
     )
-    prompts = []
+    prompt_jobs = []
 
     logging.info(
         f"Split {len(uncategorized_for_retry)} items into"
@@ -1116,7 +1070,7 @@ async def _process_topic_categorization(
           instructions, statements_for_model_prompt_data, additional_context
       )
 
-      prompts.append({
+      prompt_jobs.append({
           "prompt": prompt_str,
           "topic": f"topics_batch_{i}_attempt_{attempt}",
           "batch_items": batch,
@@ -1124,7 +1078,7 @@ async def _process_topic_categorization(
           "log_prefix_marker": "2 (Topic Categorization)",
       })
 
-    if not prompts:
+    if not prompt_jobs:
       if uncategorized_for_retry:
         logging.warning(
             "No prompts generated for remaining uncategorized items. Stopping"
@@ -1138,7 +1092,7 @@ async def _process_topic_categorization(
       return parsed_wrapper.items
 
     results_df, stats, wall_delay, _ = await model.process_prompts_concurrently(
-        prompts,
+        prompt_jobs,
         response_parser=_parser,
         max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
         skip_log=True,
@@ -1153,9 +1107,9 @@ async def _process_topic_categorization(
     # prompts list matches results_df rows order if we iterate results_df['result']?
     # process_prompts_concurrently preserves order.
 
-    if len(results_df) != len(prompts):
+    if len(results_df) != len(prompt_jobs):
       logging.error(
-          f"Result count mismatch: expected {len(prompts)}, got"
+          f"Result count mismatch: expected {len(prompt_jobs)}, got"
           f" {len(results_df)}"
       )
       # Add all items to retry
@@ -1164,7 +1118,7 @@ async def _process_topic_categorization(
 
     for i, row in results_df.iterrows():
       result = row["result"]
-      batch_items = prompts[i]["batch_items"]
+      batch_items = prompt_jobs[i]["batch_items"]
 
       if isinstance(result, list):  # list[StatementRecord]
         processed_result = _process_categorized_llm_records(

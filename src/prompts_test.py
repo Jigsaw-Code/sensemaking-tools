@@ -1,7 +1,8 @@
 import unittest
-import pandas as pd
 from unittest.mock import patch
-from src.propositions import prompts
+
+import pandas as pd
+from src import prompts
 
 
 class PromptsTest(unittest.TestCase):
@@ -22,7 +23,7 @@ class PromptsTest(unittest.TestCase):
     self.opinion_list = ['Opinion A1', 'Opinion B1', 'Opinion C1']
 
   def test_generate_preamble_prompt(self):
-    prompt = prompts.generate_preamble_prompt(self.opinion_list)
+    prompt = prompts.proposition_generation_generate_preamble_prompt(self.opinion_list)
     self.assertNotIn('<additionalContext>', prompt)
     self.assertIn('# Role and Objective', prompt)
     self.assertIn('<full_opinion_list>', prompt)
@@ -34,7 +35,7 @@ class PromptsTest(unittest.TestCase):
     self.assertIn('<R2_DATA>', prompt)
 
   def test_generate_preamble_prompt_with_context(self):
-    prompt = prompts.generate_preamble_prompt(
+    prompt = prompts.proposition_generation_generate_preamble_prompt(
         self.opinion_list, additional_context='This is a test context.'
     )
     self.assertIn('# Role and Objective', prompt)
@@ -42,7 +43,7 @@ class PromptsTest(unittest.TestCase):
     self.assertIn('This is a test context.', prompt)
 
   def test_generate_instructions_prompt_with_reasoning(self):
-    prompt = prompts.generate_instructions_prompt(5, reasoning=True)
+    prompt = prompts.proposition_generation_generate_instructions_prompt(5, reasoning=True)
     self.assertIn('maximum of `5` **new** statements', prompt)
     self.assertIn('Provide Concise Reasoning', prompt)
     self.assertIn(
@@ -50,7 +51,7 @@ class PromptsTest(unittest.TestCase):
     )
 
   def test_generate_instructions_prompt_without_reasoning(self):
-    prompt = prompts.generate_instructions_prompt(10, reasoning=False)
+    prompt = prompts.proposition_generation_generate_instructions_prompt(10, reasoning=False)
     self.assertIn('maximum of `10` **new** statements', prompt)
     self.assertNotIn('Provide Concise Reasoning', prompt)
     self.assertNotIn('reasoning', prompt)
@@ -59,7 +60,7 @@ class PromptsTest(unittest.TestCase):
     )
 
   def test_generate_instructions_prompt_with_include_opinion_false(self):
-    prompt = prompts.generate_instructions_prompt(5, include_opinion=False)
+    prompt = prompts.proposition_generation_generate_instructions_prompt(5, include_opinion=False)
     self.assertIn('maximum of `5` statements', prompt)
     self.assertNotIn('**Keep the Original:**', prompt)
     self.assertNotIn('maximum of `5` **new** statements', prompt)
@@ -70,7 +71,7 @@ class PromptsTest(unittest.TestCase):
     )
 
   def test_generate_instructions_prompt_with_include_opinion_true(self):
-    prompt = prompts.generate_instructions_prompt(5, include_opinion=True)
+    prompt = prompts.proposition_generation_generate_instructions_prompt(5, include_opinion=True)
     self.assertIn('maximum of `5` **new** statements', prompt)
     self.assertIn('**Keep the Original:**', prompt)
     self.assertIn(
@@ -80,13 +81,13 @@ class PromptsTest(unittest.TestCase):
 
   def test_generate_r1_prompt_string_validation(self):
     with self.assertRaisesRegex(ValueError, 'user_id_column_name'):
-      prompts.generate_r1_prompt_string(self.df_r1, None, 'topic', 'opinion')
+      prompts.proposition_generation_generate_r1_prompt_string(self.df_r1, None, 'topic', 'opinion')
     with self.assertRaisesRegex(ValueError, 'topic'):
-      prompts.generate_r1_prompt_string(self.df_r1, 'participant_id', None, 'opinion')
+      prompts.proposition_generation_generate_r1_prompt_string(self.df_r1, 'participant_id', None, 'opinion')
     with self.assertRaisesRegex(ValueError, 'opinion'):
-      prompts.generate_r1_prompt_string(self.df_r1, 'participant_id', 'topic', None)
+      prompts.proposition_generation_generate_r1_prompt_string(self.df_r1, 'participant_id', 'topic', None)
     with self.assertRaisesRegex(ValueError, 'quote'):
-      prompts.generate_r1_prompt_string(
+      prompts.proposition_generation_generate_r1_prompt_string(
           self.df_r1,
           'participant_id',
           'topic',
@@ -95,7 +96,7 @@ class PromptsTest(unittest.TestCase):
       )
 
   def test_generate_r1_prompt_string_defaults(self):
-    prompt = prompts.generate_r1_prompt_string(
+    prompt = prompts.proposition_generation_generate_r1_prompt_string(
         self.df_r1, 'participant_id', 'topic', 'opinion'
     )
     self.assertIn('<R1_DATA>', prompt)
@@ -109,14 +110,14 @@ class PromptsTest(unittest.TestCase):
     )
 
   def test_generate_r1_prompt_string_no_sharding(self):
-    prompt = prompts.generate_r1_prompt_string(
+    prompt = prompts.proposition_generation_generate_r1_prompt_string(
         self.df_r1, 'participant_id', 'topic', 'opinion', should_use_opinion_sharding=False
     )
     self.assertEqual(prompt.count('<topic>'), 2)
     self.assertEqual(prompt.count('<opinion>'), 2)
 
   def test_generate_r1_prompt_string_full_text(self):
-    prompt = prompts.generate_r1_prompt_string(
+    prompt = prompts.proposition_generation_generate_r1_prompt_string(
         self.df_r1,
         'participant_id',
         'topic',
@@ -135,7 +136,7 @@ class PromptsTest(unittest.TestCase):
     mock_extract.return_value = ('<definitions>...</definitions>', {'map': 'A'})
     mock_build_freetext.return_value = '<freetext_response>'
 
-    prompt = prompts.generate_r2_prompt_string(self.df_r2)
+    prompt = prompts.proposition_generation_generate_r2_prompt_string(self.df_r2)
 
     mock_extract.assert_called_once()
     mock_build_freetext.assert_called()
@@ -159,7 +160,7 @@ class PromptsTest(unittest.TestCase):
     mock_build_freetext.return_value = '<freetext_response>'
     mock_build_ranking.return_value = '<ranking_response>'
 
-    prompt = prompts.generate_r2_prompt_string(
+    prompt = prompts.proposition_generation_generate_r2_prompt_string(
         self.df_r2, include_non_gov_sections=True
     )
 
@@ -172,7 +173,7 @@ class PromptsTest(unittest.TestCase):
     self.assertIn('</R2_DATA>', prompt)
 
   def test_generate_r2_prompt_string_empty_df(self):
-    prompt = prompts.generate_r2_prompt_string(pd.DataFrame())
+    prompt = prompts.proposition_generation_generate_r2_prompt_string(pd.DataFrame())
     self.assertEqual(prompt, '')
 
 
