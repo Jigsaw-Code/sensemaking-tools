@@ -24,7 +24,7 @@
 # 1. evals/ directory: this contains the summary_metrics.csv for the overall
 #   input data quality as well as a metrics.csv file which is every survey
 #   response and it's quality rating with an explanation.
-# 2. moderated.csv: the survey responses with the Perspective scores and data
+# 2. moderated.csv: the survey responses with the Gemini/Perspective scores and data
 #   quality score.
 
 # Fail on any error
@@ -62,9 +62,9 @@ python3 -m src.evals.evals \
     --metric_name input_evals \
     --api_key "$API_KEY"
 
-# Then add Perspective scores for moderation. Use the input data evaluation
-# output as the input data so the output has both the autorater results and the
-# Perspective scores.
+# Then add Gemini/Perspective scores for moderation. Use the input data
+# evaluation output as the input data so the output has both the autorater
+# results and the Gemini/Perspective scores.
 python3 -m src.moderation.prepare_for_moderation \
     --input_csv "$PROCESSED_CSV" \
     --input_evals_csv "$EVALS_DIR/metrics.csv" \

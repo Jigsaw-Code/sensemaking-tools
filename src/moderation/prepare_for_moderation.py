@@ -13,15 +13,17 @@
 # limitations under the License.
 
 """
-Reads a CSV with a "response_text" column and calls the Perspective API
+Reads a CSV with a "response_text" column and calls Gemini/ Perspective API
 to get toxicity, severe_toxicity, and profanity scores.
 
 Example Usage:
-  python3 -m src.prepare_for_moderation \
+  python3 -m src.moderation.prepare_for_moderation \
     --input_csv /path/to/data.csv \
     --output_csv /path/to/data_with_scores.csv \
     --data_type ROUND_1 \
-    --api_key "$API_KEY"
+    --api_key "$API_KEY" \
+    --scorer_type GEMINI \
+    --model_name gemini-3.1-flash-lite-preview
 """
 
 import argparse
@@ -233,7 +235,7 @@ def main() -> None:
   """
   parser = argparse.ArgumentParser(
       description=(
-          "Analyze text from a CSV file for toxicity using the Perspective API."
+          "Analyze text from a CSV file for toxicity using Gemini/Perspective."
       )
   )
   parser.add_argument(
@@ -262,17 +264,17 @@ def main() -> None:
   parser.add_argument(
       "--api_key",
       required=True,
-      help="API key for the Perspective API.",
+      help="API key for the Perspective API or Gemini.",
   )
   parser.add_argument(
       "--scorer_type",
       choices=["GEMINI", "PERSPECTIVE"],
-      default="PERSPECTIVE",
+      default="GEMINI",
       help="Backend to use for generating moderation scores.",
   )
   parser.add_argument(
       "--model_name",
-      default="gemini-3-flash-preview",
+      default="gemini-3.1-flash-lite-preview",
       help="Gemini model name to use when scorer_type is GEMINI.",
   )
   args = parser.parse_args()

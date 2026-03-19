@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Gets bridging scores from Perspective API or Gemini.
+Gets bridging scores from Gemini or Perspective API.
 Example Usage:
  python3 -m src.get_bridging_scores \
      --input_csv <INPUT_CSV> \
      --output_csv <OUTPUT_CSV> \
      --api_key <API_KEY> \
-     --scorer_type PERSPECTIVE
+     --scorer_type GEMINI \
+     --model_name gemini-3.1-flash-lite-preview
 """
 
 import argparse
@@ -95,12 +96,12 @@ if __name__ == "__main__":
   parser.add_argument(
       "--scorer_type",
       choices=["GEMINI", "PERSPECTIVE"],
-      default="PERSPECTIVE",
+      default="GEMINI",
       help="Backend to use for generating bridging scores.",
   )
   parser.add_argument(
       "--model_name",
-      default="gemini-3-flash-preview",
+      default="gemini-3.1-flash-lite-preview",
       help="Gemini model name to use when scorer_type is GEMINI.",
   )
   args = parser.parse_args()
