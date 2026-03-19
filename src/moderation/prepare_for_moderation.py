@@ -40,7 +40,6 @@ from src.qualtrics.process_qualtrics_output import DataType
 from src.qualtrics.process_qualtrics_output import DURATION
 from src.qualtrics.process_qualtrics_output import END_QUESTION_TAG
 from src.qualtrics.process_qualtrics_output import END_RESPONSE_TAG
-from src.qualtrics.process_qualtrics_output import RESPONDENT_ID
 from src.qualtrics.process_qualtrics_output import RESPONSE_TEXT
 from src.qualtrics.process_qualtrics_output import START_QUESTION_TAG
 from src.qualtrics.process_qualtrics_output import START_RESPONSE_TAG
@@ -50,7 +49,7 @@ import pandas as pd
 
 # The text column is renamed 'response' by the eval library we use.
 _INPUT_EVAL_TEXT_COL = "response"
-ORIGINAL_COLUMNS_TO_USE = [RESPONSE_TEXT, RESPONDENT_ID, DURATION]
+ORIGINAL_COLUMNS_TO_USE = [RESPONSE_TEXT, DURATION]
 
 # Output column names
 _TOXICITY_SCORE = "Toxicity Score (of the worst response)"
@@ -307,7 +306,7 @@ def main() -> None:
     # The input data evaluation output includes a score that we want to use for
     # moderation since it's a good proxy for data quality. We merge this data
     # into the existing input data.
-    score_col = INPUT_EVAL_METRICS.name + "Pointwise/score"
+    score_col = "score"
     input_evals_df = get_csv(
         args.input_evals_csv, [score_col, _INPUT_EVAL_TEXT_COL]
     )
