@@ -20,7 +20,7 @@ import tempfile
 import sys
 from google.cloud import dlp_v2
 from src.moderation.prepare_for_moderation import main
-from src.qualtrics.process_qualtrics_output import RESPONSE_TEXT, SURVEY_TEXT, RESPONDENT_ID, DURATION
+from src.qualtrics.process_qualtrics_output import RESPONSE_TEXT, SURVEY_TEXT, DURATION
 from src.evals.eval_metrics import INPUT_EVAL_METRICS
 
 
@@ -36,7 +36,6 @@ class PrepareForModerationTest(unittest.TestCase):
 
     # Create dummy input CSV
     pd.DataFrame({
-        RESPONDENT_ID: [1, 2],
         # Each survey text is two question answer pairs. The questions and
         # answers are repeated for simplicity.
         SURVEY_TEXT: [
@@ -64,7 +63,7 @@ class PrepareForModerationTest(unittest.TestCase):
             " comment. </response>"
             * 2,
         ],
-        INPUT_EVAL_METRICS.name + "Pointwise/score": [4, 1],
+        "score": [4, 1],
     }).to_csv(self.input_evals_csv_path, index=False)
 
   def tearDown(self):
@@ -232,8 +231,9 @@ class PrepareForModerationTest(unittest.TestCase):
     self.assertEqual(len(df), 2)
 
     # Check specific scores
-    clean_row = df[df[RESPONDENT_ID] == 1].iloc[0]
-    toxic_row = df[df[RESPONDENT_ID] == 2].iloc[0]
+    col = "Toxicity Score (of the worst response)"
+    clean_row = df[df[col] < 0.5].iloc[0]
+    toxic_row = df[df[col] > 0.5].iloc[0]
 
     self.assertAlmostEqual(clean_row["Toxicity Score (of the worst response)"], 0.1)
     self.assertAlmostEqual(toxic_row["Toxicity Score (of the worst response)"], 0.8)
