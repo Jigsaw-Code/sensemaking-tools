@@ -18,8 +18,10 @@ including task instructions, evaluation criteria, and system messages.
 """
 
 from typing import List
+import json
 
 import pandas as pd
+from src.models import custom_types
 from src.propositions import prompts_util
 
 
@@ -182,6 +184,33 @@ Provide your response as a single JSON array of objects, as shown in the example
 ]
 """
   )
+
+
+def get_translation_prompt(text: str, target_language: str) -> str:
+  """
+  Generates a prompt for language detection and translate into target language..
+  Uses the Pydantic model to dynamically generate the JSON schema.
+
+  Args:
+    text: The input text to be analyzed and translated.
+
+  Returns:
+    The prompt to be sent to the LLM.
+  """
+  schema_json = json.dumps(
+      custom_types.TranslationResponse.model_json_schema(), indent=2
+  )
+  return f"""
+    You are a professional translator. Analyze the following text and determine
+    if it is in {target_language}.
+    If it is not, translate it into {target_language}.
+
+    Your response must be a valid JSON object matching this schema:
+    {schema_json}
+
+    Text to analyze:
+    {text}
+    """
 
 
 # R1 methods.
