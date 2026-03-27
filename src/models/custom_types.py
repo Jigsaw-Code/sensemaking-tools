@@ -114,3 +114,16 @@ class ScoreResponse(BaseModel):
   """Schema for score generation for moderation and bridging."""
 
   score: float = Field(description="The estimated probability (0.0 to 1.0).")
+
+
+class TranslationResponse(BaseModel):
+  """Schema for language detection and translation."""
+
+  is_target_language: bool = Field(
+      description="Whether the text is in the target language.")
+  translation: str = Field(
+      description=(
+          "The target language translation, if not already in this language. "
+          "Otherwise, leave it empty."
+      )
+  )

@@ -483,6 +483,15 @@ async def main() -> Optional[str]:
   # Write version of data with "Other" topics and opinions
   categorized_csv_path = os.path.join(args.output_dir, "categorized_with_other.csv")
   runner_utils.write_dicts_to_csv(output_csv_rows, categorized_csv_path)
+
+  # Dynamically add original_text_* columns to filtered_columns
+  if output_csv_rows:
+    original_cols = list()
+    for col in output_csv_rows[0].keys():
+      if col.startswith("original_text_"):
+        original_cols.append(col)
+    filtered_columns.extend(original_cols)
+
   output_csv_path = os.path.join(args.output_dir, "categorized_with_other_filtered.csv")
   _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
   output_file_base = os.path.join(args.output_dir, "categorized_with_other")
