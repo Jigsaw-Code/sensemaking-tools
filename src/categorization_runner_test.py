@@ -229,11 +229,11 @@ class CategorizationRunnerTest(unittest.TestCase):
         input_file='/tmp/input.csv',
         topics=None,
         topic_and_opinion_csv=None,
-        subject=None,
         model_name='gemini-pro',
         force_rerun=False,
         log_level='INFO',
         skip_autoraters=False,
+        max_llm_retries=None,
     )
     mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
     mock_convert.return_value = [

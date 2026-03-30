@@ -31,7 +31,6 @@ python -m src.categorization_runner \
 import argparse
 import asyncio
 import collections
-import csv
 import logging
 import os
 import re
@@ -45,8 +44,6 @@ import pandas as pd
 
 # Define a type for the rows read from CSV, expecting specific keys.
 StatementCsvRow = Dict[str, str]
-# Override the default CSV field size limit to handle larger files.
-csv.field_size_limit(1000000)
 
 
 def _filter_csv_columns(
@@ -54,33 +51,23 @@ def _filter_csv_columns(
 ):
   """Filters a CSV file to keep only specified columns."""
   try:
-    with open(input_file, "r", newline="", encoding="utf-8") as infile:
-      reader = csv.DictReader(infile)
+    df = pd.read_csv(input_file, dtype=str)
 
-      # Find which of the desired columns are present in the input file
-      present_columns = [
-          col for col in columns_to_keep if col in reader.fieldnames
-      ]
+    # Find which of the desired columns are present in the input file
+    present_columns = [col for col in columns_to_keep if col in df.columns]
 
-      if not present_columns:
-        logging.warning(
-            "None of the specified columns were found in the input file."
-        )
-        return
-
-      with open(output_file, "w", newline="", encoding="utf-8") as outfile:
-        writer = csv.DictWriter(outfile, fieldnames=present_columns)
-        writer.writeheader()
-
-        for row in reader:
-          # Create a new dictionary with only the desired columns
-          filtered_row = {col: row[col] for col in present_columns}
-          writer.writerow(filtered_row)
-
-      logging.info(
-          f"Successfully created '{output_file}' with columns:"
-          f" {', '.join(present_columns)}"
+    if not present_columns:
+      logging.warning(
+          "None of the specified columns were found in the input file."
       )
+      return
+
+    df[present_columns].to_csv(output_file, index=False)
+
+    logging.info(
+        f"Successfully created '{output_file}' with columns:"
+        f" {', '.join(present_columns)}"
+    )
 
   except FileNotFoundError:
     logging.error(f"Error: The file '{input_file}' was not found.")
@@ -97,14 +84,10 @@ def _read_csv_to_dicts(input_file_path: str) -> List[Dict[str, str]]:
   if not os.path.exists(file_path):
     raise FileNotFoundError(f"Input file not found: {file_path}")
 
-  with open(file_path, mode="r", encoding="utf-8") as csvfile:
-    # Read the header row first using a regular reader
-    reader = csv.reader(csvfile)
-    header = next(reader)
-    # Convert all header names to lowercase
-    lowercase_header = [h.lower() for h in header]
-    reader = csv.DictReader(csvfile, fieldnames=lowercase_header)
-    return list(reader)
+  df = pd.read_csv(file_path, dtype=str)
+  # Convert all header names to lowercase
+  df.columns = [h.lower() for h in df.columns]
+  return df.to_dict("records")
 
 
 def _convert_csv_rows_to_statements(
