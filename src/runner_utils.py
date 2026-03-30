@@ -16,11 +16,12 @@
 
 import argparse
 from collections import Counter, defaultdict
-import csv
 import datetime
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
 
 from src.models import custom_types
 
@@ -178,9 +179,7 @@ def write_dicts_to_csv(
   if output_dir:
     os.makedirs(output_dir, exist_ok=True)
 
-  all_keys = set()
-  for row in csv_rows:
-    all_keys.update(row.keys())
+  df = pd.DataFrame(csv_rows)
 
   preferred_order = [
       "participant_id",
@@ -192,14 +191,12 @@ def write_dicts_to_csv(
       "topic",
       "opinion",
   ]
-  headers = [h for h in preferred_order if h in all_keys]
-  remaining_keys = sorted([k for k in all_keys if k not in headers])
+  all_columns = df.columns.tolist()
+  headers = [h for h in preferred_order if h in all_columns]
+  remaining_keys = sorted([k for k in all_columns if k not in headers])
   headers.extend(remaining_keys)
 
-  with open(file_path, mode="w", encoding="utf-8", newline="") as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=headers)
-    writer.writeheader()
-    writer.writerows(csv_rows)
+  df[headers].to_csv(file_path, index=False)
   logging.info(f"CSV file written successfully to {file_path}.")
 
 
