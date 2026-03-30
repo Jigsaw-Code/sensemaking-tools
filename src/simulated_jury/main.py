@@ -51,12 +51,6 @@ def main():
       ),
   )
   parser.add_argument(
-      "--gemini_api_key",
-      default=os.environ.get("GEMINI_API_KEY"),
-      type=str,
-      help="Gemini API key.",
-  )
-  parser.add_argument(
       "--model_name",
       default="gemini-2.5-flash-lite",
       type=str,
@@ -103,13 +97,6 @@ def main():
   )
   args = parser.parse_args()
 
-  if not args.gemini_api_key:
-    print(
-        "Error: Gemini API key not found. Please set the GEMINI_API_KEY"
-        " environment variable or pass it with --gemini_api_key."
-    )
-    return
-
   # --- Load Data ---
   try:
     participants_df = pd.read_csv(args.participants_csv)
@@ -154,9 +141,7 @@ def main():
 
   # --- Run Simulation ---
   approval_scale = simulated_jury.ApprovalScale(args.approval_scale)
-  model = genai_model.GenaiModel(
-      api_key=args.gemini_api_key, model_name=args.model_name
-  )
+  model = genai_model.GenaiModel(model_name=args.model_name)
   approval_results_df, _ = asyncio.run(
       simulated_jury.run_simulated_jury(
           participants_df=participants_df,
