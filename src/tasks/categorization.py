@@ -385,10 +385,18 @@ async def categorize_opinions(
 
   # Track work queue: Topic Name -> List of IDs to process for that topic
   # We use IDs to track statements to avoid deep copying lists repeatedly
-  # Initial work queue has all statements for all topics
-  topic_work_queue_ids: dict[str, list[str]] = {
-      t.name: list(input_statements_map.keys()) for t in topics_to_process
-  }
+  # Initial work queue has all statements for all topics following this rule:
+  # If topic is "education", the statement has a quote from "education" topic,
+  # then it'll be included in the work queue for "education" topic.
+  # However, if the statement has 2 quotes whose topics are "health" and
+  # "economy", then this statment will not be included in the work queue for
+  # "education", or any other topic that is not "health" or "economy".
+  topic_work_queue_ids: dict[str, list[str]] = dict()
+  for t in topics_to_process:
+    topic_work_queue_ids[t.name] = [
+      sid for sid, s in input_statements_map.items()
+      if t.name in [q.topic.name for q in s.quotes]
+    ]
 
   autorater_retry_counts: dict[str, int] = {}
   # Use max_llm_retries override if provided, otherwise default to 3
