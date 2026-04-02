@@ -39,6 +39,12 @@ POSITIVE_APPROVAL_VOTES = frozenset([
     "Somewhat Agree",
 ])
 
+# The shorthand labels for the options (A-Z, a-z)
+STATEMENT_MAPPING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+# The maximum number of statements that can be ranked by the LLM
+MAX_STATEMENTS_FOR_RANKING = len(STATEMENT_MAPPING_CHARS)
+
 
 class VotingMode(Enum):
   RANK = 1
@@ -171,11 +177,13 @@ def _compute_stats_summary(
 class StatementMapper:
   """Maps characters to statements for parsing LLM responses."""
 
-  CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  CHARS = STATEMENT_MAPPING_CHARS
 
   def __init__(self, statements: list[str]):
-    if len(statements) > len(self.CHARS):
-      raise ValueError(f"Cannot map more than {len(self.CHARS)} statements.")
+    if len(statements) > MAX_STATEMENTS_FOR_RANKING:
+      raise ValueError(
+          f"Cannot map more than {MAX_STATEMENTS_FOR_RANKING} statements."
+      )
     self.statements = statements
     self.letter_to_statement = {
         self.CHARS[i]: statement for i, statement in enumerate(self.statements)
