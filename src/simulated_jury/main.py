@@ -1,3 +1,5 @@
+import logging
+import sys
 """
 A command-line utility for running simulated jury analyses.
 
@@ -18,6 +20,8 @@ import pandas as pd
 from src.simulated_jury import simulated_jury
 from src.simulated_jury import sampling_utils
 from src.models import genai_model
+from src.social_choice import schulze
+from src.social_choice import proportional_approval_voting
 
 
 def main():
@@ -66,10 +70,34 @@ def main():
       ),
   )
   parser.add_argument(
-      "--batch_size",
+      "--approval_batch_size",
       type=int,
       default=15,
-      help="The number of statements to process in each batch.",
+      help="The number of statements to process in each batch for approval.",
+  )
+  parser.add_argument(
+      "--batch_size",
+      type=int,
+      help=argparse.SUPPRESS,
+  )
+  parser.add_argument(
+      "--voting_mode",
+      type=str,
+      default="approval",
+      choices=["approval", "ranking", "schulze_pav"],
+      help="The voting mode to use.",
+  )
+  parser.add_argument(
+      "--group_by",
+      type=str,
+      default=None,
+      help="Column to group statements by for ranking/PAV evaluations.",
+  )
+  parser.add_argument(
+      "--max_ranking_candidates",
+      type=int,
+      default=simulated_jury.MAX_STATEMENTS_FOR_RANKING,
+      help="Maximum number of statements to rank per group.",
   )
   parser.add_argument(
       "--approval_scale",
@@ -97,21 +125,22 @@ def main():
   )
   args = parser.parse_args()
 
+  if args.batch_size is not None:
+    args.approval_batch_size = args.batch_size
+
   # --- Load Data ---
   try:
     participants_df = pd.read_csv(args.participants_csv)
     statements_df = pd.read_csv(args.statements_csv)
   except FileNotFoundError as e:
-    print(f"Error: {e.filename} not found.")
-    return
+    logging.fatal("Error: %s not found.", e.filename)
 
   if args.true_agree_rate_column:
     if args.true_agree_rate_column not in statements_df.columns:
-      print(
-          f"Error: Column '{args.true_agree_rate_column}' not found in"
-          " statements CSV."
+      logging.fatal(
+          "Error: Column '%s' not found in statements CSV.",
+          args.true_agree_rate_column,
       )
-      return
 
   # --- Sample Participants for the Jury ---
   if args.jury_size is not None:
@@ -120,8 +149,7 @@ def main():
           participants_df, args.jury_size, verbose=True
       )
     except ValueError as e:
-      print(f"Error: {e}")
-      return
+      logging.fatal("Error: %s", e)
 
   # --- Identify Statement Column ---
   statement_column = args.statement_column
@@ -131,42 +159,135 @@ def main():
     elif "proposition" in statements_df.columns:
       statement_column = "proposition"
     else:
-      print(
-          "Error: Could not find a 'statement' or 'proposition' column."
-          " Please specify with --statement_column."
+      logging.fatal(
+          "Error: Could not find a 'statement' or 'proposition' column. Please"
+          " specify with --statement_column."
       )
-      return
 
   statements = statements_df[statement_column].tolist()
+
+  # --- Setup Columns ---
+  if args.group_by and args.group_by not in statements_df.columns:
+    logging.fatal("Error: Grouping column '%s' not found.", args.group_by)
+
+  # If an existing agree_rate column was supplied by the input, drop it to prevent duplicates
+  if "agree_rate" in statements_df.columns:
+    print(
+        "Warning: Existing 'agree_rate' column found in statements CSV."
+        " Overwriting."
+    )
+    statements_df = statements_df.drop(columns=["agree_rate"])
 
   # --- Run Simulation ---
   approval_scale = simulated_jury.ApprovalScale(args.approval_scale)
   model = genai_model.GenaiModel(model_name=args.model_name)
-  approval_results_df, _ = asyncio.run(
-      simulated_jury.run_simulated_jury(
-          participants_df=participants_df,
-          statements=statements,
-          voting_mode=simulated_jury.VotingMode.APPROVAL,
-          model=model,
-          batch_size=args.batch_size,
-          approval_scale=approval_scale,
+
+  approval_matrix = pd.DataFrame()
+
+  if args.voting_mode in ("approval", "schulze_pav"):
+    print(
+        f"--- Running APPROVAL simulation on {len(statements)} statements ---"
+    )
+    approval_results_df, _ = asyncio.run(
+        simulated_jury.run_simulated_jury(
+            participants_df=participants_df,
+            statements=statements,
+            voting_mode=simulated_jury.VotingMode.APPROVAL,
+            model=model,
+            batch_size=args.approval_batch_size,
+            approval_scale=approval_scale,
+        )
+    )
+
+    if not approval_results_df.empty:
+      approval_matrix = simulated_jury.build_approval_matrix(
+          approval_results_df, approval_scale=approval_scale
       )
-  )
+      agree_rate = approval_matrix.mean().rename("agree_rate")
 
-  # --- Process Results ---
-  if approval_results_df.empty:
-    print("No results from the simulated jury.")
-    return
+      # Use standard left join to append averages
+      statements_df = statements_df.merge(
+          agree_rate, left_on=statement_column, right_index=True, how="left"
+      )
+    else:
+      logging.fatal("Error: No results from the simulated approval jury.")
 
-  approval_matrix = simulated_jury.build_approval_matrix(
-      approval_results_df, approval_scale=approval_scale
-  )
-  agree_rate = approval_matrix.mean().rename("agree_rate")
+  if args.voting_mode in ("ranking", "schulze_pav"):
+    # If no grouping column is specified, create a dummy temporary group
+    # column so we can reuse the same group iteration loop below.
+    group_col = args.group_by if args.group_by else "temp_group"
+    if not args.group_by:
+      statements_df["temp_group"] = "all"
 
-  # --- Save Output ---
-  results_df = statements_df.merge(
-      agree_rate, left_on=statement_column, right_index=True
-  )
+    for group_name, group_df in statements_df.groupby(group_col):
+      group_statements = group_df[statement_column].tolist()
+
+      if len(group_statements) > args.max_ranking_candidates:
+        print(
+            f"Warning: Group '{group_name}' has {len(group_statements)}"
+            " statements, exceeding max_ranking_candidates"
+            f" ({args.max_ranking_candidates}). Skipping ranking."
+        )
+        continue
+
+      print(
+          f"--- Running RANK simulation for group: {group_name}"
+          f" ({len(group_statements)} statements) ---"
+      )
+      jury_results_df, _ = asyncio.run(
+          simulated_jury.run_simulated_jury(
+              participants_df=participants_df,
+              statements=group_statements,
+              voting_mode=simulated_jury.VotingMode.RANK,
+              model=model,
+              topic_name=str(group_name) if args.group_by else "All Statements",
+          )
+      )
+
+      if jury_results_df.empty:
+        print(f"No ranking results for group: {group_name}.")
+        continue
+
+      jury_preferences = []
+      for res in jury_results_df["result"]:
+        if res and "ranking" in res:
+          ranking = res["ranking"]
+          if ranking:
+            jury_preferences.append(ranking)
+
+      if not jury_preferences:
+        print(f"No valid rankings for group: {group_name}.")
+        continue
+
+      schulze_ranking = schulze.get_schulze_ranking(jury_preferences)
+      final_ranking = schulze_ranking.get("top_propositions", [])
+
+      for rank_idx, statement in enumerate(final_ranking):
+        statements_df.loc[
+            statements_df[statement_column] == statement, "schulze_rank"
+        ] = (rank_idx + 1)
+
+      if args.voting_mode == "schulze_pav":
+        if approval_matrix.empty:
+          logging.fatal("Error: Approval matrix is empty, cannot compute PAV.")
+
+        group_approval_matrix = approval_matrix[group_statements]
+        pav_slate = proportional_approval_voting.run_schulze_pav_selection(
+            ranked_choice_results=jury_preferences,
+            approval_matrix=group_approval_matrix,
+            k=len(group_statements),
+        )
+        for rank_idx, statement in enumerate(pav_slate):
+          statements_df.loc[
+              statements_df[statement_column] == statement, "pav_rank"
+          ] = (rank_idx + 1)
+
+    # Clean up the dummy loop column so it doesn't clutter the output CSV
+    if "temp_group" in statements_df.columns:
+      statements_df = statements_df.drop(columns=["temp_group"])
+
+  # --- Process Results & Save Output ---
+  results_df = statements_df
 
   if args.true_agree_rate_column:
     true_rate = results_df[args.true_agree_rate_column]
@@ -174,12 +295,14 @@ def main():
       true_rate = true_rate.str.rstrip("%").astype("float") / 100.0
     results_df["error"] = results_df["agree_rate"] - true_rate
 
-  if args.percent:
+  if args.percent and "agree_rate" in results_df.columns:
     results_df["agree_rate"] = results_df["agree_rate"].apply(
-        lambda x: f"{x*100:.1f}%"
+        lambda x: f"{x*100:.1f}%" if pd.notna(x) else x
     )
     if "error" in results_df.columns:
-      results_df["error"] = results_df["error"].apply(lambda x: f"{x*100:.1f}%")
+      results_df["error"] = results_df["error"].apply(
+          lambda x: f"{x*100:.1f}%" if pd.notna(x) else x
+      )
 
   results_df.to_csv(args.output_csv, index=False)
   print(f"Results saved to {args.output_csv}")
