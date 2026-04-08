@@ -184,7 +184,7 @@ class GenaiModel:
     self._global_pause_event.set()
 
   async def _extract_error_details(
-      self, e: Exception
+      self, e: Exception, log_prefix: str
   ) -> Tuple[bool, bool, int]:
     """Extracts error type and potential retry delay from an exception."""
     is_quota_error = (
@@ -282,7 +282,7 @@ class GenaiModel:
     retry_attempts = job.get("retry_attempts")
 
     is_quota_error, is_service_unavailable, delay = (
-        await self._extract_error_details(e)
+        await self._extract_error_details(e, log_prefix)
     )
 
     if is_quota_error:
