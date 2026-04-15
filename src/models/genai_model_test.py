@@ -487,7 +487,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
         self.response = response
 
     mock_response = unittest.mock.MagicMock()
-    mock_response.status = 429
+    mock_response.status_code = 429
 
     # Mock the async json() method on the response
     async def mock_json():
@@ -553,7 +553,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
         self.response = response
 
     mock_response = unittest.mock.MagicMock()
-    mock_response.status = 503
+    mock_response.status_code = 503
 
     mock_error = MockServerError('Service Unavailable', mock_response)
 
@@ -601,7 +601,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
         self.response = response
 
     mock_response = unittest.mock.MagicMock()
-    mock_response.status = 503
+    mock_response.status_code = 503
     mock_error = MockServerError('Service Unavailable', mock_response)
 
     # Setup: 3 jobs all fail once with 503, then all succeed
