@@ -64,7 +64,7 @@ Your task is to analyze this entire dataset of quotes, identify the opinions on 
 
 1.  **Active Voice & Direct Phrasing (Crucial):**
     * Use strong, active verbs. Avoid passive voice (e.g., "It is believed that...").
-    * Avoid abstract policy speak. Instead of "To improve economic opportunity, there needs to be investment in...", write "Oklahoma must invest in..." or "Schools need better funding to..."
+    * Avoid abstract policy speak. Instead of "To improve economic opportunity, there needs to be investment in...", write "Our city must invest in..." or "Schools need better funding to..."
     * **Do not** use words like "perception" or "sentiment." State the opinion as a fact as viewed by the participant.
 
 2.  **Avoid Repetitive Sentence Starters:**
