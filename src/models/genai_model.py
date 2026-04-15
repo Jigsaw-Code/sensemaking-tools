@@ -190,12 +190,12 @@ class GenaiModel:
     is_quota_error = (
         isinstance(e, google_genai_errors.ClientError)
         and e.response is not None
-        and e.response.status == 429
+        and e.response.status_code == 429
     )
     is_service_unavailable = (
         isinstance(e, google_genai_errors.ServerError)
         and e.response is not None
-        and e.response.status == 503
+        and e.response.status_code == 503
     ) or isinstance(e, google_exceptions.ServiceUnavailable)
 
     delay = FAIL_RETRY_DELAY_SECONDS
