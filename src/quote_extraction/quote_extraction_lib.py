@@ -14,6 +14,7 @@
 
 import asyncio
 import logging
+import re
 from typing import List, Optional, cast
 
 from src.models.genai_model import GenaiModel
@@ -169,3 +170,43 @@ async def _get_quotes_realtime(
       )
   logging.info("Quote extraction complete.")
   return
+
+
+def skip_quote_extraction(statements: List[Statement]) -> List[Statement]:
+  """Bypasses LLM quote extraction and uses full statement text as quote.
+
+  Args:
+      statements: A list of Statement objects, with topics assigned.
+
+  Returns:
+      The list of statements, updated with quotes.
+  """
+  logging.info("Skipping quote extraction, using entire response as quote.")
+  for statement in statements:
+    response_text = join_response_text(statement.text)
+    if statement.topics:
+      if statement.quotes is None:
+        statement.quotes = []
+
+      for topic in statement.topics:
+        statement.quotes.append(
+            Quote(
+                id=f"{statement.id}-{topic.name}",
+                text=response_text,
+                topic=(
+                    NestedTopic(name=topic.name, subtopics=topic.subtopics)
+                    if isinstance(topic, NestedTopic)
+                    else FlatTopic(name=topic.name)
+                ),
+            )
+        )
+  return statements
+
+
+def join_response_text(survey_text):
+  """Extract each response and make sure it ends with proper punctation."""
+  responses = re.findall(r'<response>(.*?)</response>', survey_text, re.DOTALL)
+  for i in range(len(responses)):
+    if responses[i][-1] not in {'.', '?', '!'}:
+      responses[i] += '.'
+  return " ".join(responses)

@@ -359,6 +359,14 @@ async def main() -> Optional[str]:
       default=None,
       help="Override the maximum LLM retries for API calls.",
   )
+  parser.add_argument(
+      "--skip_quote_extraction",
+      action="store_true",
+      help=(
+          "If set, skip the LLM-based quote extraction and use the whole"
+          " response as the quote."
+      ),
+  )
 
   args = parser.parse_args()
 
@@ -457,6 +465,7 @@ async def main() -> Optional[str]:
       original_csv_rows=original_csv_rows,
       output_dir=args.output_dir,
       run_autoraters=not args.skip_autoraters,
+      skip_quote_extraction=args.skip_quote_extraction,
   )
 
   output_csv_rows = _set_topics_on_csv_rows(
