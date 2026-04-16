@@ -127,6 +127,22 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
         len(set(all_quote_ids)), len(all_quote_ids)
     )  # Check for uniqueness
 
+  def test_join_response_text(self):
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("<response>Hello.</response>"),
+        "Hello.",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("<response>Hello</response>"),
+        "Hello.",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text(
+            "<response>Hello</response> <response>World!</response>"
+        ),
+        "Hello. World!",
+    )
+
 
 if __name__ == "__main__":
   unittest.main()
