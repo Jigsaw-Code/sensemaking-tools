@@ -419,7 +419,7 @@ Your task is to analyze this entire dataset of quotes, identify the opinions on 
 
 1.  **Active Voice & Direct Phrasing (Crucial):**
     * Use strong, active verbs. Avoid passive voice (e.g., "It is believed that...").
-    * Avoid abstract policy speak. Instead of "To improve economic opportunity, there needs to be investment in...", write "The city must invest in..." or "Schools need better funding to..."
+    * Avoid abstract policy speak. Instead of "To improve economic opportunity, there needs to be investment in...", write "Our city must invest in..." or "Schools need better funding to..."
     * **Do not** use words like "perception" or "sentiment." State the opinion as a fact as viewed by the participant.
 
 2.  **Avoid Repetitive Sentence Starters:**
@@ -509,6 +509,47 @@ Main Rules:
 - The quote and the opinion must be making the same kind of claim. Do not match a personal definition (e.g., 'Freedom means...') to a conditional argument (e.g., 'Freedom isn't real until...').
 - Be Aggressively Literal / No Inference. Do not make inferences or assumptions. Do not make logical leaps or semantic substitutions. If an opinion mentions a concept like 'dignity,' the quote must also mention 'dignity' or 'respect.' Do not infer that 'equal rights' is the same as 'dignity.' Do not infer 'regime' means 'corrupt government.'
 - Match Abstraction Levels. Do not match specific examples (like 'targeting based on skin color') to a broad category (like 'culture of hate').
+"""
+
+
+def get_topic_categorization_prompt(topics_json_str: str) -> str:
+  """Generates the prompt for categorizing statements into topics."""
+  return f"""
+For each of the following statements, identify any relevant topic from the list below.
+Input Topics:
+{topics_json_str}
+
+Important Considerations:
+- Ensure the assigned topic accurately reflects the meaning of the statement.
+- If relevant and necessary (e.g. when a statement contains multiple disjoint claims), a statement can be assigned to multiple topics.
+- Prioritize using the existing topics whenever possible. Keep the "Other" topic to minimum, ideally keep it empty.
+- Use "Other" topic if the statement is completely off-topic and doesn't really fit any of the topics.
+- All statements must be assigned at least one existing topic.
+- Do not create any new topics that are not listed in the Input Topics.
+- When generating the JSON output, minimize the size of the response. For example, prefer this compact format: {{"id": "5258", "topics": [{{"name": "Arts, Culture, And Recreation"}}]}} instead of adding unnecessary whitespace or newlines.
+
+class StatementRecordList(BaseModel):
+    items: list[StatementRecord]
+
+class StatementRecord(BaseModel):
+    id: str = Field(description="The unique identifier of the statement.")
+    topics: list[Topic] = Field(description="A list of topics assigned to the statement.")
+
+class Topic(BaseModel):
+    name: str
+
+You must follow the rules for the instructions strictly.
+Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
+
+Response must be a valid JSON object matching StatementRecordList schema. Example:
+{{
+  "items": [
+    {{
+      "id": "5258",
+      "topics": [{{"name": "Arts, Culture, And Recreation"}}]
+    }}
+  ]
+}}
 """
 
 
