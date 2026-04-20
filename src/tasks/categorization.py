@@ -16,7 +16,6 @@ import asyncio
 import functools
 import itertools
 import json
-from src import prompts
 import logging
 import os
 import re
@@ -29,6 +28,7 @@ from typing import Any, Callable, Coroutine, Iterable, Set, Tuple, Union, cast
 from more_itertools import batched
 from src.tasks.topic_modeling_util import parse_response
 from pydantic import TypeAdapter, ValidationError
+from src import prompts
 from src.models import genai_model
 from src.sensemaker_utils import execute_concurrently, get_prompt
 from src import runner_utils
@@ -46,7 +46,6 @@ from src.evals.autorater_evals import (
     parse_eval_response,
 )
 from src.tasks import topic_modeling, topic_modeling_util
-from src import prompts
 from src.tasks.topic_modeling import learn_topics, learn_opinions
 
 
@@ -161,7 +160,7 @@ async def learn_global_opinions(
       return topic, [], None
 
     prompt_input_data = [f"<quote>{q.text}</quote>" for q in quotes]
-    instructions = topic_modeling.learn_opinions_prompt(topic)
+    instructions = prompts.get_topic_modeling_opinions_prompt(topic.name)
 
     # This might call the model for token counting
     chunks = await topic_modeling_util.create_chunks(
@@ -861,50 +860,6 @@ def _assign_defaults_for_exhausted_retries(
   return
 
 
-def _topic_categorization_prompt(topics: list[Topic]) -> str:
-  """Generates the prompt for categorizing statements into topics."""
-  topics_json_list = [{"name": t.name} for t in topics]
-  return f"""
-For each of the following statements, identify any relevant topic from the list below.
-Input Topics:
-{json.dumps(topics_json_list)}
-
-Important Considerations:
-- Ensure the assigned topic accurately reflects the meaning of the statement.
-- If relevant and necessary (e.g. when a statement contains multiple disjoint claims), a statement can be assigned to multiple topics.
-- Prioritize using the existing topics whenever possible. Keep the "Other" topic to minimum, ideally keep it empty.
-- Use "Other" topic if the statement is completely off-topic and doesn't really fit any of the topics.
-- All statements must be assigned at least one existing topic.
-- Do not create any new topics that are not listed in the Input Topics.
-- When generating the JSON output, minimize the size of the response. For example, prefer this compact format: {{"id": "5258", "topics": [{{"name": "Arts, Culture, And Recreation"}}]}} instead of adding unnecessary whitespace or newlines.
-
-class StatementRecordList(BaseModel):
-    items: list[StatementRecord]
-
-class StatementRecord(BaseModel):
-    id: str = Field(description="The unique identifier of the statement.")
-    topics: list[Topic] = Field(description="A list of topics assigned to the statement.")
-
-class Topic(BaseModel):
-    name: str
-
-You must follow the rules for the instructions strictly.
-Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
-
-Response must be a valid JSON object matching StatementRecordList schema. Example:
-{{
-  "items": [
-    {{
-      "id": "5258",
-      "topics": [{{"name": "Arts, Culture, And Recreation"}}]
-    }}
-  ]
-}}
-"""
-
-
-
-
 def _create_token_based_batches(
     statements: list[Statement], max_tokens: int, max_items: int = 50
 ) -> list[list[Statement]]:
@@ -1032,7 +987,8 @@ async def _process_topic_categorization(
   Returns:
       A list of StatementRecord objects with the results from the model.
   """
-  instructions = _topic_categorization_prompt(target_topics)
+  topics_json_str = json.dumps([{"name": t.name} for t in target_topics])
+  instructions = prompts.get_topic_categorization_prompt(topics_json_str)
 
   uncategorized_for_retry: list[Statement] = list(statements_to_categorize)
   successfully_categorized_llm_records: list[StatementRecord] = []
