@@ -11,6 +11,7 @@
   "workspaces": [
     "_glue"
   ],
+  "private": true,
   "engines": {
     "node": "22"
   },

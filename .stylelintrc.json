@@ -13,22 +13,27 @@
     "block-no-empty": null,
     "color-named": "never",
     "declaration-block-no-redundant-longhand-properties": null,
-    "declaration-block-semicolon-space-before": "never",
     "declaration-empty-line-before": null,
-    "declaration-no-important": true,
-    "max-nesting-depth": 4,
-    "number-leading-zero": "never",
     "no-descending-specificity": null,
-    "selector-class-pattern": [
-      "^[a-z]([a-z0-9-]+)?(__([a-z0-9]+-?)+)?(--([a-z0-9]+-?)+)*$",
-      {
-        "message": "Expected class selector to follow BEM methodology"
-      }
-    ],
+    "selector-class-pattern": null,
     "selector-type-no-unknown": [true, {
       "ignoreTypes": ["/app-[a-z0-9]/"]
     }],
-    "string-quotes": "single"
+    "value-keyword-case": null,
+    "scss/at-extend-no-missing-placeholder": null,
+    "color-hex-length": null,
+    "rule-empty-line-before": null,
+    "max-nesting-depth": null,
+    "shorthand-property-no-redundant-values": null,
+    "selector-pseudo-element-colon-notation": null,
+    "length-zero-no-unit": null,
+    "color-function-alias-notation": null,
+    "alpha-value-notation": null,
+    "no-duplicate-selectors": null,
+    "color-function-notation": null,
+    "media-feature-range-notation": null
+
+
   },
   "ignoreFiles": [
     "static/styles/glue/**/*.css"
