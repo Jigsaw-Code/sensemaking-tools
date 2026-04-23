@@ -206,6 +206,8 @@ def skip_quote_extraction(statements: List[Statement]) -> List[Statement]:
 def join_response_text(survey_text):
   """Extract each response and make sure it ends with proper punctation."""
   responses = re.findall(r'<response>(.*?)</response>', survey_text, re.DOTALL)
+  if not responses:
+    return survey_text
   for i in range(len(responses)):
     if responses[i][-1] not in {'.', '?', '!'}:
       responses[i] += '.'

@@ -142,6 +142,10 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
         ),
         "Hello. World!",
     )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("This text has no response tags."),
+        "This text has no response tags.",
+    )
 
 
 if __name__ == "__main__":
