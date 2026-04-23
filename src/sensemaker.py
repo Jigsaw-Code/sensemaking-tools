@@ -63,6 +63,7 @@ class Sensemaker:
       output_dir: Optional[str] = None,
       run_autoraters: bool = True,
       skip_quote_extraction: bool = False,
+      max_concurrent_calls: Optional[int] = None,
   ) -> Iterable[custom_types.Statement]:
     """Categorize statements into topics and opinions using an LLM.
 
@@ -117,6 +118,7 @@ class Sensemaker:
                 model=self._genai_model,
                 current_topics=topics,
                 additional_context=additional_context,
+                max_concurrent_calls=max_concurrent_calls,
             )
         )
 
@@ -192,6 +194,7 @@ class Sensemaker:
             topics_to_process=learned_topics,
             model=self._genai_model,
             additional_context=additional_context,
+            max_concurrent_calls=max_concurrent_calls,
         )
         if output_dir:
           checkpoint_utils.save_checkpoint(
@@ -206,6 +209,7 @@ class Sensemaker:
           model=self._genai_model,
           additional_context=additional_context,
           run_autoraters=run_autoraters,
+          max_concurrent_calls=max_concurrent_calls,
       )
 
       if output_dir:

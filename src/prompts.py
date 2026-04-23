@@ -602,10 +602,10 @@ Other rules:
 VERY IMPORTANT:
 Double check to make sure that all quote ids and topic names are in the input. For example, if an input quote_id is '1183-Defining Freedom', then the output quote_id should be the same '1183-Defining Freedom', and not anything else like '1183' or '1188-Defining Freedom'.
 
-class StatementRecordList(BaseModel):
-    items: list[StatementRecord]
+class QuoteOpinionRecordList(BaseModel):
+    items: list[QuoteOpinionRecord]
 
-class StatementRecord(BaseModel):
+class QuoteOpinionRecord(BaseModel):
     id: str = Field(description="The unique identifier of the statement.")
     quote_id: str = Field(description="The unique identifier of the quote.")
     topics: list[Topic] = Field(description="A list of opinions assigned to the quote.")
@@ -616,7 +616,7 @@ class Topic(BaseModel):
 You must follow the rules for the instructions strictly.
 Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
 
-Response must be a valid JSON object matching StatementRecordList schema. Example:
+Response must be a valid JSON object matching QuoteOpinionRecordList schema. Example:
 {{
   "items": [
      {{

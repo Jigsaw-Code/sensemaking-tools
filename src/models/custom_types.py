@@ -69,6 +69,25 @@ class StatementRecordList(BaseModel):
   items: list[StatementRecord]
 
 
+class QuoteOpinionRecord(BaseModel):
+  """Represents a quote that has been categorized with an opinion.
+
+  Used for strict quote-level opinion categorization where quote_id is required.
+  """
+
+  id: str = Field(description="The unique identifier of the statement.")
+  quote_id: str = Field(description="The unique identifier of the quote.")
+  topics: list[FlatTopic] = Field(
+      description="A list of opinions assigned to the quote.",
+  )
+
+
+class QuoteOpinionRecordList(BaseModel):
+  """Wrapper for a list of QuoteOpinionRecords to use as a schema for the LLM."""
+
+  items: list[QuoteOpinionRecord]
+
+
 class Quote(BaseModel):
   """Represents an extracted quote from a statement, associated with a specific topic or opinion."""
 
@@ -120,7 +139,8 @@ class TranslationResponse(BaseModel):
   """Schema for language detection and translation."""
 
   is_target_language: bool = Field(
-      description="Whether the text is in the target language.")
+      description="Whether the text is in the target language."
+  )
   translation: str = Field(
       description=(
           "The target language translation, if not already in this language. "

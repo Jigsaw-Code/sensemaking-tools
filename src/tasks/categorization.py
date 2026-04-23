@@ -39,6 +39,8 @@ from src.models.custom_types import (
     FlatTopic,
     NestedTopic,
     StatementRecordList,
+    QuoteOpinionRecord,
+    QuoteOpinionRecordList,
     OpinionResponseSchema,
 )
 from src.evals.autorater_evals import (
@@ -51,8 +53,10 @@ from src.tasks.topic_modeling import learn_topics, learn_opinions
 
 # Use dynamic batching based on token count
 # Target 20k tokens per batch (safe for output generation limits)
-MAX_BATCH_TOKENS = 20000
-MAX_ITEMS_PER_BATCH = 50
+MAX_BATCH_TOKENS = int(os.getenv("MAX_BATCH_TOKENS", 20000))
+MAX_ITEMS_PER_BATCH = int(os.getenv("MAX_ITEMS_PER_BATCH", 5))
+
+# Concurrency is driven dynamically via CLI flags passed down to tasks.
 
 
 async def categorize_topics(
@@ -60,6 +64,7 @@ async def categorize_topics(
     model: genai_model.GenaiModel,
     current_topics: list[Topic] | None = None,
     additional_context: str | None = None,
+    max_concurrent_calls: int | None = None,
 ) -> tuple[list[Statement], list[Topic]]:
   """Categorizes a list of statements into topics.
 
@@ -128,6 +133,7 @@ async def learn_global_opinions(
     topics_to_process: list[Topic],
     model: genai_model.GenaiModel,
     additional_context: str | None = None,
+    max_concurrent_calls: int | None = None,
 ) -> dict[str, Any]:
   """Learns opinions for all topics globally using concurrent batching.
 
@@ -222,6 +228,7 @@ async def learn_global_opinions(
       generation_prompts,
       response_parser=_parse_opinion_response,
       skip_log=True,
+      max_concurrent_calls=max_concurrent_calls,
   )
   all_stage_stats.extend(stats.to_dict("records"))
   total_wall_delay += wall_delay
@@ -294,7 +301,9 @@ async def learn_global_opinions(
         continue
 
       # Prepare Merge Prompt
-      merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(topic_obj.name)
+      merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(
+          topic_obj.name
+      )
       prompt_str = get_prompt(
           merge_instructions, combined_opinions, additional_context
       )
@@ -320,6 +329,7 @@ async def learn_global_opinions(
             merge_prompts,
             response_parser=_parse_opinion_response,
             skip_log=True,
+            max_concurrent_calls=max_concurrent_calls,
         )
     )
     all_stage_stats.extend(stats.to_dict("records"))
@@ -360,6 +370,7 @@ async def categorize_opinions(
     model: genai_model.GenaiModel,
     additional_context: str | None = None,
     run_autoraters: bool = True,
+    max_concurrent_calls: int | None = None,
 ) -> Iterable[Statement]:
   """Categorizes opinions within the provided topics for each statement.
 
@@ -393,8 +404,9 @@ async def categorize_opinions(
   topic_work_queue_ids: dict[str, list[str]] = dict()
   for t in topics_to_process:
     topic_work_queue_ids[t.name] = [
-      sid for sid, s in input_statements_map.items()
-      if t.name in [q.topic.name for q in s.quotes]
+        sid
+        for sid, s in input_statements_map.items()
+        if t.name in [q.topic.name for q in s.quotes]
     ]
 
   autorater_retry_counts: dict[str, int] = {}
@@ -442,16 +454,13 @@ async def categorize_opinions(
       parsed_wrapper = parse_response(resp["text"], job["response_schema"])
       return parsed_wrapper.items if parsed_wrapper else []
 
-    (
-        results_df,
-        stats,
-        wall_delay,
-        duration,
-    ) = await model.process_prompts_concurrently(
-        all_prompts,
-        response_parser=_parser,
-        max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
-        skip_log=True,
+    results_df, stats, wall_delay, duration = (
+        await model.process_prompts_concurrently(
+            all_prompts,
+            response_parser=_parser,
+            skip_log=True,
+            max_concurrent_calls=max_concurrent_calls,
+        )
     )
     all_stage_5_stats.extend(stats.to_dict("records"))
     total_stage_5_wall_delay += wall_delay
@@ -479,11 +488,12 @@ async def categorize_opinions(
           stage_6_wall_delay,
           stage_6_duration,
       ) = await _run_opinion_autoraters(
-          model,
-          autorater_candidates,
-          input_statements_map,
-          autorater_retry_counts,
-          MAX_AUTORATER_RETRIES,
+          model=model,
+          autorater_candidates=autorater_candidates,
+          input_statements_map=input_statements_map,
+          autorater_retry_counts=autorater_retry_counts,
+          max_autorater_retries=MAX_AUTORATER_RETRIES,
+          max_concurrent_calls=max_concurrent_calls,
       )
       finalized_count_events += phase2_finalized_count
       all_stage_6_stats.extend(stage_6_stats)
@@ -602,8 +612,10 @@ def _prepare_opinion_prompts_for_pending_work(
     opinion_categorization_prompts = _prepare_categorization_prompts(
         pending_statements,
         opinions,
-        prompts.get_categorization_opinion_prompt(json.dumps([{"name": op.name} for op in opinions])),
-        StatementRecordList,
+        prompts.get_categorization_opinion_prompt(
+            json.dumps([{"name": op.name} for op in opinions])
+        ),
+        QuoteOpinionRecordList,
         additional_context,
         parent_topic_name=topic.name,
         is_opinion_categorization=True,
@@ -650,6 +662,7 @@ def _process_opinion_llm_results(
     if not topic_name or not parent_topic:
       continue
 
+    logging.debug(f"Opinion results for {topic_name}: {result}")
     if isinstance(result, list):
       processed_result = _process_categorized_llm_records(
           result,
@@ -696,6 +709,7 @@ async def _run_opinion_autoraters(
     input_statements_map: dict[str, Statement],
     autorater_retry_counts: dict[str, int],
     max_autorater_retries: int,
+    max_concurrent_calls: int | None = None,
 ) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
   """Runs autoraters concurrently and processes results."""
   logging.info(
@@ -718,7 +732,7 @@ async def _run_opinion_autoraters(
       stop_event,
   ) = model.start_concurrent_workers(
       response_parser=parse_eval_response,
-      max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
+      max_concurrent_calls=max_concurrent_calls,
   )
 
   # 2. Generate and Push Prompts
@@ -747,7 +761,7 @@ async def _run_opinion_autoraters(
       queue.put_nowait(p)
 
   # 3. Signal Completion
-  for _ in range(genai_model.MAX_CONCURRENT_CALLS):
+  for _ in range(len(workers)):
     queue.put_nowait(None)
 
   # 4. Wait for Workers
@@ -970,6 +984,7 @@ async def _process_topic_categorization(
     model: genai_model.GenaiModel,
     target_topics: list[Topic],
     additional_context: str | None = None,
+    max_concurrent_calls: int | None = None,
 ) -> list[StatementRecord]:
   """Performs a single round of categorization against a flat list of topics.
 
@@ -1058,8 +1073,8 @@ async def _process_topic_categorization(
     results_df, stats, wall_delay, _ = await model.process_prompts_concurrently(
         prompt_jobs,
         response_parser=_parser,
-        max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
         skip_log=True,
+        max_concurrent_calls=max_concurrent_calls,
     )
     all_stage_stats.extend(stats.to_dict("records"))
     total_wall_delay += wall_delay
@@ -1164,11 +1179,14 @@ async def _process_topic_categorization(
 
 
 def _process_categorized_llm_records(
-    llm_output_records: list[StatementRecord],
+    llm_output_records: list[Union[StatementRecord, QuoteOpinionRecord]],
     all_original_input_statements: list[Statement],
     statements_in_current_batch: list[Statement],
     target_topics_or_opinions: list[Topic],
-) -> dict[str, Union[list[StatementRecord], list[Statement]]]:
+) -> dict[
+    str,
+    Union[list[Union[StatementRecord, QuoteOpinionRecord]], list[Statement]],
+]:
   """Validates and processes the raw records from the language model.
 
   This function separates valid records from invalid ones, identifies which
@@ -1212,10 +1230,13 @@ def _process_categorized_llm_records(
 
 
 def _validate_llm_records(
-    llm_records: list[StatementRecord],
+    llm_records: list[Union[StatementRecord, QuoteOpinionRecord]],
     all_original_input_statements: list[Statement],
     target_topics_or_opinions: list[Topic],
-) -> tuple[list[StatementRecord], list[StatementRecord]]:
+) -> tuple[
+    list[Union[StatementRecord, QuoteOpinionRecord]],
+    list[Union[StatementRecord, QuoteOpinionRecord]],
+]:
   """Validates LLM records against a set of rules.
 
   Checks for:
@@ -1327,11 +1348,21 @@ def _has_invalid_topic_names_in_record(
 
 
 def _find_missing_from_llm_response(
-    llm_records: list[StatementRecord],
+    llm_records: list[Union[StatementRecord, QuoteOpinionRecord]],
     statements_sent_to_llm_batch: list[Statement],
 ) -> list[Statement]:
   """Finds statements that were sent to the model but were not in the response."""
   processed_ids = {record.id for record in llm_records}
+  logging.debug(f"Processed IDs from LLM: {processed_ids}")
+  logging.debug(
+      f"IDs sent to LLM: {[s.id for s in statements_sent_to_llm_batch]}"
+  )
+  logging.debug(
+      f"Types of processed IDs: {[type(record.id) for record in llm_records]}"
+  )
+  logging.debug(
+      f"Types of sent IDs: {[type(s.id) for s in statements_sent_to_llm_batch]}"
+  )
   missing_statements = [
       s for s in statements_sent_to_llm_batch if s.id not in processed_ids
   ]
@@ -1353,7 +1384,7 @@ def _find_missing_from_llm_response(
 
 def _merge_opinions_into_statements_inplace(
     input_statements_map: dict[str, Statement],
-    categorized_llm_records: list[StatementRecord],
+    categorized_llm_records: list[Union[StatementRecord, QuoteOpinionRecord]],
     parent_topic: Topic,
 ) -> None:
   """Merges categorized opinions back into the main list of statements (in-place).

@@ -60,6 +60,10 @@ class MainTest(unittest.TestCase):
     with mock.patch.object(sys, 'argv', test_args):
       main.main()
 
+    # Verify that max_concurrent_calls was passed as None by default
+    _, kwargs = mock_run.call_args
+    self.assertIsNone(kwargs.get('max_concurrent_calls'))
+
     self.assertTrue(os.path.exists(self.output_csv))
     df = pd.read_csv(self.output_csv)
     self.assertEqual(len(df), 2)
@@ -109,6 +113,10 @@ class MainTest(unittest.TestCase):
     ]
     with mock.patch.object(sys, 'argv', test_args):
       main.main()
+
+    # Verify that max_concurrent_calls was passed as None by default
+    _, kwargs = mock_run.call_args
+    self.assertIsNone(kwargs.get('max_concurrent_calls'))
 
     df = pd.read_csv(self.output_csv)
     self.assertIn('schulze_rank', df.columns)
@@ -187,6 +195,45 @@ class MainTest(unittest.TestCase):
     row_a = df[df['statement'] == 'A'].iloc[0]
     self.assertEqual(row_a['schulze_rank'], 1.0)
     self.assertEqual(row_a['pav_rank'], 1.0)
+
+  @mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'test_key'})
+  @mock.patch(
+      'src.simulated_jury.simulated_jury.run_simulated_jury',
+      new_callable=AsyncMock,
+  )
+  def test_main_with_concurrency_flag(self, mock_run):
+    mock_run.return_value = (
+        pd.DataFrame([
+            {
+                'data_row': {'participant_id': 'p1'},
+                'result': {'A': True, 'B': False},
+            },
+            {
+                'data_row': {'participant_id': 'p2'},
+                'result': {'A': True, 'B': True},
+            },
+        ]),
+        {},
+    )
+
+    test_args = [
+        'main.py',
+        '--participants_csv',
+        self.participants_csv,
+        '--statements_csv',
+        self.statements_csv,
+        '--output_csv',
+        self.output_csv,
+        '--max_concurrent_calls',
+        '42',
+    ]
+    with mock.patch.object(sys, 'argv', test_args):
+      main.main()
+
+    self.assertTrue(os.path.exists(self.output_csv))
+    # Verify that max_concurrent_calls was passed correctly to the runner
+    _, kwargs = mock_run.call_args
+    self.assertEqual(kwargs.get('max_concurrent_calls'), 42)
 
 
 if __name__ == '__main__':

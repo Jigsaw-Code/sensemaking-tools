@@ -29,6 +29,7 @@ from google.genai import types as genai_types
 from google.protobuf import duration_pb2, json_format
 from src.models import custom_types
 import pandas as pd
+from src.models.base_model import BaseModel
 
 
 class GenaiModelError(Exception):
@@ -79,7 +80,7 @@ COMPLETED_BATCH_JOB_STATES = frozenset({
 })
 
 
-class GenaiModel:
+class GenaiModel(BaseModel):
   """A wrapper around the Google Generative AI API."""
 
   def __init__(
@@ -167,6 +168,27 @@ class GenaiModel:
     self._initial_backoff_delay = 2
     self._max_backoff_delay = 64
     self._backoff_delay = self._initial_backoff_delay
+
+  async def generate_content(
+      self,
+      prompt: str,
+      run_name: str,
+      temperature: float = 0.0,
+      system_prompt: str | None = None,
+      response_mime_type: str | None = None,
+      response_schema: dict[str, Any] | None = None,
+      **kwargs,
+  ) -> dict[str, Any]:
+    """Calls the model with the given prompt by delegating to call_gemini."""
+    return await self.call_gemini(
+        prompt=prompt,
+        run_name=run_name,
+        temperature=temperature,
+        system_prompt=system_prompt,
+        response_mime_type=response_mime_type,
+        response_schema=response_schema,
+        **kwargs,
+    )
 
   def _parse_duration(self, duration_str: str) -> int:
     """Parses a duration string (e.g., '18s') into seconds."""
@@ -411,12 +433,13 @@ class GenaiModel:
       stats_list: list,
       stop_event: asyncio.Event,
       response_parser: Callable[[str, dict[str, Any]], Any],
-      max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+      max_concurrent_calls: int | None = None,
       pbar: Any = None,
   ):
     """Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
     """
+    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
     # Stagger the initial start of workers to prevent a thundering herd.
     initial_jitter = random.uniform(0, 1)
     await asyncio.sleep(initial_jitter)
@@ -595,7 +618,7 @@ class GenaiModel:
   def start_concurrent_workers(
       self,
       response_parser: Callable[[str, dict[str, Any]], Any],
-      max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+      max_concurrent_calls: int | None = None,
       pbar: Any = None,
   ) -> Tuple[
       asyncio.Queue,
@@ -618,6 +641,7 @@ class GenaiModel:
         - final_stats: A list to hold the stats.
         - stop_event: An event to signal workers to stop.
     """
+    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
     queue: asyncio.Queue = asyncio.Queue()
     final_results: list[dict] = []
     final_stats: list[dict] = []
@@ -644,7 +668,7 @@ class GenaiModel:
       self,
       prompts: list[dict[str, Any]],
       response_parser: Callable[[str, dict[str, Any]], Any],
-      max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+      max_concurrent_calls: int | None = None,
       retry_attempts: int | None = None,
       skip_log: bool = False,
   ) -> Tuple[pd.DataFrame, pd.DataFrame, float, float]:
@@ -666,6 +690,7 @@ class GenaiModel:
         - wall_delay: Total wall-clock delay during this execution.
         - duration: Total wall-clock duration of this execution.
     """
+    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
     if retry_attempts is None:
       retry_attempts = self.max_llm_retries
 
@@ -828,7 +853,7 @@ class GenaiModel:
       response_mime_type: str | None = None,
       response_schema: dict[str, Any] | None = None,
       thinking_level: genai_types.ThinkingLevel | None = None,
-      max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+      max_concurrent_calls: int | None = None,
   ) -> dict[str, Any] | None:
     """Calls the Gemini model with the given prompt.
 
@@ -846,6 +871,7 @@ class GenaiModel:
       A dictionary containing the model's response and token count,
       or None if an error occurred.
     """
+    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
     if not prompt:
       raise ValueError("Prompt must be present to call Gemini.")
 

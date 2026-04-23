@@ -53,6 +53,11 @@ def setup_logging(log_level_str: str, output_dir: Optional[str] = None) -> str:
   console_handler.setFormatter(formatter)
   logger.addHandler(console_handler)
 
+  # Suppress noisy HTTP requests logs from libraries unless in DEBUG mode
+  if log_level_str.upper() != "DEBUG":
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+
   # File Handlers setup
   timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
   base_log_dir = os.path.join(output_dir, ".logs") if output_dir else ".logs"

@@ -359,6 +359,7 @@ async def run_simulated_jury(
     opinion_name: str = "",
     batch_size: int = None,
     approval_scale: ApprovalScale = ApprovalScale.AGREE_DISAGREE,
+    max_concurrent_calls: int | None = None,
 ):
   """Runs a simulated jury for a set of participants and statements."""
   num_participants = len(participants_df)
@@ -475,7 +476,7 @@ async def run_simulated_jury(
       await model.process_prompts_concurrently(
           jobs,
           response_parser=parser,
-          max_concurrent_calls=100,
+          max_concurrent_calls=max_concurrent_calls,
           retry_attempts=4,
       )
   )

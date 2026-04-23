@@ -38,9 +38,11 @@ import re
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Literal, Optional, Union, cast
-from src.models import genai_model
+from src.models import model_factory
 from src import runner_utils, sensemaker
 from src.models import custom_types
+from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
+from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
 import pandas as pd
 
 # Define a type for the rows read from CSV, expecting specific keys.
@@ -241,7 +243,7 @@ def _get_topics_and_opinions_from_csv(csv_path: str):
 
 
 def _drop_other(rows):
-  """"Drops both Other topic and opinion rows."""
+  """Drops both Other topic and opinion rows."""
   rows = [row for row in rows if row.get("topic") != "Other"]
   return [row for row in rows if row.get("opinion") != "Other"]
 
@@ -360,6 +362,17 @@ async def main() -> Optional[str]:
       help="If set, skip autorater evaluations as part of categorization.",
   )
   parser.add_argument(
+      "-c",
+      "--max_concurrent_calls",
+      type=int,
+      default=None,
+      help=(
+          "Maximum number of concurrent LLM API calls "
+          f"(default: {GEMINI_DEFAULT} for Gemini, "
+          f"{OPEN_MODEL_DEFAULT} for open model adapter)."
+      ),
+  )
+  parser.add_argument(
       "--max_llm_retries",
       type=int,
       default=None,
@@ -413,7 +426,7 @@ async def main() -> Optional[str]:
 
   stats_log_file = os.path.join(log_dir, "stats.log")
 
-  genai_llm = genai_model.GenaiModel(
+  genai_llm = model_factory.get_model(
       model_name=args.model_name,
       gemini_api_key=args.gemini_api_key,
       max_llm_retries=args.max_llm_retries,
@@ -473,6 +486,7 @@ async def main() -> Optional[str]:
       output_dir=args.output_dir,
       run_autoraters=not args.skip_autoraters,
       skip_quote_extraction=args.skip_quote_extraction,
+      max_concurrent_calls=args.max_concurrent_calls,
   )
 
   output_csv_rows = _set_topics_on_csv_rows(
@@ -488,9 +502,10 @@ async def main() -> Optional[str]:
   ]
 
   # Write version of data with "Other" topics and opinions
-  categorized_csv_path = os.path.join(args.output_dir, "categorized_with_other.csv")
+  categorized_csv_path = os.path.join(
+      args.output_dir, "categorized_with_other.csv"
+  )
   runner_utils.write_dicts_to_csv(output_csv_rows, categorized_csv_path)
-
   # Dynamically add original_text_* columns to filtered_columns
   if output_csv_rows:
     original_cols = list()
@@ -499,16 +514,22 @@ async def main() -> Optional[str]:
         original_cols.append(col)
     filtered_columns.extend(original_cols)
 
-  output_csv_path = os.path.join(args.output_dir, "categorized_with_other_filtered.csv")
+  output_csv_path = os.path.join(
+      args.output_dir, "categorized_with_other_filtered.csv"
+  )
   _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
   output_file_base = os.path.join(args.output_dir, "categorized_with_other")
   _process_and_print_topic_tree(output_csv_rows, output_file_base)
 
   # Create another version without "Other" topics and opinions
   csv_rows_without_other = _drop_other(output_csv_rows)
-  categorized_csv_path = os.path.join(args.output_dir, "categorized_without_other.csv")
+  categorized_csv_path = os.path.join(
+      args.output_dir, "categorized_without_other.csv"
+  )
   runner_utils.write_dicts_to_csv(csv_rows_without_other, categorized_csv_path)
-  output_csv_path = os.path.join(args.output_dir, "categorized_without_other_filtered.csv")
+  output_csv_path = os.path.join(
+      args.output_dir, "categorized_without_other_filtered.csv"
+  )
   _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
 
   return log_dir

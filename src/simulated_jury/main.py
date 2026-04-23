@@ -1,5 +1,6 @@
 import logging
 import sys
+
 """
 A command-line utility for running simulated jury analyses.
 
@@ -20,7 +21,9 @@ import os
 import pandas as pd
 from src.simulated_jury import simulated_jury
 from src.simulated_jury import sampling_utils
-from src.models import genai_model
+from src.models import model_factory
+from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
+from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
 from src.social_choice import schulze
 from src.social_choice import proportional_approval_voting
 
@@ -106,6 +109,17 @@ def main():
       help="Maximum number of statements to rank per group.",
   )
   parser.add_argument(
+      "-c",
+      "--max_concurrent_calls",
+      type=int,
+      default=None,
+      help=(
+          "Maximum number of concurrent LLM API calls "
+          f"(default: {GEMINI_DEFAULT} for Gemini, "
+          f"{OPEN_MODEL_DEFAULT} for open model adapter)."
+      ),
+  )
+  parser.add_argument(
       "--approval_scale",
       type=str,
       default="agree_disagree",
@@ -186,8 +200,9 @@ def main():
 
   # --- Run Simulation ---
   approval_scale = simulated_jury.ApprovalScale(args.approval_scale)
-  model = genai_model.GenaiModel(
-      model_name=args.model_name, gemini_api_key=args.gemini_api_key
+  model = model_factory.get_model(
+      model_name=args.model_name,
+      gemini_api_key=args.gemini_api_key,
   )
 
   approval_matrix = pd.DataFrame()
@@ -204,6 +219,7 @@ def main():
             model=model,
             batch_size=args.approval_batch_size,
             approval_scale=approval_scale,
+            max_concurrent_calls=args.max_concurrent_calls,
         )
     )
 
@@ -249,6 +265,7 @@ def main():
               voting_mode=simulated_jury.VotingMode.RANK,
               model=model,
               topic_name=str(group_name) if args.group_by else "All Statements",
+              max_concurrent_calls=args.max_concurrent_calls,
           )
       )
 

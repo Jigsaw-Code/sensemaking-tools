@@ -30,7 +30,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
 
   async def test_generate_topics_with_chunking_single_chunk(self):
     # Setup
-    self.model.call_gemini.return_value = {
+    self.model.generate_content.return_value = {
         "text": '{"topics": [{"name": "Topic 1"}]}',
         "error": None,
     }
@@ -63,7 +63,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
     # Assert
     self.assertEqual(len(result.topics), 1)
     self.assertEqual(result.topics[0].name, "Topic 1")
-    self.model.call_gemini.assert_called_once()
+    self.model.generate_content.assert_called_once()
     self.model.process_prompts_concurrently.assert_called_once()
 
   async def test_generate_topics_with_chunking_multiple_chunks(self):
@@ -88,7 +88,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       )
 
       # Mock call_gemini for merge step
-      self.model.call_gemini.return_value = {
+      self.model.generate_content.return_value = {
           "text": '{"topics": [{"name": "Merged Topic"}]}',
           "error": None,
       }
@@ -102,11 +102,11 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       self.assertEqual(len(result.topics), 1)
       self.assertEqual(result.topics[0].name, "Merged Topic")
       self.model.process_prompts_concurrently.assert_called_once()
-      self.model.call_gemini.assert_called_once()
+      self.model.generate_content.assert_called_once()
 
   async def test_generate_opinions_with_chunking_single_chunk(self):
     # Setup
-    self.model.call_gemini.return_value = {
+    self.model.generate_content.return_value = {
         "text": (
             '{"name": "Parent Topic", "subtopics": [{"name": "Opinion 1"}]}'
         ),
@@ -143,7 +143,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(result.name, "Parent Topic")
     self.assertEqual(len(result.subtopics), 1)
     self.assertEqual(result.subtopics[0].name, "Opinion 1")
-    self.model.call_gemini.assert_called_once()
+    self.model.generate_content.assert_called_once()
 
   async def test_generate_opinions_with_chunking_multiple_chunks(self):
     with patch(
@@ -170,7 +170,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       )
 
       # Mock call_gemini for merge step
-      self.model.call_gemini.return_value = {
+      self.model.generate_content.return_value = {
           "text": (
               '{"name": "Parent Topic", "subtopics": [{"name": "Merged'
               ' Opinion"}]}'
@@ -192,7 +192,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       self.assertEqual(len(result.subtopics), 1)
       self.assertEqual(result.subtopics[0].name, "Merged Opinion")
       self.model.process_prompts_concurrently.assert_called_once()
-      self.model.call_gemini.assert_called_once()
+      self.model.generate_content.assert_called_once()
 
   @patch("src.sensemaker_utils.get_prompt")
   async def test_merge_opinions(self, mock_get_prompt):
@@ -201,7 +201,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
         subtopics=[custom_types.NestedTopic(name="Merged Opinion")],
     )
     # Mock call_gemini to return a JSON string as expected by _merge_opinions
-    self.model.call_gemini.return_value = {
+    self.model.generate_content.return_value = {
         "text": (
             '{"name": "Parent Topic", "subtopics": [{"name": "Merged'
             ' Opinion"}]}'
@@ -233,7 +233,7 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
 
     self.assertEqual(result, expected_result)
 
-    self.model.call_gemini.assert_called_once_with(
+    self.model.generate_content.assert_called_once_with(
         prompt="prompt",
         run_name="merge_opinions",
         response_schema=schema_to_expect,

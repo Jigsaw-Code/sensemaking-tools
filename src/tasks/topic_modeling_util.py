@@ -27,7 +27,7 @@ from pydantic import TypeAdapter, ValidationError
 
 # Target a safe estimated threshold (e.g., 400k tokens) to close a chunk.
 # Gemini 1.5 Pro has 1M-2M context window, but we want to be safe.
-TARGET_CHUNK_TOKEN_COUNT = 200000
+TARGET_CHUNK_TOKEN_COUNT = 2000
 MAX_CHUNK_TOKEN_COUNT = 1000000  # 1M limit
 
 
@@ -203,7 +203,7 @@ async def _merge_topics(
       merge_instructions, combined_topics, additional_context
   )
 
-  resp = await model.call_gemini(
+  resp = await model.generate_content(
       prompt=prompt_str,
       run_name="merge_topics",
       response_schema=schema_to_expect,
@@ -288,7 +288,6 @@ async def generate_opinions_with_chunking(
   )
 
 
-
 async def merge_opinions(
     model: GenaiModel,
     partial_results: List[custom_types.NestedTopic],
@@ -298,7 +297,9 @@ async def merge_opinions(
 ) -> custom_types.NestedTopic:
   """Merges a list of opinions into a consolidated list."""
   logging.info("Merging opinion results from all chunks.")
-  merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(parent_topic.name)
+  merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(
+      parent_topic.name
+  )
 
   combined_opinions: List[str] = []
   for nested_topic in partial_results:
@@ -314,7 +315,7 @@ async def merge_opinions(
       merge_instructions, combined_opinions, additional_context
   )
 
-  resp = await model.call_gemini(
+  resp = await model.generate_content(
       prompt=prompt_str,
       run_name="merge_opinions",
       response_schema=schema_to_expect,

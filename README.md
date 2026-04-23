@@ -97,6 +97,38 @@ python3 -m src.categorization_runner \
 
   * #### **Considerations**: Use this when you have a specific taxonomy you want to enforce.
 
+##### Running with Gemma (and other open models)
+
+In addition to Google's Gemini API, the pipeline supports running on **open models (such as Gemma)** or any other open-weights model served via an **OpenAI API compatible endpoint** (e.g., using vLLM, LiteLLM, Ollama, or LM Studio).
+
+To route requests to an open model instead of Gemini, configure the following environment variables before running the pipeline:
+
+```shell
+# 1. Instruct the factory to use the OpenAI API compatible client
+export MODEL_ENDPOINT_TYPE="openai_api_compatible"
+
+# 2. Set the URL of your inference server (e.g., vLLM or LM Studio)
+export OPENAI_API_ENDPOINT_URL="http://localhost:8000/v1"
+
+# 3. Set the API key (use a dummy value if your local server doesn't require one)
+export OPENAI_API_ENDPOINT_KEY="your-api-key-or-dummy"
+
+# (Optional) Choose the response format style
+# - "openai_json_schema": Uses the modern structured JSON schema format (default, recommended for vLLM/LM Studio)
+# - "llama_cpp_old": Fallback for older llama-cpp servers
+export OPENAI_RESPONSE_FORMAT_STYLE="openai_json_schema"
+```
+
+Then, run the runner passing the path or identifier of the model to the `--model_name` flag:
+
+```shell
+python3 -m src.categorization_runner \
+  --input_file <OUTPUT_DIR>/processed.csv \
+  --output_dir <OUTPUT_DIR>/categorization \
+  --additional_context_file src/default-additional-context.md \
+  --model_name "google/gemma-4-26b-it" # Or the absolute path to your local model weights
+```
+
 ##### Understanding the Outputs:
 
 #### Running this script generates several files in your output directory. Here is how they differ:
