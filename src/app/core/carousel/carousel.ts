@@ -18,7 +18,7 @@ module CarouselModule {
   function addCarousel(el: HTMLElement): void {
     if (!el.id) el.id = `carousel-${Object.entries(carousels).length}`;
     const id = el.id;
-    const options = {navigation: true, peekOut: false, cyclical: false};
+    const options = {navigation: true, peekOut: false, cyclical: true};
     const newCarousel = new Carousel(el, options);
     bindEvents(newCarousel, id);
     carousels[id] = newCarousel;

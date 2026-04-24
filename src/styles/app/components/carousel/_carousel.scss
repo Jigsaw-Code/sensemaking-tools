@@ -1,0 +1,158 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/typography';
+@use '../../colors/variables' as colors;
+@use '../../viewport/variables' as viewport;
+
+.app-carousel {
+  &__nav-button {
+    background-color: transparent;
+    color: colors.$carousel-nav-color;
+
+    &:hover {
+      background-color: transparent;
+    }
+  }
+
+  &__slide {
+    height: 100%;
+    background-color: colors.$app-white;
+    grid-column-gap: 0;
+
+    @include glue-breakpoints-mixins.bp(sm+md) { // stylelint-disable-line scss/operator-no-unspaced
+      grid-auto-rows: max-content;
+    }
+
+    .glue-grid__col--align-middle {
+      @include glue-breakpoints-mixins.bp(sm+md) { // stylelint-disable-line scss/operator-no-unspaced
+        align-self: auto;
+      }
+    }
+
+    &__content-wrapper {
+      height: 100%;
+    }
+
+    &__content {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      justify-content: center;
+      padding: 36px 24px;
+
+      @include glue-breakpoints-mixins.bp(md) {
+        padding: 48px;
+      }
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        padding: 60px 20px 60px 60px;
+      }
+
+      @include glue-breakpoints-mixins.bp(xl) {
+        padding: 60px;
+      }
+
+      ul:not(.app-carousel__slide-links) {
+        margin-block-end: 0;
+      }
+
+      p {
+        @include glue-breakpoints-mixins.bp(lg) {
+          padding-inline-end: calc(138px - 98px);
+        }
+      }
+    }
+
+    .glue-video__label {
+      display: none;
+    }
+
+    .glue-video__container--inline {
+      padding-bottom: 100%;
+    }
+  }
+
+  &__slide-links {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    list-style: none;
+    margin: 25px 0 0;
+    padding: 0;
+  }
+
+  &__slide-links-item {
+    align-items: center;
+    display: inline-flex;
+    gap: 20px;
+
+    &:not(:last-child)::after {
+      border-left: 1px solid colors.$line-grey;
+      content: '';
+      display: inline-block;
+      height: 30px;
+    }
+  }
+
+  &__media {
+    position: relative;
+
+    img {
+      display: block;
+      width: 100%;
+    }
+  }
+
+  &__media-caption {
+    background-color: colors.$carousel-quote-bg;
+    bottom: 0;
+    color: colors.$app-white;
+    font-size: .875rem;
+    left: 0;
+    padding: 1.25em 1.714em;
+    position: absolute;
+
+    @include glue-breakpoints-mixins.bp(md) {
+      font-size: 1.125rem;
+    }
+  }
+
+  &__video-preview {
+    display: none;
+  }
+
+  &__video-play-button-container {
+    width: 5.5rem;
+    height: 5.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: colors.$video-play-button-container-color;
+    border-radius: 50%;
+    position: relative;
+    transition: background-color 0.2s ease;
+
+    // Match glue's approach to hover
+    &:hover {
+      box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+    }
+  }
+
+  &__video-play-button {
+    color: colors.$video-play-button-color;
+    position: relative;
+    left: 1px; // Optical adjustment to visually center the icon within the container
+  }
+
+  &__navigation {
+    .glue-carousel__dot::before {
+      border-color: colors.$carousel-nav-indicator-color;
+      background-color: colors.$carousel-nav-indicator-color;
+    }
+
+    .glue-carousel__dot.glue-is-active::before {
+      border-color: colors.$carousel-nav-indicator-active-color;
+      background-color: colors.$carousel-nav-indicator-active-color;
+    }
+  }
+}

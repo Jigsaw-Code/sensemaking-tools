@@ -1,0 +1,24 @@
+@use 'variables' as appColors;
+
+.app-bg-white {
+  background: appColors.$app-white;
+}
+
+.app-bg-grey {
+  background: appColors.$bg-grey;
+}
+
+.app-fg-white {
+  color: appColors.$app-white;
+
+  &:active,
+  &:focus,
+  &:hover,
+  &:visited {
+    color: appColors.$app-white !important;
+  }
+  &.glue-body--large,
+  .glue-body--large {
+    color: appColors.$app-white !important;
+  }
+}

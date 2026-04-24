@@ -1,0 +1,63 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/spacers/mixins' as glue-spacer-mixins;
+@use '../../colors/variables' as colors;
+
+.use-sensemaking {
+  &__content {
+    grid-column-gap: 0;
+  }
+
+  &__content-column {
+    height: 100%;
+
+    &--left {
+      margin-block-end: 1.5em;
+    }
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      &--left {
+        border-inline-end: 1px solid colors.$line-grey;
+        padding-inline-end: 82px;
+        margin-block-end: 0;
+      }
+
+      &--right {
+        padding-inline-start: 82px;
+      }
+    }
+  }
+
+  &__headline {
+    @include glue-breakpoints-mixins.bp(lg) {
+      text-align: center;
+    }
+  }
+
+  &__contact-us {
+    margin-top: 2.5em;
+    margin-bottom: 0;
+  }
+
+  &__logos {
+    @include glue-spacer-mixins.spacer(5, column, gap);
+    @include glue-spacer-mixins.spacer(3, row, gap);
+    @include glue-spacer-mixins.spacer(6, margin, top);
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      justify-content: center;
+    }
+  }
+
+  &__logo {
+    height: 72px;
+    object-fit: contain;
+    width: auto;
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      height: 86px;
+    }
+  }
+}

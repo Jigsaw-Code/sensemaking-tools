@@ -1,13 +1,18 @@
 {
-  "short_name": "Sensemaker",
-  "name": "Sensemaker | Jigsaw",
+  "short_name": "Sensemaking",
+  "name": "Sensemaking AI | Jigsaw",
   "start_url": "./",
   "scope": ".",
   "icons": [
-    { "sizes": "any", "src": "assets/images/favicon.svg", "type": "image/svg+xml" }
+    {"src": "assets/images/favicon.svg", "sizes": "any", "type": "image/svg+xml"},
+    {"src": "assets/images/icon-192x192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "assets/images/icon-512x512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "assets/images/icon-192x192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+    {"src": "assets/images/icon-512x512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+
   ],
-  "background_color": "#1e2656",
+  "background_color": "#f2f2ed",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#1e2656"
+  "theme_color": "#f2f2ed"
 }

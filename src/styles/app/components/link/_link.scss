@@ -1,0 +1,53 @@
+@use '../../colors/variables' as colors;
+
+a,
+.app-link {
+  color: colors.$link-color;
+  text-underline-offset: .1em;
+  transition: color .2s ease;
+
+  .app-icon {
+    display: block;
+    fill: currentcolor;
+    height: 18px;
+    width: 18px;
+    min-width: 18px;
+  }
+
+  &.app-link-font-weight-medium {
+    text-decoration-thickness: .1em;
+  }
+
+  &.app-link--icon-right {
+    display: inline-flex;
+    align-items: center;
+
+    .app-icon {
+      margin: 0 0 0 4px;
+    }
+  }
+
+  &:visited {
+    color: colors.$link-color;
+  }
+
+  &:hover,
+  &:focus-visible,
+  &:active {
+    background: transparent;
+    color: colors.$link-color-hover;
+  }
+
+  &:has(> img) {
+    display: inline-block;
+
+    &:focus,
+    &:focus-visible {
+      background-color: transparent;
+    }
+  }
+
+  &:has(> svg) {
+    display: inline-block;
+  }
+}

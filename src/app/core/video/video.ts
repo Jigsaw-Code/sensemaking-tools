@@ -5,6 +5,7 @@ import {Video} from './video.d';
 
 const enum Selectors {
   video = '.glue-video',
+  glueVideoContainer = '.glue-video__container',
 }
 
 module VideoModule {
@@ -41,6 +42,7 @@ module VideoModule {
   }
 
   function addVideo(el: HTMLElement): void {
+    if (!el.querySelector(Selectors.glueVideoContainer)) return;
     if (!el.id) el.id = `video-${Object.entries(videos).length}`;
     const id = el.id;
     const newVideo = {

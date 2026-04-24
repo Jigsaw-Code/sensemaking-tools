@@ -1,0 +1,18 @@
+@use '@google/glue/lib/colors/variables' as glue-colors-variables;
+
+$app-white: #fff;
+
+$primary-font: #616161;
+$bg-grey: #F2F2ED;
+$line-grey: #BDBDBA;
+// LINK COLORS
+$link-color: inherit;
+$link-color-hover: glue-colors-variables.$blue-500;
+// CAROUSEL COLORS
+$carousel-nav-color: #6E6E6E;
+$carousel-quote-bg: #6E6E6E;
+$carousel-nav-indicator-color: #BDBDBA;
+$carousel-nav-indicator-active-color: #616161;
+// VIDEO COLORS
+$video-play-button-container-color: #F2F2ED;
+$video-play-button-color: #6E6E6E;

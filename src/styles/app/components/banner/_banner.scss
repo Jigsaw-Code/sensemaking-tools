@@ -1,0 +1,39 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/colors/variables' as glue-colors-variables;
+
+.app-banner {
+  background: url('../../../../assets/images/blur-background.webp') 50% 50% no-repeat;
+  background-size: cover;
+  color: glue-colors-variables.$grey-0;
+  display: flow-root;
+}
+
+.app-banner__illustration {
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+
+  img {
+    margin: auto;
+    max-width: none;
+    min-width: 600px;
+    width: 100%;
+
+    @include glue-breakpoints-mixins.bp(md) {
+      min-width: 1024px;
+    }
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      min-width: 1440px;
+    }
+
+    @include glue-breakpoints-mixins.bp(xl) {
+      min-width: 1920px;
+    }
+  }
+}
+
+.app-banner__text {
+  margin: 0 auto;
+  max-width: 31.25em;
+}

@@ -1,0 +1,17 @@
+@use '../../colors/variables' as appColors;
+
+.app-divider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-divider-list__item {
+  &:not(:last-child) {
+    border-bottom: solid 1px appColors.$line-grey;
+    padding-block-end: 1.25rem;
+  }
+}

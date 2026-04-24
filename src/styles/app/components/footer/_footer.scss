@@ -1,0 +1,107 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/colors/variables' as glue-colors-variables;
+
+.app-footer {
+  background: url('../../../../assets/images/footer.webp') 50% 0 no-repeat;
+  background-size: cover;
+  color: glue-colors-variables.$grey-0;
+  padding: 64px 0 50px;
+}
+
+.app-footer__layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+
+  @include glue-breakpoints-mixins.bp(lg) {
+    gap: 70px;
+  }
+}
+
+.app-footer__row {
+  grid-row-gap: 24px;
+}
+
+.app-footer__row-spacer {
+  display: none;
+
+  @include glue-breakpoints-mixins.bp(lg) {
+    display: block;
+  }
+}
+
+.app-footer__logo {
+  margin: 0 0 26px;
+
+  &,
+  .app-footer__logo-img {
+    height: 21px;
+    width: 125px;
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      height: 26px;
+      width: 155px;
+    }
+  }
+}
+
+.app-footer__logo-link {
+  &,
+  &:hover,
+  &:focus-visible {
+    background-color: transparent;
+    color: inherit;
+  }
+}
+
+.app-footer__copyright {
+  @include glue-breakpoints-mixins.bp(lg) {
+    order: -1;
+  }
+}
+
+.app-footer__links {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  .app-footer__link {
+    @include glue-breakpoints-mixins.bp(md) {
+      font-size: 1.125rem;
+    }
+  }
+}
+
+.app-footer__global-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4em;
+  margin: 0;
+
+  .app-footer__links-list-item {
+    align-items: center;
+    display: flex;
+    gap: .4em;
+
+    &:not(:last-child)::after {
+      content: '|';
+      font-size: .875rem;
+      font-weight: 500;
+    }
+  }
+}
+
+.app-footer__link {
+  font-weight: 500;
+  text-decoration: none;
+
+  &,
+  &:focus-visible,
+  &:hover {
+    color: inherit;
+  }
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
