@@ -13,8 +13,9 @@
 # limitations under the License.
 
 import argparse
+import asyncio
 import unittest
-from unittest.mock import patch
+from unittest import mock
 
 from src import categorization_runner
 from src.models import custom_types
@@ -22,7 +23,7 @@ from src.models import custom_types
 
 class CategorizationRunnerTest(unittest.TestCase):
 
-  @patch('src.runner_utils.generate_and_save_topic_tree')
+  @mock.patch('src.runner_utils.generate_and_save_topic_tree')
   def test_process_and_print_topic_tree(self, mock_generate_and_save):
     output_csv_rows = [
         {
@@ -208,12 +209,12 @@ class CategorizationRunnerTest(unittest.TestCase):
     # we expect 0 rows for this quote.
     self.assertEqual(len(output_rows), 0)
 
-  @patch('src.categorization_runner.genai_model.GenaiModel')
-  @patch('src.categorization_runner.sensemaker.Sensemaker')
-  @patch('src.categorization_runner.runner_utils')
-  @patch('src.categorization_runner._convert_csv_rows_to_statements')
-  @patch('src.categorization_runner._read_csv_to_dicts')
-  @patch('argparse.ArgumentParser.parse_args')
+  @mock.patch('src.categorization_runner.genai_model.GenaiModel')
+  @mock.patch('src.categorization_runner.sensemaker.Sensemaker')
+  @mock.patch('src.categorization_runner.runner_utils')
+  @mock.patch('src.categorization_runner._convert_csv_rows_to_statements')
+  @mock.patch('src.categorization_runner._read_csv_to_dicts')
+  @mock.patch('argparse.ArgumentParser.parse_args')
   def test_main_stops_on_skipped_statements(
       self,
       mock_parse_args,
@@ -248,9 +249,6 @@ class CategorizationRunnerTest(unittest.TestCase):
         [],  # valid statements
         [mock_statement],  # skipped statements
     )
-
-    # Run main
-    import asyncio
 
     asyncio.run(categorization_runner.main())
 
