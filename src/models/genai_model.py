@@ -187,15 +187,31 @@ class GenaiModel:
       self, e: Exception, log_prefix: str
   ) -> Tuple[bool, bool, int]:
     """Extracts error type and potential retry delay from an exception."""
+    response = getattr(e, "response", None)
+    status_code = getattr(response, "status_code", None)
+
+    # Preempt any future library shifts: the modern HTTP client (httpx) uses
+    # `status_code`, but historically `google-genai` async requests occasionally
+    # used an `aiohttp` backend, which strictly returns `status` instead. We check
+    # for both to remain perfectly forward and backward compatible.
+    if response is not None and status_code is None:
+      status_code = getattr(response, "status", None)
+      if status_code is None:
+        logging.warning(
+            f"{log_prefix} Received an error with a response object, but it "
+            "lacks both `.status_code` and `.status` properties. This "
+            "indicates an unknown underlying network transport structure."
+        )
+
     is_quota_error = (
         isinstance(e, google_genai_errors.ClientError)
-        and e.response is not None
-        and e.response.status_code == 429
+        and response is not None
+        and status_code == 429
     )
     is_service_unavailable = (
         isinstance(e, google_genai_errors.ServerError)
-        and e.response is not None
-        and e.response.status_code == 503
+        and response is not None
+        and status_code == 503
     ) or isinstance(e, google_exceptions.ServiceUnavailable)
 
     delay = FAIL_RETRY_DELAY_SECONDS

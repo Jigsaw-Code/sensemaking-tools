@@ -11,6 +11,23 @@ import pandas as pd
 logging.disable(logging.CRITICAL)
 
 
+class MockServerError(genai_model.google_genai_errors.ServerError):
+
+  def __init__(self, message, response):
+    super().__init__(message, response_json={})
+    self.response = response
+
+
+class MockClientError(genai_model.google_genai_errors.ClientError):
+
+  def __init__(self, message, response=None, response_json=None):
+    super().__init__(message, response_json)
+    if response is not None:
+      self.response = response
+    elif hasattr(self, 'response'):
+      delattr(self, 'response')
+
+
 # Mock the entire google.genai library
 @mock.patch('google.genai.Client')
 class GenaiModelInitTest(unittest.TestCase):
@@ -480,11 +497,6 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     """Tests that a 429 Quota error triggers a global pause and the job retries."""
 
     # a mock, which fails the `isinstance` check.
-    class MockClientError(genai_model.google_genai_errors.ClientError):
-
-      def __init__(self, message, response, response_json=None):
-        super().__init__(message, response_json)
-        self.response = response
 
     mock_response = mock.MagicMock()
     mock_response.status_code = 429
@@ -546,11 +558,6 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     """Tests that a 503 Service Unavailable error triggers a global pause."""
 
     # Mock ServerError
-    class MockServerError(genai_model.google_genai_errors.ServerError):
-
-      def __init__(self, message, response):
-        super().__init__(message, response_json={})
-        self.response = response
 
     mock_response = mock.MagicMock()
     mock_response.status_code = 503
@@ -594,11 +601,6 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     """Tests that multiple concurrent 503 errors only trigger ONE pause and ALL retry."""
 
     # Mock ServerError
-    class MockServerError(genai_model.google_genai_errors.ServerError):
-
-      def __init__(self, message, response):
-        super().__init__(message, response_json={})
-        self.response = response
 
     mock_response = mock.MagicMock()
     mock_response.status_code = 503
@@ -724,6 +726,100 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     # Should have been two calls: failure and success
     self.assertEqual(mock_call_gemini.call_count, 2)
 
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_missing_status_code_does_not_crash(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that a ClientError with no status_code is handled safely without crashing."""
+
+
+    mock_response = mock.NonCallableMock(spec=['json'])
+    mock_response.status_code = None
+
+    async def mock_json():
+      return {
+          'error': {
+              'details': [{
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  'retryDelay': '10s',
+              }]
+          }
+      }
+
+    mock_response.json = mock_json
+
+    mock_error = MockClientError(
+        'Quota exceeded', mock_response, response_json=await mock_json()
+    )
+
+    # Setup: Fail first with quota error, then succeed
+    mock_call_gemini.side_effect = [
+        {'error': mock_error},
+        {
+            'text': 'Success',
+            'total_token_count': 10,
+            'prompt_token_count': 5,
+            'candidates_token_count': 5,
+            'tool_use_prompt_token_count': 0,
+            'thoughts_token_count': 0,
+            'error': None,
+        },
+    ]
+
+    # Run the process
+    results_df, _, _, _ = await self.model.process_prompts_concurrently(
+        self.prompts,
+        lambda resp, j: resp['text'],
+        retry_attempts=3,
+    )
+
+    # Assertions
+    self.assertEqual(len(results_df), 1)
+    self.assertEqual(results_df.iloc[0]['result'], 'Success')
+
+    # Check that generic pause was triggered with the correct delay
+    self.assertIn(mock.call(0.1), mock_sleep.call_args_list)
+    self.assertEqual(mock_call_gemini.call_count, 2)
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_concurrent_retries_client_error_no_response(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that a ClientError with no response object is handled safely without crashing."""
+
+
+    mock_error = MockClientError('Network or Parsing Failure')
+
+    # Setup: Fail first with generic error, then succeed
+    mock_call_gemini.side_effect = [
+        {'error': mock_error},
+        {
+            'text': 'Success',
+            'total_token_count': 10,
+            'prompt_token_count': 5,
+            'candidates_token_count': 5,
+            'tool_use_prompt_token_count': 0,
+            'thoughts_token_count': 0,
+            'error': None,
+        },
+    ]
+
+    # Run the process
+    results_df, _, _, _ = await self.model.process_prompts_concurrently(
+        self.prompts,
+        lambda resp, j: resp['text'],
+        retry_attempts=3,
+    )
+
+    # Assertions
+    self.assertEqual(len(results_df), 1)
+    self.assertEqual(results_df.iloc[0]['result'], 'Success')
+
+    # Check that generic pause was triggered with the correct delay
+    self.assertIn(mock.call(0.1), mock_sleep.call_args_list)
+    self.assertEqual(mock_call_gemini.call_count, 2)
 
 if __name__ == '__main__':
   unittest.main()
