@@ -19,7 +19,7 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "pretty": true,
-    "sourceMap": true,
+    "sourceMap": true
   },
   "exclude": ["_glue"]
 }

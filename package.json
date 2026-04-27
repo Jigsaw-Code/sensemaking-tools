@@ -1,5 +1,5 @@
 {
-  "name": "sensemaker",
+  "name": "sensemaking",
   "version": "1.1.0",
   "main": "index.js",
   "scripts": {
@@ -11,6 +11,7 @@
   "workspaces": [
     "_glue"
   ],
+  "private": true,
   "engines": {
     "node": "22"
   },
@@ -19,7 +20,7 @@
   "description": "",
   "devDependencies": {
     "@google/glue": "file:_glue",
-    "copy-webpack-plugin": "^13.0.0",
+    "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^7.1.2",
     "file-loader": "^6.2.0",
     "gts": "^6.0.2",
@@ -43,6 +44,9 @@
     "ts-loader": "^9.5.2",
     "typescript": "^5.8.2",
     "webpack-cli": "^6.0.1"
+  },
+  "overrides": {
+    "tmp": "0.2.5"
   },
   "dependencies": {}
 }

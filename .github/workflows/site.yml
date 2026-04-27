@@ -52,21 +52,6 @@ jobs:
           npm install
           npm run build-production
 
-          # Grab main:docs
-          rm -rf docs
-          git checkout origin/main -- library/docs
-
-          # Move docs site into site/docs
-          mv library/docs site
-
-          # Grab main:visualization-library
-          rm -rf visualization-docs
-          git checkout origin/main -- visualization-library/storybook-static
-
-          # Move visualization-library site into site/visualization-docs
-          mv visualization-library/storybook-static site
-          mv site/storybook-static site/visualization-docs
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

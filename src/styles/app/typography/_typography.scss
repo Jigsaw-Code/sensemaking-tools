@@ -1,0 +1,70 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '../colors/variables' as colors;
+
+$h2-spacer-bottom: 22px;
+$h3-spacer-bottom: 14px;
+
+body,
+.app-body,
+.app-body .app-body--large {
+  font-family: 'Google Sans', Arial, Helvetica, sans-serif;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizelegibility;
+  color: colors.$primary-font;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+li {
+  text-wrap: pretty;
+}
+
+.app-headline {
+  color: inherit;
+
+  &.app-headline--headline-1,
+  &.app-headline--headline-2,
+  // purposeful omission of headline-3 - not used in app
+  &.app-headline--headline-4,
+  &.app-headline--headline-5,
+  &.app-headline--headline-banner {
+    font-weight: 500;
+  }
+
+  // override as mobile to differ from headline-5 at these sizes
+  &.app-headline--headline-4 {
+    @include glue-breakpoints-mixins.bp(sm-only) {
+      font-size: 1.375rem;
+    }
+  }
+
+  &.app-headline--headline-banner {
+    font-size: 1.25rem;
+    line-height: 1.4;
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      font-size: 1.5rem;
+    }
+  }
+}
+
+h2 {
+  margin-bottom: $h2-spacer-bottom;
+}
+
+h3 {
+  margin-bottom: $h3-spacer-bottom;
+}
+
+p {
+  + p,
+  + ul {
+    margin-block-start: 1.5em;
+  }
+}

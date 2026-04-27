@@ -1,0 +1,9 @@
+.app-hero {
+  display: flow-root;
+
+  h1,
+  p {
+    margin-inline: auto;
+    max-width: 46.875rem;
+  }
+}

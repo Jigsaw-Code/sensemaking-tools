@@ -1,0 +1,126 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/colors/variables' as glue-colors-variables;
+
+.app-header {
+  background: transparent;
+  min-height: 64px;
+
+  @include glue-breakpoints-mixins.bp(lg) {
+    min-height: 110px;
+  }
+
+  .app-header__bar {
+    box-shadow: none !important; // stylelint-disable-line declaration-no-important
+  }
+
+  .app-header__bar--desktop {
+    @include glue-breakpoints-mixins.bp(lg) {
+      background: url('../../../../assets/images/blur-background.webp') 50% 50% no-repeat;
+      background-size: cover;
+      color: glue-colors-variables.$grey-0;
+      height: 110px;
+      min-height: 110px;
+    }
+  }
+
+  .app-header__bar--mobile {
+    background: url('../../../../assets/images/blur-background.webp') 50% 50% no-repeat;
+    background-size: cover;
+    color: glue-colors-variables.$grey-0;
+  }
+}
+
+.app-header__container {
+  justify-content: center;
+}
+
+.app-header__logo-container {
+  &,
+  .app-header__logo-svg {
+    height: 18px;
+    width: 202px;
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      height: 22px;
+      width: 246px;
+    }
+  }
+}
+
+.app-header__logo {
+  &,
+  &:hover,
+  &:focus-visible {
+    background-color: transparent;
+    color: initial;
+  }
+
+  .app-header__bar--desktop & {
+    @include glue-breakpoints-mixins.bp(lg) {
+      margin-inline-start: 24px;
+    }
+  }
+}
+
+.app-header__logo-link {
+  margin-top: 4px;
+
+  &,
+  &:hover,
+  &:focus-visible {
+    background-color: transparent;
+    color: initial;
+  }
+
+  .app-header__bar--desktop & {
+    @include glue-breakpoints-mixins.bp(lg) {
+      color: glue-colors-variables.$grey-0;
+    }
+  }
+
+  .app-header__bar--mobile & {
+    color: glue-colors-variables.$grey-0;
+  }
+}
+
+.app-header__supplemental.glue-header__supplemental {
+  &::before {
+    display: none;
+  }
+
+  .app-header__link {
+    &,
+    &:focus,
+    &:hover,
+    &:visited {
+      color: inherit;
+    }
+
+    &:focus,
+    &:hover {
+      background-color: transparent;
+    }
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.app-header__drawer-toggle-btn {
+  color: glue-colors-variables.$grey-0;
+
+  &:hover,
+  &:focus-visible {
+    background-color: transparent;
+    color: glue-colors-variables.$grey-0;
+  }
+
+  &:focus {
+    background-color: transparent;
+  }
+
+  &:hover {
+    box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  }
+}

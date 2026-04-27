@@ -1,0 +1,26 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/spacers/mixins' as glue-spacers-mixins;
+@use '../../typography/typography' as app-typography;
+
+.app-core-capabilities-cards {
+  .app-core-capabilities-card {
+    padding: 0 28px 28px;
+
+    &__image {
+      @include glue-spacers-mixins.spacer(4, 'margin', 'bottom');
+      height: auto;
+      width: 240px;
+
+      @include glue-breakpoints-mixins.bp(sm-only) {
+        margin-bottom: calc(app-typography.$h3-spacer-bottom + (1.25rem * 1.4 - 1.25rem) / 2); // Adjust to visually include line-height of headling below
+      }
+    }
+
+    // Move last card to centralise it in the 3-column layout on tablet
+    &:last-child {
+      @include glue-breakpoints-mixins.bp(md-only) {
+        grid-column-start: 4;
+      }
+    }
+  }
+}
