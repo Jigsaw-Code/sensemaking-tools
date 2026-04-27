@@ -21,10 +21,9 @@
 @use '@google/glue/lib/alignment';
 @use '@google/glue/lib/order';
 
-// Import Glue mixins/variables
+// Import Glue variables
 @use '@google/glue/lib/colors/variables' as gc; // For SCSS variables
 @use '@google/glue/lib/breakpoints/_variables' as gb;
-@use '@google/glue/lib/spacers/mixins' as mixins;
 
 // Our stuff
 @use 'app/colors/colors';
@@ -41,6 +40,8 @@
 @use 'app/components/link/link';
 @use 'app/components/list/list';
 @use 'app/components/use-sensemaking/use-sensemaking';
+@use 'app/components/section/section';
+@use 'app/components/spacers/spacers' as appSpacers;
 @use 'app/typography/typography';
 
 // Custom overrides
@@ -55,30 +56,6 @@
     }
     .app-carousel__video-preview {
       display: block;
-    }
-  }
-}
-
-// Custom functions
-// @Create spacer-1 through spacer-8 classes
-@for $i from 1 through 8 {
-  .g-spacer-padding-#{$i}-bottom {
-    @include mixins.spacer($i, padding, bottom);
-  }
-
-  .g-spacer-padding-#{$i}-top {
-    @include mixins.spacer($i, padding, top);
-  }
-
-  .g-spacer-#{$i}-bottom-md {
-    @media #{gb.$media-query-sm-md-only} {
-      @include mixins.spacer($i, margin, bottom);
-    }
-  }
-
-  .g-spacer-#{$i}-top-md {
-    @media #{gb.$media-query-sm-md-only} {
-      @include mixins.spacer($i, margin, top);
     }
   }
 }

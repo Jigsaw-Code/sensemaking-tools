@@ -1,0 +1,12 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '../spacers/spacers';
+
+.app-section-spacer {
+  @extend .g-spacer-padding-7-bottom;
+  @extend .g-spacer-padding-7-top;
+
+  @include glue-breakpoints-mixins.bp(lg) {
+    padding-bottom: 100px;
+    padding-top: 100px;
+  }
+}

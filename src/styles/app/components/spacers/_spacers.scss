@@ -1,0 +1,25 @@
+@use '@google/glue/lib/spacers/mixins' as glue-spacer-mixins;
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+
+// @Create spacer-1 through spacer-8 classes
+@for $i from 1 through 8 {
+  .g-spacer-padding-#{$i}-bottom {
+    @include glue-spacer-mixins.spacer($i, padding, bottom);
+  }
+
+  .g-spacer-padding-#{$i}-top {
+    @include glue-spacer-mixins.spacer($i, padding, top);
+  }
+
+  .g-spacer-#{$i}-bottom-md {
+    @include glue-breakpoints-mixins.bp(sm+md) { // stylelint-disable-line scss/operator-no-unspaced
+      @include glue-spacer-mixins.spacer($i, margin, bottom);
+    }
+  }
+
+  .g-spacer-#{$i}-top-md {
+    @include glue-breakpoints-mixins.bp(sm+md) { // stylelint-disable-line scss/operator-no-unspaced
+      @include glue-spacer-mixins.spacer($i, margin, top);
+    }
+  }
+}

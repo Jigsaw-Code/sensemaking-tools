@@ -4,8 +4,12 @@
 .app-footer {
   background: url('../../../../assets/images/footer.webp') 50% 0 no-repeat;
   background-size: cover;
-  color: glue-colors-variables.$grey-0;
   padding: 64px 0 50px;
+}
+
+.app-footer,
+.app-footer .app-footer__text {
+  color: glue-colors-variables.$grey-0;
 }
 
 .app-footer__layout {
