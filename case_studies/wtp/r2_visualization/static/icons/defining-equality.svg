@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Isolation_Mode" data-name="Isolation Mode" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 338.82 365.28">
+  <defs>
+    <style>
+      .cls-1, .cls-2, .cls-3 {
+        fill: none;
+        stroke: #000;
+        stroke-miterlimit: 10;
+      }
+
+      .cls-1, .cls-3 {
+        stroke-width: 6px;
+      }
+
+      .cls-2 {
+        stroke-width: 4px;
+      }
+
+      .cls-2, .cls-3 {
+        stroke-linecap: round;
+      }
+    </style>
+  </defs>
+  <g>
+    <circle class="cls-1" cx="73.25" cy="127.68" r="35.76"/>
+    <circle class="cls-1" cx="73.25" cy="124.96" r="13.1"/>
+    <path class="cls-1" d="M44.58,150.39l3.46-2.34c16.52-11.17,38.4-10.23,53.89,2.34h0"/>
+  </g>
+  <g>
+    <circle class="cls-1" cx="264.24" cy="127.68" r="35.76"/>
+    <circle class="cls-1" cx="264.24" cy="124.96" r="13.1"/>
+    <path class="cls-1" d="M235.56,150.39l3.46-2.34c16.52-11.17,38.4-10.23,53.89,2.34h0"/>
+  </g>
+  <path class="cls-1" d="M146.18,163.44H49.91c-5.18,0-9.38,4.2-9.38,9.38h0c0,5.18,4.2,9.38,9.38,9.38h95.61"/>
+  <path class="cls-1" d="M191.93,182.19h96.27c5.18,0,9.38-4.2,9.38-9.38h0c0-5.18-4.2-9.38-9.38-9.38h-95.61"/>
+  <line class="cls-1" x1="157.29" y1="194.6" x2="150.12" y2="273.55"/>
+  <line class="cls-1" x1="154.89" y1="220.96" x2="182.85" y2="220.96"/>
+  <path class="cls-2" d="M153.08,165.41h0c2.35-4.76,6.57-8.34,11.66-9.87h0"/>
+  <line class="cls-2" x1="125.85" y1="284.07" x2="211.9" y2="284.07"/>
+  <circle class="cls-1" cx="169.12" cy="172.82" r="24.78"/>
+  <path class="cls-1" d="M128.35,163.17c-1.25,2.96-1.95,6.22-1.95,9.65s.65,6.48,1.84,9.38"/>
+  <path class="cls-1" d="M209.88,182.19c1.25-2.96,1.95-6.22,1.95-9.65s-.65-6.48-1.84-9.38"/>
+  <circle class="cls-1" cx="169.12" cy="172.82" r="10.39"/>
+  <circle class="cls-1" cx="169.12" cy="101.51" r="28.83"/>
+  <polyline class="cls-3" points="153.56 103.1 163.41 111.86 183.14 91.92"/>
+  <line class="cls-1" x1="180.94" y1="194.6" x2="186.65" y2="273.55"/>
+  <rect class="cls-3" x="115.83" y="273.55" width="106.57" height="21.03" rx="10.52" ry="10.52"/>
+</svg>

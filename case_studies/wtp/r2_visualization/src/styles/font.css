@@ -1,0 +1,65 @@
+/* src/lib/fonts.css (or in src/app.css) */
+
+@font-face {
+	font-family: "American Grotesk Compressed";
+	src: url("/fonts/american-grotesk-compressed-black.woff2")
+		format("woff2");
+	font-weight: 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "American Grotesk";
+	src: url("/fonts/american-grotesk-italic.woff2")
+		format("woff2");
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "American Grotesk";
+	src: url("/fonts/american-grotesk-regular.woff2")
+		format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "American Grotesk";
+	src: url("/fonts/american-grotesk-medium.woff2")
+		format("woff2");
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "American Grotesk";
+	src: url("/fonts/american-grotesk-medium-italic.woff2")
+		format("woff2");
+	font-weight: 500;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "American Grotesk";
+	src: url("/fonts/american-grotesk-bold.woff2")
+		format("woff2");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "American Grotesk";
+	src: url("/fonts/american-grotesk-bold-italic.woff2")
+		format("woff2");
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+

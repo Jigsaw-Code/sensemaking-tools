@@ -1,0 +1,371 @@
+
+* {
+    font-family: 'American Grotesk';
+    color: #000000;
+  }
+  
+  .Page .Skin h1, .Page .Skin h3 {
+    padding-bottom: 1rem;
+  }
+  
+  /* Must specify ".Page .Skin" to override Qualtrics' selectors */
+  .Page .Skin,
+  .Page .Skin #Wrapper {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .Page .Skin #Wrapper {
+    display: flex;
+    justify-content: space-between;
+    flex-direction: column;
+  }
+  
+  .Page .Skin h1, .Page .Skin h3 {
+    padding-bottom: 1rem;
+  }
+  
+  .Page .Skin h3 {
+    font-size: 14px;
+    font-weight: 400;
+  }
+  
+  .Page .Skin .SkinInner {
+    display: flex;
+    flex-grow: 1;
+    flex-direction: column-reverse;
+  }
+  
+  .Page .Skin .SkinInner #SkinContent {
+    flex-grow: 1;
+  }
+  
+  .Page .Skin #ProgressBar {
+    padding: 0;
+    overflow: unset;
+  }
+  
+  .Page .Skin #ProgressBar tr td:first-child,
+  .Page .Skin #ProgressBar tr td:first-child + td + td {
+    display: none;
+  }
+  
+  .Page .Skin #ProgressBar .ProgressBarFill {
+    background-color: #60A2F8;
+    box-sizing: border-box;
+    padding: 6px;
+    height: auto;
+    text-align: right;
+    font-family: Roboto;
+    font-size: 16px;
+  }
+  
+  .Page .Skin #HeaderContainer {
+    all: initial;
+    order: 1;
+    width: 100vw;
+    overflow: hidden;
+    margin-bottom: 25px;
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  
+  .Page .Skin #HeaderContainer header {
+    background-image: url('/ControlPanel/File.php?F=F_Yq5sIrBwmTyE510');
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    justify-content: center;
+  }
+  
+  .Page .Skin #HeaderContainer img {
+    max-height: 440px;
+    max-width: 100%;
+    padding: 90px 45px;
+  }
+  
+  .Page .Skin #LogoContainer {
+    padding-top: 30px;
+    margin-bottom: 70px;
+    order: 1;
+  }
+  
+  .Page .Skin .QuestionText {
+    padding-bottom: 50px;
+    line-height: 1.15;
+  }
+  
+  .Page .Skin .TE textarea,
+  .Page .Skin .TE .ESTB textarea {
+    border: 1px solid #D0D0D0;
+    border-radius: 25px;
+    padding: 25px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+    height: 190px;
+    font-family: 'American Grotesk';
+    font-weight: 500;
+    color: #535353;
+  }
+  
+  .Page .Skin .RO .DND > ul.NotEdited > li,
+  .Page .Skin .RO .DND > ul.NotEdited > li:hover,
+  .Page .Skin .RO .DND > ul > li,
+  .Page .Skin .RO .DND > ul > li:hover {
+    background: #F4F7F9;
+    align-items: center;
+    font-size: 21px;
+    margin-bottom: 6px;
+    gap: 24px;
+    cursor: move;
+  }
+  
+  .Page .Skin .RO .DND > ul.NotEdited > li span,
+  .Page .Skin .RO .DND > ul.NotEdited > li:hover span,
+  .Page .Skin .RO .DND > ul > li span,
+  .Page .Skin .RO .DND > ul > li:hover span {
+    cursor: move;
+    padding-right: 10px;
+  }
+  
+  .Page .Skin .RO .DND > ul > li > .rank,
+  .Page .Skin .RO .DND > ul > li:hover > .rank,
+  .Page .Skin .RO .DND > ul.NotEdited > li > .rank,
+  .Page .Skin .RO .DND > ul.NotEdited > li:hover > .rank {
+    visibility: visible;
+    color: white;
+    font-size: 22px;
+    font-weight: 600;
+    border-radius: 10px;
+  
+    /* Qualtrics does some like, mathematically determined selectors in JS and I'm not gonna try to override that by hand */
+    margin-right: 0 !important;
+    margin-left: 15px !important;
+    padding: 3px 15px;
+  }
+  
+  .Page .Skin #Buttons {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+  }
+  
+  .Page .Skin #Buttons #NextButton,
+  .Page .Skin #Buttons #PreviousButton {
+    color: white;
+    border-radius: 50px;
+    font-family: 'American Grotesk';
+  }
+  
+  .Page .Skin #Buttons #PreviousButton {
+    background-color: #939393;
+  }
+  
+  .Page .Skin #Footer {
+    all: initial;
+    display: flex;
+    width: 100vw;
+    height: 4px;
+    /* offset for the "Powered by Qualtrics" text */
+    padding-top: 40px;
+  }
+  
+  .Page .Skin #PushStickyFooter {
+    display: none;
+  }
+  
+  @media (min-width: 768px) {
+    .Page .Skin #Plug {
+      position: fixed;
+      bottom: 0;
+      right: 0;
+    }
+  }
+  
+  /* utility classes */
+  .hidden {
+    display: none !important;
+  }
+  
+  .grotesk-title {
+    font-family: 'American Grotesk Condensed';
+    line-height: 38px;
+    font-size: 34px;
+    letter-spacing: 0.5px;
+  }
+  
+  .topic-line {
+    margin-bottom: 4px;
+  }
+  
+  .topic-line, .opinion-line {
+    font-size: 16px;
+  }
+  
+  .quote-line {
+    font-weight: 500;
+  }
+  
+  .topic-line + br,
+  .quote-line + br,
+  .instruction-line,
+  .instruction-line + br {
+    display: none;
+  }
+  
+  /* American Grotesk - Thin */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_naQfu6osqeaKQnz') format('woff2');
+    font-weight: 100;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_6rBbcKDM17kKSeP') format('woff2');
+    font-weight: 100;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk - Light */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_sdI0Ps7nZEBDc43') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_vyMFTe8QQM7OtlM') format('woff2');
+    font-weight: 300;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk - Regular */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_8P62ZGF84IfTLbm') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_ytw7nACeBjaUNFl') format('woff2');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk - Medium */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_W25RuaW04BkJAiI') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_KBnSCnJ2HbtwAgF') format('woff2');
+    font-weight: 500;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk - Bold */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_g08y8wWgj7GwyAp') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_K1netceQB6JNeSM') format('woff2');
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk - Heavy */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_xQUQM7xFDlUiIrv') format('woff2');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_gTkpwRX1jDPR1ps') format('woff2');
+    font-weight: 800;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk - Black */
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_nRN3Vv6Qpoo2G4i') format('woff2');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk';
+    src: url('/ControlPanel/File.php?F=F_K1netceQB6JNeSM') format('woff2');
+    font-weight: 900;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk Condensed - Black */
+  @font-face {
+    font-family: 'American Grotesk Condensed';
+    src: url('/ControlPanel/File.php?F=F_CkHA0y4Y1cco4kM') format('woff2');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk Condensed';
+    src: url('/ControlPanel/File.php?F=F_rVba7jnQlqDH5kv') format('woff2');
+    font-weight: 900;
+    font-style: italic;
+    font-display: swap;
+  }
+  
+  /* American Grotesk Compressed - Black */
+  @font-face {
+    font-family: 'American Grotesk Compressed';
+    src: url('/ControlPanel/File.php?F=F_CjNSqWVQMbWJ8Aw') format('woff2');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  
+  @font-face {
+    font-family: 'American Grotesk Compressed';
+    src: url('/ControlPanel/File.php?F=F_rVba7jnQlqDH5kv') format('woff2');
+    font-weight: 900;
+    font-style: italic;
+    font-display: swap;
+  }
+  
