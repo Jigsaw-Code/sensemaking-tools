@@ -45,19 +45,12 @@
     align-items: center;
     display: flex;
     flex-wrap: wrap;
-
-    @include glue-breakpoints-mixins.bp(lg) {
-      justify-content: center;
-    }
+    justify-content: center;
   }
 
   &__logo {
-    height: 72px;
     object-fit: contain;
-    width: auto;
-
-    @include glue-breakpoints-mixins.bp(lg) {
-      height: 86px;
-    }
+    width: 100%;
+    max-width:156px;
   }
 }
