@@ -870,6 +870,9 @@ class GenaiModel:
     else:
       thinking_config = None
 
+    if response_schema and not response_mime_type:
+      response_mime_type = "application/json"
+
     try:
       response = await asyncio.wait_for(
           self.client.aio.models.generate_content(
