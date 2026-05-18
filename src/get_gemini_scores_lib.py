@@ -25,12 +25,12 @@ from src.models import custom_types
 class ContentScorer:
   """Scorer implementation using GenaiModel for efficient content moderation and bridging."""
 
-  def __init__(self, api_key: str, model_name: str):
+  def __init__(self, gemini_api_key: str, model_name: str):
     self.temperature = attribute_prompt_config.MODEL_CONFIG.get("temperature", 0.0)
 
     self.client = genai_model.GenaiModel(
         model_name=model_name,
-        api_key=api_key
+        gemini_api_key=gemini_api_key
     )
 
   async def score_async(

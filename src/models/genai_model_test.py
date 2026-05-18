@@ -35,7 +35,7 @@ class GenaiModelInitTest(unittest.TestCase):
   def test_init_safety_filters_off(self, mock_genai_client):
     """Tests that safety filters are set to BLOCK_NONE when safety_filters_on=False."""
     model = genai_model.GenaiModel(
-        api_key='test_key', model_name='test_model', safety_filters_on=False
+        gemini_api_key='test_key', model_name='test_model', safety_filters_on=False
     )
 
     settings = model.safety_settings
@@ -46,7 +46,7 @@ class GenaiModelInitTest(unittest.TestCase):
   def test_init_safety_filters_on(self, mock_genai_client):
     """Tests that safety filters are set to BLOCK_ONLY_HIGH when safety_filters_on=True."""
     model = genai_model.GenaiModel(
-        api_key='test_key', model_name='test_model', safety_filters_on=True
+        gemini_api_key='test_key', model_name='test_model', safety_filters_on=True
     )
 
     settings = model.safety_settings
@@ -56,7 +56,7 @@ class GenaiModelInitTest(unittest.TestCase):
 
   def test_parse_duration(self, mock_genai_client):
     """Tests that duration strings are correctly parsed into seconds."""
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     self.assertEqual(model._parse_duration('18s'), 18)
     self.assertEqual(model._parse_duration('60s'), 60)
     self.assertEqual(model._parse_duration('0s'), 0)
@@ -92,7 +92,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     mock_response.total_tokens = 123
     mock_client_instance.models.count_tokens.return_value = mock_response
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     token_count = model.calculate_token_count_needed(prompt='test prompt')
 
     self.assertEqual(token_count, 123)
@@ -119,7 +119,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
         mock_response
     )
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     result = asyncio.run(model.call_gemini(prompt='test', run_name='test_run'))
 
     self.assertEqual(result['text'], 'Success response')
@@ -146,7 +146,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
         mock_response
     )
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     result = asyncio.run(model.call_gemini(prompt='test', run_name='test_run'))
 
     self.assertEqual(result['error'], 'SAFETY')
@@ -154,7 +154,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
 
   def test_call_gemini_empty_prompt(self, mock_genai_client):
     """Tests a call to the Gemini API with an empty prompt."""
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     with self.assertRaises(ValueError):
       asyncio.run(model.call_gemini(prompt=None, run_name='test_run'))
 
@@ -169,7 +169,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     mock_client_instance.aio.models.generate_content.return_value = (
         mock_response
     )
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     result = asyncio.run(model.call_gemini(prompt='test', run_name='test_run'))
     self.assertEqual(result['error'], '<test> No candidates found')
 
@@ -188,7 +188,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
         'error': None,
     }
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
 
     def simple_parser(text, job):
       return f"parsed_{job['opinion']}"
@@ -242,7 +242,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
         },  # Job 2, Attempt 2
     ]
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
 
     def simple_parser(resp, job):
       return f"{resp['text']}_{job['opinion']}"
@@ -289,7 +289,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
         Exception('API Error 2'),  # Job 2, Attempt 2
     ]
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     results_df, _, _, _ = asyncio.run(
         model.process_prompts_concurrently(
             self.prompts,
@@ -316,7 +316,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
         Exception('API Error 2'),  # Job 1, Attempt 2 (permanent failure)
     ]
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     results_df, _, _, _ = asyncio.run(
         model.process_prompts_concurrently(
             [{'job_id': 0, 'opinion': 'Opinion 1', 'prompt': 'p1'}],
@@ -354,7 +354,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     ]
     results_df = pd.DataFrame({'failed_tries': failed_tries_data})
 
-    model = genai_model.GenaiModel(api_key='test_key', model_name='test_model')
+    model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
     model._log_retry_summary(results_df)
     mock_log.assert_called_once()
 
@@ -363,7 +363,7 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
 
   def setUp(self):
     self.model = genai_model.GenaiModel(
-        api_key='test_key', model_name='test_model'
+        gemini_api_key='test_key', model_name='test_model'
     )
     self.prompts = [{'prompt': 'test prompt'}]
 

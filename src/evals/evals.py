@@ -21,8 +21,7 @@ Example Command:
 python3 -m src.evals.evals \
   --baseline_csv ~/input.csv \
   --output_dir output \
-  --project your-cloud-project \
-  --api_key YOUR_API_KEY
+  --gemini_api_key YOUR_API_KEY
 """
 
 import argparse
@@ -54,16 +53,18 @@ async def main(args):
       format="%(asctime)s - %(levelname)s - %(message)s",
   )
 
-  api_key = args.api_key or os.environ.get("GOOGLE_API_KEY")
-  if not api_key:
+  gemini_api_key = args.gemini_api_key or os.environ.get("GEMINI_API_KEY")
+  if not gemini_api_key:
     logging.error(
-        "API key is required. Provide it via --api_key or GOOGLE_API_KEY"
+        "API key is required. Provide it via --gemini_api_key or GEMINI_API_KEY"
         " environment variable."
     )
     return
 
   # Initialize GenaiModel
-  model = genai_model.GenaiModel(model_name=args.model_name, api_key=api_key)
+  model = genai_model.GenaiModel(
+      model_name=args.model_name, gemini_api_key=gemini_api_key
+  )
 
   selected_metric = _AVAILABLE_METRICS.get(args.metric_name)
   if not selected_metric:
@@ -215,7 +216,7 @@ def get_args():
       ),
   )
   parser.add_argument(
-      "--api_key",
+      "--gemini_api_key",
       type=str,
       help="Google GenAI API Key.",
   )

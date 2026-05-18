@@ -22,6 +22,7 @@ python3 -m src.generate_report_text.generate_report_text \
   --input_csv <INPUT_CSV> \
   --additional_context_file <ADDITIONAL_CONTEXT_TEXT_FILE> \
   --output_dir <OUTPUT_DIR> \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --model_name gemini-2.5-pro
 """
 
@@ -222,9 +223,17 @@ async def main():
       default='gemini-2.5-pro',
       help='The name of the Vertex AI model to use. Default: gemini-2.5-pro.',
   )
+  parser.add_argument(
+      '--gemini_api_key',
+      type=str,
+      help='The Gemini API key.',
+  )
   args = parser.parse_args()
 
-  model = genai_model.GenaiModel(model_name=args.model_name)
+  model = genai_model.GenaiModel(
+      model_name=args.model_name,
+      gemini_api_key=args.gemini_api_key
+  )
 
   # Load data and additional context
   categorized_quotes_df = pd.read_csv(args.input_csv)

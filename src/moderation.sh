@@ -18,7 +18,8 @@
 # bash src/moderation.sh \
 #      --processed_csv ~/Downloads/processed.csv \
 #      --output_dir src/output \
-#      --api_key 1234abc
+#      --gemini_api_key "$GEMINI_API_KEY" \
+#      --api_key "$GOOGLE_API_KEY"
 #
 # What this outputs:
 # 1. evals/ directory: this contains the summary_metrics.csv for the overall
@@ -33,21 +34,27 @@ set -e
 PROCESSED_CSV=""
 OUTPUT_DIR=""
 API_KEY=""
+GEMINI_API_KEY=""
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --processed_csv) PROCESSED_CSV="$2"; shift ;;
         --output_dir) OUTPUT_DIR="$2"; shift ;;
         --api_key) API_KEY="$2"; shift ;;
+        --gemini_api_key) GEMINI_API_KEY="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
-if [ -z "$PROCESSED_CSV" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$API_KEY" ]; then
-    echo "Usage: $0 --processed_csv <path_to_input.csv> --output_dir <path_to_output_dir> --api_key <api_key> [optional overrides]"
+if [ -z "$PROCESSED_CSV" ] || [ -z "$OUTPUT_DIR" ]; then
+    echo "Usage: $0 --processed_csv <path_to_input.csv> --output_dir <path_to_output_dir> [--api_key <api_key>] [--gemini_api_key <gemini_api_key>]"
     exit 1
 fi
+
+# Fallback to environment variables if not provided
+API_KEY=${API_KEY:-$GOOGLE_API_KEY}
+GEMINI_API_KEY=${GEMINI_API_KEY:-$GEMINI_API_KEY}
 
 MODERATED_CSV="$OUTPUT_DIR/moderated.csv"
 EVALS_DIR="$OUTPUT_DIR/evals"
@@ -60,7 +67,7 @@ python3 -m src.evals.evals \
     --output_dir "$EVALS_DIR" \
     --model_name "gemini-2.5-pro" \
     --metric_name input_evals \
-    --api_key "$API_KEY"
+    --gemini_api_key "$GEMINI_API_KEY"
 
 # Then add Gemini/Perspective scores for moderation. Use the input data
 # evaluation output as the input data so the output has both the autorater
@@ -71,5 +78,6 @@ python3 -m src.moderation.prepare_for_moderation \
     --output_csv "$MODERATED_CSV" \
     --text_column "survey_text" \
     --data_type "ROUND_1" \
-    --api_key "$API_KEY"
+    --api_key "$API_KEY" \
+    --gemini_api_key "$GEMINI_API_KEY"
 

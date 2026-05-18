@@ -23,6 +23,7 @@ Sample Usage:
 python -m src.categorization_runner \
     --output_dir ~/categorization_outputs \
     --input_file ~/input.csv \
+    --gemini_api_key "$GEMINI_API_KEY" \
     --model_name gemini-3-pro-preview \
     --additional_context_file ~/additional_context.md \
     --max_llm_retries 20
@@ -333,6 +334,11 @@ async def main() -> Optional[str]:
       help="The name of the AI model to use. Default: gemini-2.5-pro.",
   )
   parser.add_argument(
+      "--gemini_api_key",
+      type=str,
+      help="The Gemini API key.",
+  )
+  parser.add_argument(
       "-f",
       "--force_rerun",
       action="store_true",
@@ -409,6 +415,7 @@ async def main() -> Optional[str]:
 
   genai_llm = genai_model.GenaiModel(
       model_name=args.model_name,
+      gemini_api_key=args.gemini_api_key,
       max_llm_retries=args.max_llm_retries,
       stats_log_file=stats_log_file,
   )

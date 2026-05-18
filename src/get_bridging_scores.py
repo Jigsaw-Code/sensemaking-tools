@@ -17,13 +17,15 @@ Example Usage:
  python3 -m src.get_bridging_scores \
      --input_csv <INPUT_CSV> \
      --output_csv <OUTPUT_CSV> \
-     --api_key <API_KEY> \
+     --gemini_api_key <GEMINI_API_KEY> \
+     --api_key <GOOGLE_API_KEY> \
      --scorer_type GEMINI \
      --model_name gemini-3.1-flash-lite-preview
 """
 
 import argparse
 import collections
+import os
 import pandas as pd
 from src import get_perspective_scores_lib
 from src.get_gemini_scores_lib import ContentScorer
@@ -35,11 +37,11 @@ BRIDGING_ATTRIBUTES = [
 ]
 
 
-def get_bridging_scores(df: pd.DataFrame, text_column: str, api_key: str, scorer_type: str, model_name: str):
+def get_bridging_scores(df: pd.DataFrame, text_column: str, gemini_api_key: str, api_key: str, scorer_type: str, model_name: str):
   """Score df with bridging attributes using specified scorer."""
   if scorer_type == "GEMINI":
     print(f"Using Gemini ({model_name}) for bridging scoring...")
-    scorer = ContentScorer(api_key=api_key, model_name=model_name)
+    scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=model_name)
     # Prepare batch for Gemini
     texts_with_ids = [
         {"text": str(text), "row_id": idx}
@@ -85,8 +87,11 @@ if __name__ == "__main__":
   )
   parser.add_argument(
       "--api_key",
-      required=True,
-      help="API key for the Perspective API or Gemini.",
+      help="API key for the Perspective API.",
+  )
+  parser.add_argument(
+      "--gemini_api_key",
+      help="API key for Gemini (GenAI).",
   )
   parser.add_argument(
       "--text_column",
@@ -107,8 +112,15 @@ if __name__ == "__main__":
   args = parser.parse_args()
   df = pd.read_csv(args.input_csv)
   print(f"Scoring {len(df)} rows from {args.input_csv}")
+  gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
+  api_key = args.api_key or os.getenv("GOOGLE_API_KEY")
+
+  if args.scorer_type == "GEMINI" and not gemini_api_key:
+    print("Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.")
+    exit(1)
+
   df = get_bridging_scores(
-      df, args.text_column, args.api_key, args.scorer_type, args.model_name
+      df, args.text_column, gemini_api_key, api_key, args.scorer_type, args.model_name
   )
   df.to_csv(args.output_csv, index=False)
   print(f"Wrote {args.output_csv}")

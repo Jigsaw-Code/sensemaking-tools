@@ -321,7 +321,7 @@ class WorldModelBuilderTest(unittest.TestCase):
     self.assertEqual(mock_read_csv.call_count, 2)
     mock_analyze_opinion.assert_called_once()
     mock_genai_model.assert_called_once_with(
-        api_key="test_key", model_name="gemini-2.5-pro"
+        gemini_api_key="test_key", model_name="gemini-2.5-pro"
     )
     self.assertEqual(
         mock_model_instance.calculate_token_count_needed.call_count, 5
