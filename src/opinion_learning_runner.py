@@ -16,7 +16,7 @@
 Runs opinion learning on a CSV of statements and quotes.
 
 Sample command:
-python opinion_learning_runner.py --input_file input.csv --output_file opinion_learning_output.csv --subject "Freedom and Equality" --vertex_project YOUR_PROJECT --vertex_location global --model_name gemini-2.5-pro --runs 5
+python opinion_learning_runner.py --input_file input.csv --output_file opinion_learning_output.csv --subject "Freedom and Equality" --vertex_project YOUR_PROJECT --vertex_location global --gemini_api_key YOUR_KEY --model_name gemini-2.5-pro --runs 5
 """
 
 import argparse
@@ -115,9 +115,9 @@ async def main():
       help="Number of times to run the opinion learning process.",
   )
   parser.add_argument(
-      "--api_key",
+      "--gemini_api_key",
       type=str,
-      help="The Google AI Studio API Key.",
+      help="The Gemini API Key (e.g. from Google AI Studio).",
   )
   parser.add_argument(
       "--model_name",
@@ -160,7 +160,7 @@ async def main():
 
   genai_model_instance = genai_model.GenaiModel(
       model_name=args.model_name,
-      api_key=args.api_key,
+      gemini_api_key=args.gemini_api_key,
   )
 
   topics = sorted(

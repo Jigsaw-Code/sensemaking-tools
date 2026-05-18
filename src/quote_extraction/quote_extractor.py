@@ -14,7 +14,7 @@
 #
 # This quote extracts representative quotes from long statements in a CSV file.
 # Example usage:
-# export GOOGLE_API_KEY="your_actual_key_here" && \
+# export GEMINI_API_KEY="your_actual_key_here" && \
 # python3 -m src.quote_extraction.quote_extractor \
 #     --input_csv input.csv \
 #     --output_csv output.csv \
@@ -52,7 +52,9 @@ async def main(args):
 
   additional_context = runner_utils.get_additional_context(args)
 
-  model = GenaiModel(model_name=args.model_name)
+  model = GenaiModel(
+      model_name=args.model_name, gemini_api_key=args.gemini_api_key
+  )
 
   statements_to_process: List[Statement] = []
   original_rows: Dict[int, Dict[str, Any]] = {}
@@ -192,6 +194,11 @@ def get_args():
       "--model_name",
       required=True,
       help="Gemini model name (e.g., gemini-2.5-pro).",
+  )
+  parser.add_argument(
+      "--gemini_api_key",
+      type=str,
+      help="The Gemini API key. If not provided, uses GEMINI_API_KEY env var.",
   )
 
   return parser.parse_args()

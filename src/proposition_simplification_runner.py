@@ -91,7 +91,7 @@ async def main(args):
   """Main function to run the proposition simplification experiment."""
   model = genai_model.GenaiModel(
       model_name=args.model_name,
-      api_key=args.gemini_api_key,
+      gemini_api_key=args.gemini_api_key,
   )
 
   df = pd.read_csv(args.input_csv)
@@ -128,7 +128,7 @@ def get_args():
       "--gemini_api_key",
       required=False,
       help=(
-          "Google AI Studio API Key. If not provided, uses GOOGLE_API_KEY env"
+          "Google AI Studio API Key. If not provided, uses GEMINI_API_KEY env"
           " var."
       ),
   )

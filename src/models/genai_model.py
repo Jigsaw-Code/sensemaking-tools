@@ -85,7 +85,7 @@ class GenaiModel:
   def __init__(
       self,
       model_name: str,
-      api_key: str | None = None,
+      gemini_api_key: str | None = None,
       safety_filters_on: bool = False,
       max_llm_retries: int | None = None,
       stats_log_file: str | None = None,
@@ -94,21 +94,21 @@ class GenaiModel:
 
     Args:
       model_name: The name of the model to use.
-      api_key: The Google Generative AI API key. If not provided, the
-        GOOGLE_API_KEY environment variable will be used.
+      gemini_api_key: The Google Generative AI API key. If not provided, the
+        GEMINI_API_KEY environment variable will be used.
       safety_filters_on: Whether to enable safety filters. Defaults to False.
       max_llm_retries: Override for maximum LLM retries.
       stats_log_file: Path to a file where exhausted retries will be logged.
     """
-    if not api_key:
-      api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
+    if not gemini_api_key:
+      gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
       raise ValueError(
-          "Google API key not provided and GOOGLE_API_KEY environment variable"
+          "Google API key not provided and GEMINI_API_KEY environment variable"
           " is not set."
       )
 
-    self.client = genai.Client(api_key=api_key)
+    self.client = genai.Client(api_key=gemini_api_key)
     self.model = model_name
     self.safety_settings = (
         [

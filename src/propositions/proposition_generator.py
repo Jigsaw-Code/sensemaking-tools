@@ -511,7 +511,7 @@ async def main():
 
   else:
     model = genai_model.GenaiModel(
-        api_key=args.gemini_api_key, model_name=args.model_name
+        gemini_api_key=args.gemini_api_key, model_name=args.model_name
     )
 
     all_prompts = []

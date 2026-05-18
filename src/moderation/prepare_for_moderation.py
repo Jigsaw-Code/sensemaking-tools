@@ -21,7 +21,8 @@ Example Usage:
     --input_csv /path/to/data.csv \
     --output_csv /path/to/data_with_scores.csv \
     --data_type ROUND_1 \
-    --api_key "$API_KEY" \
+    --gemini_api_key "$GEMINI_API_KEY" \
+    --api_key "$GOOGLE_API_KEY" \
     --scorer_type GEMINI \
     --model_name gemini-3.1-flash-lite-preview
 """
@@ -263,8 +264,11 @@ def main() -> None:
   )
   parser.add_argument(
       "--api_key",
-      required=True,
-      help="API key for the Perspective API or Gemini.",
+      help="API key for the Perspective API or DLP.",
+  )
+  parser.add_argument(
+      "--gemini_api_key",
+      help="API key for Gemini (GenAI).",
   )
   parser.add_argument(
       "--scorer_type",
@@ -279,13 +283,20 @@ def main() -> None:
   )
   args = parser.parse_args()
 
-  api_key = args.api_key
-  if not api_key:
+  api_key = args.api_key or os.getenv("GOOGLE_API_KEY")
+  gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
+
+  if args.scorer_type == "GEMINI" and not gemini_api_key:
     print(
-        "Error: --api_key missing.",
+        "Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.",
         file=sys.stderr,
     )
     sys.exit(1)
+
+  if (args.scorer_type == "PERSPECTIVE" or args.data_type) and not api_key:
+    # DLP always runs, so we might need api_key anyway if it's used for DLP.
+    # Actually, the user says DLP should remain api_key.
+    pass
 
   dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": api_key})
 
@@ -346,7 +357,7 @@ def main() -> None:
 
   if args.scorer_type == "GEMINI":
     print(f"Using Gemini ({args.model_name}) for moderation scoring...")
-    scorer = ContentScorer(api_key=api_key, model_name=args.model_name)
+    scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=args.model_name)
 
     # Batch Scoring with Gemini
     scoring_tasks = []

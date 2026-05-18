@@ -14,22 +14,23 @@
 
 # Runs each step of theSensemaking pipeline, intended as an end-to-end test
 # Example command:
-#   bash src/test_sensemaking_e2e.sh <API_KEY> <API_KEY> <QUALTRICS_CSV> <WORKING_DIR> gemini-2.5-flash
+#   bash src/test_sensemaking_e2e.sh <GEMINI_API_KEY> <GCLOUD_API_KEY> <QUALTRICS_CSV> <WORKING_DIR> gemini-3.0-flash
 
 set -e  # Exit on any error
 
 # Check arguments
 if [ "$#" -lt 3 ]; then
-    echo "Usage: $0 <API_KEY> <QUALTRICS_CSV> <WORKING_DIR>"
+    echo "Usage: $0 <GEMINI_API_KEY> <GCLOUD_API_KEY> <QUALTRICS_CSV> <WORKING_DIR>"
     echo "Optional: [MODEL_NAME] [FIXED_RESPONSE_COLS] [FOLLOW_UP_QUESTION_COLS] [FOLLOW_UP_RESPONSE_COLS]"
     exit 1
 fi
 
 # Assign command line args
-API_KEY=$1
-QUALTRICS_CSV=$2
-WORKING_DIR=$3
-MODEL_NAME=${4:-"gemini-2.5-flash"}
+GEMINI_API_KEY=$1
+GCLOUD_API_KEY=$2
+QUALTRICS_CSV=$3
+WORKING_DIR=$4
+MODEL_NAME=${5:-"gemini-3.1-flash-lite"}
 
 # Args for Qualtrics survey processing
 FIXED_RESPONSE_COLS=${5:-"Q1,Q35,Q36"}
@@ -38,9 +39,6 @@ FOLLOW_UP_RESPONSE_COLS=${7:-"Q23,Q37,Q39"}
 
 # Create working directory if it doesn't exist.
 mkdir -p "$WORKING_DIR"
-
-# export Gemini key used by some tasks.
-export GOOGLE_API_KEY="$API_KEY"
 
 # Utility function to print each step
 print_step() {
@@ -63,6 +61,7 @@ python3 -m src.categorization_runner \
   --input_file "$WORKING_DIR/survey_processing_ouput/processed.csv" \
   --output_dir "$WORKING_DIR/categorization_outputs" \
   --skip_autoraters \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME" \
   --log_level DEBUG
 
@@ -70,7 +69,7 @@ print_step "Score Quotes with Bridging Classifiers"
 python3 -m src.get_bridging_scores \
   --input_csv "$WORKING_DIR/categorization_outputs/categorized_without_other_filtered.csv" \
   --output_csv "$WORKING_DIR/bridging_scores.csv" \
-  --api_key "$API_KEY" \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
 print_step "Generating the Report Text"
@@ -78,6 +77,7 @@ python3 -m src.generate_report_text.generate_report_text \
   --input_csv "$WORKING_DIR/bridging_scores.csv" \
   --additional_context ./default-additional-context.md \
   --output_dir "$WORKING_DIR/report_outputs" \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
 # TODO: consider generating report HTML at this point
@@ -88,7 +88,7 @@ python3 -m src.propositions.proposition_generator \
   --output_dir "$WORKING_DIR/proposition_outputs" \
   --reasoning \
   --additional_context_file src/default-additional-context.md \
-  --gemini_api_key "$API_KEY" \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
 print_step "Proposition Refinement"
@@ -98,8 +98,10 @@ python3 -m src.proposition_refinement.main \
   --output_pkl "$WORKING_DIR/proposition_outputs/refined_world_model.pkl" \
   --final_propositions_per_topic 4 \
   --additional_context_file src/default-additional-context.md \
-  --gemini_api_key "$API_KEY" \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --run_pav_selection \
+  --simulated_jury_model_name "$MODEL_NAME" \
+  --nuanced_propositions_model_name "$MODEL_NAME" \
   --jury_size 0.02
 
 print_step "Extract final propositions"
@@ -113,7 +115,7 @@ print_step "Simplifying nuanced propositions"
 python3 -m src.proposition_simplification_runner \
   --input_csv "$WORKING_DIR/final_nuanced_propositions.csv" \
   --output_csv "$WORKING_DIR/final_nuanced_propositions_simplified.csv" \
-  --gemini_api_key "$API_KEY" \
+  --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
 printf "\n\nSensemaking pipeline completed successfully!\n"

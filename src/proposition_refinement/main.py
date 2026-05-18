@@ -1036,7 +1036,7 @@ async def main():
       default=None,
       help=(
           "The Gemini API key. If not provided, it will be read from the"
-          " GOOGLE_API_KEY environment variable."
+          " GEMINI_API_KEY environment variable."
       ),
   )
   parser.add_argument(
@@ -1086,19 +1086,19 @@ async def main():
       stream=sys.stdout,
   )
 
-  gemini_api_key = args.gemini_api_key or os.environ.get("GOOGLE_API_KEY")
+  gemini_api_key = args.gemini_api_key or os.environ.get("GEMINI_API_KEY")
   if not gemini_api_key:
     raise ValueError(
-        "Gemini API key not provided. Please set the GOOGLE_API_KEY environment"
+        "Gemini API key not provided. Please set the GEMINI_API_KEY environment"
         " variable or use the --gemini_api_key argument."
     )
 
   sim_jury_model = genai_model.GenaiModel(
-      api_key=gemini_api_key,
+      gemini_api_key=gemini_api_key,
       model_name=args.simulated_jury_model_name,
   )
   nuanced_props_model = genai_model.GenaiModel(
-      api_key=gemini_api_key,
+      gemini_api_key=gemini_api_key,
       model_name=args.nuanced_propositions_model_name,
   )
 

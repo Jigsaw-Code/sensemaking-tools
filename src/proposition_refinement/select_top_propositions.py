@@ -185,7 +185,7 @@ async def main():
     raise ValueError("GEMINI_API_KEY not found in environment variables.")
 
   model = genai_model.GenaiModel(
-      api_key=gemini_api_key,
+      gemini_api_key=gemini_api_key,
       model_name="gemini-2.5-flash",
       embedding_model_name="text-embedding-004",
   )

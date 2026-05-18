@@ -164,7 +164,7 @@ def main():
 
     # Initialize model
     model = genai_model.GenaiModel(
-        model_name=args.model_name, api_key=args.gemini_api_key
+        model_name=args.model_name, gemini_api_key=args.gemini_api_key
     )
 
     # Run translation

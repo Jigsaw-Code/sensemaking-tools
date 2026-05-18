@@ -27,7 +27,7 @@ class MainTest(unittest.TestCase):
   def tearDown(self):
     self.temp_dir.cleanup()
 
-  @mock.patch.dict(os.environ, {'GOOGLE_API_KEY': 'test_key'})
+  @mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'test_key'})
   @mock.patch(
       'src.simulated_jury.simulated_jury.run_simulated_jury',
       new_callable=AsyncMock,
@@ -70,7 +70,7 @@ class MainTest(unittest.TestCase):
     self.assertEqual(row_a['agree_rate'], '100.0%')
     self.assertEqual(row_b['agree_rate'], '50.0%')
 
-  @mock.patch.dict(os.environ, {'GOOGLE_API_KEY': 'test_key'})
+  @mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'test_key'})
   @mock.patch(
       'src.simulated_jury.simulated_jury.run_simulated_jury',
       new_callable=AsyncMock,
@@ -120,7 +120,7 @@ class MainTest(unittest.TestCase):
     self.assertEqual(row_a['schulze_rank'], 1.0)
     self.assertEqual(row_b['schulze_rank'], 2.0)
 
-  @mock.patch.dict(os.environ, {'GOOGLE_API_KEY': 'test_key'})
+  @mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'test_key'})
   @mock.patch(
       'src.simulated_jury.simulated_jury.run_simulated_jury',
       new_callable=AsyncMock,
