@@ -27,7 +27,7 @@
     "@angular/ssr": "18.2.13",
     "@conversationai/sensemaker-visualizations": "^1.0.46",
     "@sinclair/typebox": "^0.34.27",
-    "express": "^4.18.2",
+    "express": "^4.22.2",
     "ngx-markdown": "^18.0.0",
     "papaparse": "^5.4.1",
     "rxjs": "~7.8.0",
