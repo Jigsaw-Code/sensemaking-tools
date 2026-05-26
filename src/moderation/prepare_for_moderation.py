@@ -22,7 +22,7 @@ Example Usage:
     --output_csv /path/to/data_with_scores.csv \
     --data_type ROUND_1 \
     --gemini_api_key "$GEMINI_API_KEY" \
-    --api_key "$GOOGLE_API_KEY" \
+    --gcloud_api_key "$GCLOUD_API_KEY" \
     --scorer_type GEMINI \
     --model_name gemini-3.1-flash-lite-preview
 """
@@ -263,7 +263,7 @@ def main() -> None:
       ),
   )
   parser.add_argument(
-      "--api_key",
+      "--gcloud_api_key",
       help="API key for the Perspective API or DLP.",
   )
   parser.add_argument(
@@ -283,7 +283,7 @@ def main() -> None:
   )
   args = parser.parse_args()
 
-  api_key = args.api_key or os.getenv("GOOGLE_API_KEY")
+  gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
   gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
 
   if args.scorer_type == "GEMINI" and not gemini_api_key:
@@ -293,12 +293,11 @@ def main() -> None:
     )
     sys.exit(1)
 
-  if (args.scorer_type == "PERSPECTIVE" or args.data_type) and not api_key:
-    # DLP always runs, so we might need api_key anyway if it's used for DLP.
-    # Actually, the user says DLP should remain api_key.
+  if (args.scorer_type == "PERSPECTIVE" or args.data_type) and not gcloud_api_key:
+    # DLP always runs, so we might need gcloud_api_key anyway if it's used for DLP.
     pass
 
-  dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": api_key})
+  dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": gcloud_api_key})
 
   if args.data_type == DataType.ROUND_1:
     text_splitter = split_round_1_text
@@ -388,7 +387,7 @@ def main() -> None:
 
   elif args.scorer_type == "PERSPECTIVE":
     print("Using Perspective API for moderation scoring...")
-    client = init_client(api_key=api_key)
+    client = init_client(gcloud_api_key=gcloud_api_key)
 
     scores_df = df[text_column].apply(
         lambda t: pd.Series(

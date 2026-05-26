@@ -68,7 +68,7 @@ bash src/moderation.sh \
   --processed_csv <OUTPUT_DIR>/processed.csv \
   --output_dir <OUTPUT_DIR> \
   --gemini_api_key "$GEMINI_API_KEY" \
-  --api_key "$GOOGLE_API_KEY"
+  --gcloud_api_key "$GCLOUD_API_KEY"
 ```
 
 #### 2\. Topic Discovery and Quote Extraction

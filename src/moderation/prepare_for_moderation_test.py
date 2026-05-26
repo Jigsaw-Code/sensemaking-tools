@@ -72,7 +72,7 @@ class PrepareForModerationTest(unittest.TestCase):
   @patch("src.moderation.prepare_for_moderation.dlp_v2.DlpServiceClient")
   @patch("src.moderation.prepare_for_moderation.init_client")
   @patch("src.moderation.prepare_for_moderation.score_text")
-  @patch.dict(os.environ, {"GOOGLE_API_KEY": "test_key"})
+  @patch.dict(os.environ, {"GCLOUD_API_KEY": "test_key"})
   def test_main(self, mock_score_text, mock_init_client, mock_dlp_client):
     # Mock Perspective API client and scoring
     mock_client = MagicMock()
@@ -112,7 +112,7 @@ class PrepareForModerationTest(unittest.TestCase):
         self.output_csv_path,
         "--data_type",
         "ROUND_1",
-        "--api_key",
+        "--gcloud_api_key",
         "test_key",
         "--scorer_type",
         "PERSPECTIVE",
@@ -176,7 +176,7 @@ class PrepareForModerationTest(unittest.TestCase):
 
   @patch("src.moderation.prepare_for_moderation.dlp_v2.DlpServiceClient")
   @patch("src.moderation.prepare_for_moderation.ContentScorer")
-  @patch.dict(os.environ, {"GEMINI_API_KEY": "test_key", "GOOGLE_API_KEY": "test_key"})
+  @patch.dict(os.environ, {"GEMINI_API_KEY": "test_key", "GCLOUD_API_KEY": "test_key"})
   def test_main_gemini(self, mock_scorer_class, mock_dlp_client):
     # Mock ContentScorer instance and its score method
     mock_scorer_instance = mock_scorer_class.return_value
@@ -216,7 +216,7 @@ class PrepareForModerationTest(unittest.TestCase):
         "ROUND_1",
         "--gemini_api_key",
         "test_key",
-        "--api_key",
+        "--gcloud_api_key",
         "test_key",
         # Default should be GEMINI, so we don't need to specify it, but for clarity:
         "--scorer_type",
