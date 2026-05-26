@@ -15,11 +15,11 @@
 from googleapiclient import discovery
 
 
-def init_client(api_key: str):
+def init_client(gcloud_api_key: str):
   return discovery.build(
       'commentanalyzer',
       'v1alpha1',
-      developerKey=api_key,
+      developerKey=gcloud_api_key,
       discoveryServiceUrl='https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1',
       static_discovery=False,
   )
