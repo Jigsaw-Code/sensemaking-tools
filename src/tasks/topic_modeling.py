@@ -14,94 +14,11 @@
 
 import logging
 from typing import List, Optional
-from src.models.genai_model import GenaiModel, MAX_LLM_RETRIES
+from src.models.genai_model import GenaiModel
 from src import sensemaker_utils
+from src import prompts
 from src.tasks import topic_modeling_util
 from src.models import custom_types
-
-
-LEARN_TOPICS_PROMPT = """
-You are an expert qualitative data analyst specializing in thematic analysis and data structuring.
-Your task is to analyze this entire data,
-identify the topics according to the criteria below,
-and then generate a JSON output with the identified topics.
-
-Important Context:
-There will be another round, where participants will be exploring topics, so it will be easier for them to tie everything together in their head, if they see topics being linked to the main subject.
-To facilitate this connection, we want topic language to more explicitly connect to the main subject. Topics should be phrased like they are aspects of the main subject.
-
-### **Criteria for Topics**
-
-  * **Distinct:** Topics should be meaningfully different and cover separate conceptual areas.
-  * **Substantive:** Topics should contain multiple, distinct opinions. Do not create single-opinion topics.
-  * **Subject Linkage:** Topic names should be phrased as aspects of the main subject. E.g. "Freedom and Equality" subject could have the following topics: "Defining Freedom", "Defining Equality", "Barriers to Freedom and Equality", "Society's Role in Freedom and Equality", "The Individual's Role in Freedom and Equality", etc.
-  * **Concise:** The topic name should be concise.
-  * **Consistent Scope:** Topics should be at a similar level of abstraction (e.g., don't mix a very broad topic with a very narrow one).
-  * **Efficiency:** Keep the number of topics as low as possible. Actively consolidate topics when their content can be logically grouped.
-
-
-RESPONSE STRUCTURE:
-Respond with a list of the identified topics only, nothing else.
-The response should be in JSON format, that can be parse into the following class:
-class FlatTopicList:
-    topics: List[Topic]
-class Topic:
-    name: str
-
-Do not include markdown code blocks around the JSON response, such as ```json or ```
-Response example:
-{"topics": [{"name": "Topic 1"}, {"name": "Topic 2"}]}
-"""
-
-
-def learn_opinions_prompt(parent_topic: custom_types.Topic) -> str:
-  return f"""
-You are an expert qualitative data analyst specializing in thematic analysis and data structuring.
-Your task is to analyze this entire dataset of quotes, identify the opinions on the following topic: "{parent_topic.name}" according to the criteria below, and then generate a JSON output with the identified opinions.
-
-### **Criteria for Opinions**
-
-1.  **Active Voice & Direct Phrasing (Crucial):**
-    * Use strong, active verbs. Avoid passive voice (e.g., "It is believed that...").
-    * Avoid abstract policy speak. Instead of "To improve economic opportunity, there needs to be investment in...", write "Oklahoma must invest in..." or "Schools need better funding to..."
-    * **Do not** use words like "perception" or "sentiment." State the opinion as a fact as viewed by the participant.
-
-2.  **Avoid Repetitive Sentence Starters:**
-    * **Do not** start every opinion with the same phrase (e.g., stop using "To strengthen the social safety net..." for every single item).
-    * Ensure the list has syntactic variety while remaining thematically tight.
-
-3.  **Simplify & Avoid Complex Parallelisms:**
-    * **One idea per opinion.** Avoid complex lists (e.g., "We need X, Y, and Z, while also ensuring A and B").
-    * Aim for a 5th-grade reading level. Keep it simple and punchy.
-
-4.  **Distinct & Substantive:**
-    * Opinions must represent unique viewpoints within the topic.
-    * Merge overlaps: Actively consolidate opinions when their content can be logically grouped.
-    * Do not create single-quote opinions or opinions with very few opinions compared to its peers. A long tail of opinions is extremely undesirable.
-    * Overall, we want to tightly curate opinions to help the user understand the main perspective within a topic, but we do not want to overwhelm them with a laundry list.  **Keep the number of opinions as low as possible.**
-
-5.  **Topic Linkage (Without Repetition):**
-    * The opinion must be clearly relevant to "{parent_topic.name}", but it should not rigidly repeat the topic name in the text.
-    * *Bad:* "A barrier to economic growth is the lack of jobs."
-    * *Good:* "A lack of quality jobs prevents the economy from growing."
-
-### **Response Structure**
-Respond only with the identified opinions, where top level is the overarching topic, and opinions are subtopics.
-The response should be in JSON format, that can be parse into the following class:
-class Topic:
-    name: str # This will be the overarching topic
-    subtopics: List[Topic] # Where subtopic is class Topic {{ name: str }} (the opinions)
-
-Do not include markdown code blocks around the JSON response, such as ```json or ```
-For example:
-{{
-  "name": "{parent_topic.name}",
-  "subtopics": [
-      {{ "name": "Opinion 1" }},
-      {{ "name": "Opinion 2" }}
-  ]
-}}
-"""
 
 
 def _are_valid_topics(response: List[custom_types.FlatTopic], *args) -> bool:
@@ -146,9 +63,9 @@ async def learn_topics(
     additional_context: Optional[str] = None,
 ) -> list[custom_types.FlatTopic]:
   """Learns top-level topics from a list of statements."""
-  instructions = LEARN_TOPICS_PROMPT
+  instructions = prompts.topic_modeling_learn_topics_prompt
   schema_to_expect = custom_types.FlatTopicList
-  logging.debug("Using LEARN_TOPICS_PROMPT (expecting FlatTopicList)")
+  logging.debug("Using topic_modeling_learn_topics_prompt (expecting FlatTopicList)")
 
   prompt_input_data = [statement_item.text for statement_item in statements]
 
@@ -183,7 +100,7 @@ async def learn_topics(
   response_topics = await sensemaker_utils.retry_call(
       _generate_topics,
       _are_valid_topics,
-      MAX_LLM_RETRIES,
+      model.max_llm_retries,
       "Topic identification failed after multiple retries.",
       func_args=[model],
       is_valid_args=[],
@@ -221,11 +138,11 @@ async def learn_opinions(
     )
     return custom_types.NestedTopic(name=topic.name, subtopics=[])
 
-  instructions = learn_opinions_prompt(topic)
+  instructions = prompts.get_topic_modeling_opinions_prompt(topic.name)
   # Use non-recursive schema to avoid RecursionError in SDK
   schema_to_expect = custom_types.OpinionResponseSchema
   logging.debug(
-      f"Using learn_opinions_prompt for topic: {topic.name} (expecting"
+      f"Using get_topic_modeling_opinions_prompt for topic: {topic.name} (expecting"
       " OpinionResponseSchema)"
   )
 
@@ -261,7 +178,7 @@ async def learn_opinions(
   response_topic = await sensemaker_utils.retry_call(
       _generate_opinions,
       _is_valid_opinion,
-      MAX_LLM_RETRIES,
+      model.max_llm_retries,
       "Opinion identification or restructuring failed after multiple retries.",
       func_args=[model],
       is_valid_args=[topic],

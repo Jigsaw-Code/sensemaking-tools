@@ -39,7 +39,7 @@ class GenerateReportTextTest(unittest.TestCase):
         else:
           response['result'] = f"{p['topic']} summary"
         responses.append(response)
-      return (pd.DataFrame(responses), pd.DataFrame())
+      return (pd.DataFrame(responses), pd.DataFrame(), 0.0, 1.0)
 
     mock_process_prompts.side_effect = mock_async_function
     mock_model = MagicMock()

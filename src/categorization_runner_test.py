@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import argparse
+import asyncio
+import io
 import unittest
-from unittest.mock import patch
+from unittest import mock
 
 from src import categorization_runner
 from src.models import custom_types
@@ -22,7 +24,79 @@ from src.models import custom_types
 
 class CategorizationRunnerTest(unittest.TestCase):
 
-  @patch('src.runner_utils.generate_and_save_topic_tree')
+  @mock.patch(
+      'os.path.expanduser',
+      return_value=io.StringIO(
+          """participant_id,survey_text\n1,statement 1\n2,statement 2"""
+      ),
+  )
+  @mock.patch('os.path.exists', return_value=True)
+  def test_read_csv_to_dicts(self, mock_expanduser, mock_exists):
+    # pylint: disable=protected-access
+    output = categorization_runner._read_csv_to_dicts('dummy_path')
+    mock_exists.assert_called()
+    mock_expanduser.assert_called()
+    self.assertEqual(
+        output,
+        [
+            {
+                'participant_id': '1',
+                'survey_text': 'statement 1',
+            },
+            {
+                'participant_id': '2',
+                'survey_text': 'statement 2',
+            },
+        ],
+    )
+
+  def test_convert_csv_rows_to_statements(self):
+    csv_rows = [
+        {
+            'participant_id': '1',
+            'survey_text': 'statement 1',
+        },
+        {
+            'participant_id': '2',
+            'survey_text': 'statement 2',
+        },
+    ]
+    statements = categorization_runner._convert_csv_rows_to_statements(csv_rows)
+    self.assertEqual(
+        statements,
+        [
+            custom_types.Statement(
+                id='1',
+                text='statement 1',
+            ),
+            custom_types.Statement(
+                id='2',
+                text='statement 2',
+            ),
+        ],
+    )
+
+  def test_convert_csv_rows_to_statements_missing_participant_id(self):
+    csv_rows = [
+        {
+            'participant_id': '1',
+            'survey_text': 'statement 1',
+        },
+        {
+            'participant_id': '',
+            'survey_text': 'empty participant id should be dropped',
+        },
+        {
+            'participant_id': '2',
+            'survey_text': 'statement 2',
+        },
+    ]
+    with self.assertRaisesRegex(
+        ValueError, "Row 2 is missing 'participant_id'"
+    ):
+      categorization_runner._convert_csv_rows_to_statements(csv_rows)
+
+  @mock.patch('src.runner_utils.generate_and_save_topic_tree')
   def test_process_and_print_topic_tree(self, mock_generate_and_save):
     output_csv_rows = [
         {
@@ -55,14 +129,8 @@ class CategorizationRunnerTest(unittest.TestCase):
     opinion = topic['opinions'][0]
     self.assertEqual(opinion['opinion_text'], 'Opinion 1')
     self.assertEqual(len(opinion['quotes']), 2)
-    self.assertIn(
-        {'statement_id': 's1', 'text': 'quote 1'},
-        opinion['quotes'],
-    )
-    self.assertIn(
-        {'statement_id': 's2', 'text': 'quote 2'},
-        opinion['quotes'],
-    )
+    self.assertIn('quote 1', opinion['quotes'])
+    self.assertIn('quote 2', opinion['quotes'])
 
   def test_set_topics_on_csv_rows_opinion_categorization(self):
     original_csv_rows = [
@@ -214,12 +282,12 @@ class CategorizationRunnerTest(unittest.TestCase):
     # we expect 0 rows for this quote.
     self.assertEqual(len(output_rows), 0)
 
-  @patch('src.categorization_runner.genai_model.GenaiModel')
-  @patch('src.categorization_runner.sensemaker.Sensemaker')
-  @patch('src.categorization_runner.runner_utils')
-  @patch('src.categorization_runner._convert_csv_rows_to_statements')
-  @patch('src.categorization_runner._read_csv_to_dicts')
-  @patch('argparse.ArgumentParser.parse_args')
+  @mock.patch('src.categorization_runner.genai_model.GenaiModel')
+  @mock.patch('src.categorization_runner.sensemaker.Sensemaker')
+  @mock.patch('src.categorization_runner.runner_utils')
+  @mock.patch('src.categorization_runner._convert_csv_rows_to_statements')
+  @mock.patch('src.categorization_runner._read_csv_to_dicts')
+  @mock.patch('argparse.ArgumentParser.parse_args')
   def test_main_stops_on_skipped_statements(
       self,
       mock_parse_args,
@@ -227,7 +295,7 @@ class CategorizationRunnerTest(unittest.TestCase):
       mock_convert,
       mock_runner_utils,
       mock_sensemaker_cls,
-      mock_genai_model_cls,
+      _mock_genai_model_cls,
   ):
     # Setup mocks
     mock_parse_args.return_value = argparse.Namespace(
@@ -235,13 +303,15 @@ class CategorizationRunnerTest(unittest.TestCase):
         input_file='/tmp/input.csv',
         topics=None,
         topic_and_opinion_csv=None,
-        subject=None,
         model_name='gemini-pro',
         force_rerun=False,
         log_level='INFO',
         skip_autoraters=False,
+        max_llm_retries=None,
     )
-    mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
+    mock_read_csv.return_value = [
+        {'participant_id': '1', 'survey_text': 'test'}
+    ]
     mock_convert.return_value = [
         custom_types.Statement(id='1', text='test', topics=[], quotes=[])
     ]
@@ -254,9 +324,6 @@ class CategorizationRunnerTest(unittest.TestCase):
         [],  # valid statements
         [mock_statement],  # skipped statements
     )
-
-    # Run main
-    import asyncio
 
     asyncio.run(categorization_runner.main())
 

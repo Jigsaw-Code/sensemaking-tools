@@ -23,14 +23,15 @@ Sample Usage:
 python -m src.categorization_runner \
     --output_dir ~/categorization_outputs \
     --input_file ~/input.csv \
+    --gemini_api_key "$GEMINI_API_KEY" \
     --model_name gemini-3-pro-preview \
-    --additional_context_file ~/additional_context.md
+    --additional_context_file ~/additional_context.md \
+    --max_llm_retries 20
 """
 
 import argparse
 import asyncio
 import collections
-import csv
 import logging
 import os
 import re
@@ -44,8 +45,6 @@ import pandas as pd
 
 # Define a type for the rows read from CSV, expecting specific keys.
 StatementCsvRow = Dict[str, str]
-# Override the default CSV field size limit to handle larger files.
-csv.field_size_limit(1000000)
 
 
 def _filter_csv_columns(
@@ -53,33 +52,23 @@ def _filter_csv_columns(
 ):
   """Filters a CSV file to keep only specified columns."""
   try:
-    with open(input_file, "r", newline="", encoding="utf-8") as infile:
-      reader = csv.DictReader(infile)
+    df = pd.read_csv(input_file, dtype=str)
 
-      # Find which of the desired columns are present in the input file
-      present_columns = [
-          col for col in columns_to_keep if col in reader.fieldnames
-      ]
+    # Find which of the desired columns are present in the input file
+    present_columns = [col for col in columns_to_keep if col in df.columns]
 
-      if not present_columns:
-        logging.warning(
-            "None of the specified columns were found in the input file."
-        )
-        return
-
-      with open(output_file, "w", newline="", encoding="utf-8") as outfile:
-        writer = csv.DictWriter(outfile, fieldnames=present_columns)
-        writer.writeheader()
-
-        for row in reader:
-          # Create a new dictionary with only the desired columns
-          filtered_row = {col: row[col] for col in present_columns}
-          writer.writerow(filtered_row)
-
-      logging.info(
-          f"Successfully created '{output_file}' with columns:"
-          f" {', '.join(present_columns)}"
+    if not present_columns:
+      logging.warning(
+          "None of the specified columns were found in the input file."
       )
+      return
+
+    df[present_columns].to_csv(output_file, index=False)
+
+    logging.info(
+        f"Successfully created '{output_file}' with columns:"
+        f" {', '.join(present_columns)}"
+    )
 
   except FileNotFoundError:
     logging.error(f"Error: The file '{input_file}' was not found.")
@@ -96,14 +85,10 @@ def _read_csv_to_dicts(input_file_path: str) -> List[Dict[str, str]]:
   if not os.path.exists(file_path):
     raise FileNotFoundError(f"Input file not found: {file_path}")
 
-  with open(file_path, mode="r", encoding="utf-8") as csvfile:
-    # Read the header row first using a regular reader
-    reader = csv.reader(csvfile)
-    header = next(reader)
-    # Convert all header names to lowercase
-    lowercase_header = [h.lower() for h in header]
-    reader = csv.DictReader(csvfile, fieldnames=lowercase_header)
-    return list(reader)
+  df = pd.read_csv(file_path, dtype=str)
+  # Convert all header names to lowercase
+  df.columns = [h.lower() for h in df.columns]
+  return df.to_dict("records")
 
 
 def _convert_csv_rows_to_statements(
@@ -223,9 +208,7 @@ def _set_topics_on_csv_rows(
       for opinion in opinions:
         new_row_with_opinion = new_row.copy()
         new_row_with_opinion["quote_with_brackets"] = quote.text
-        new_row_with_opinion["quote"] = re.sub(
-            r"[\[\]]", "", quote.text
-        )
+        new_row_with_opinion["quote"] = re.sub(r"[\[\]]", "", quote.text)
         new_row_with_opinion["topic"] = topic_name
         new_row_with_opinion["opinion"] = opinion.name
         output_csv_rows.append(new_row_with_opinion)
@@ -257,6 +240,12 @@ def _get_topics_and_opinions_from_csv(csv_path: str):
   return return_topics
 
 
+def _drop_other(rows):
+  """"Drops both Other topic and opinion rows."""
+  rows = [row for row in rows if row.get("topic") != "Other"]
+  return [row for row in rows if row.get("opinion") != "Other"]
+
+
 def _process_and_print_topic_tree(
     output_csv_rows: List[Dict[str, Any]], output_file_base: str
 ) -> None:
@@ -265,21 +254,16 @@ def _process_and_print_topic_tree(
   and prints a formatted version to the console.
   """
   topics = collections.defaultdict(
-      lambda: collections.defaultdict(
-          lambda: {"count": 0, "quotes": []}
-      )
+      lambda: collections.defaultdict(lambda: {"count": 0, "quotes": []})
   )
   for row in output_csv_rows:
     topic = row.get("topic", "").strip()
     opinion = row.get("opinion", "").strip()
     quote = row.get("quote", "").strip()
-    statement_id = row.get("participant_id", "").strip()
 
     if topic and opinion:
       topics[topic][opinion]["count"] += 1
-      topics[topic][opinion]["quotes"].append(
-          {"statement_id": statement_id, "text": quote}
-      )
+      topics[topic][opinion]["quotes"].append(quote)
 
   # Prepare data for topic tree generation
   topic_tree_data = []
@@ -299,7 +283,16 @@ def _process_and_print_topic_tree(
   )
 
 
-async def main():
+def _format_seconds(seconds: float) -> str:
+  """Formats seconds into a string with minutes or hours if applicable."""
+  if seconds >= 3600:
+    return f"{seconds:.2f}s ({seconds / 3600:.2f} hrs)"
+  if seconds >= 60:
+    return f"{seconds:.2f}s ({seconds / 60:.2f} mins)"
+  return f"{seconds:.2f}s"
+
+
+async def main() -> Optional[str]:
   """Main function to run the categorization runner."""
   parser = argparse.ArgumentParser(
       description="Categorize statements using Sensemaker."
@@ -341,6 +334,11 @@ async def main():
       help="The name of the AI model to use. Default: gemini-2.5-pro.",
   )
   parser.add_argument(
+      "--gemini_api_key",
+      type=str,
+      help="The Gemini API key.",
+  )
+  parser.add_argument(
       "-f",
       "--force_rerun",
       action="store_true",
@@ -361,10 +359,24 @@ async def main():
       action="store_true",
       help="If set, skip autorater evaluations as part of categorization.",
   )
+  parser.add_argument(
+      "--max_llm_retries",
+      type=int,
+      default=None,
+      help="Override the maximum LLM retries for API calls.",
+  )
+  parser.add_argument(
+      "--skip_quote_extraction",
+      action="store_true",
+      help=(
+          "If set, skip the LLM-based quote extraction and use the whole"
+          " response as the quote."
+      ),
+  )
 
   args = parser.parse_args()
 
-  runner_utils.setup_logging(args.log_level, args.output_dir)
+  log_dir = runner_utils.setup_logging(args.log_level, args.output_dir)
 
   original_csv_rows = _read_csv_to_dicts(args.input_file)
   statements_to_process = _convert_csv_rows_to_statements(original_csv_rows)
@@ -399,8 +411,13 @@ async def main():
       statement_item.topics = []
       statement_item.quotes = []
 
+  stats_log_file = os.path.join(log_dir, "stats.log")
+
   genai_llm = genai_model.GenaiModel(
       model_name=args.model_name,
+      gemini_api_key=args.gemini_api_key,
+      max_llm_retries=args.max_llm_retries,
+      stats_log_file=stats_log_file,
   )
 
   sensemaker_instance = sensemaker.Sensemaker(
@@ -455,31 +472,65 @@ async def main():
       original_csv_rows=original_csv_rows,
       output_dir=args.output_dir,
       run_autoraters=not args.skip_autoraters,
+      skip_quote_extraction=args.skip_quote_extraction,
   )
 
   output_csv_rows = _set_topics_on_csv_rows(
       original_csv_rows, categorized_statements
   )
 
-  categorized_csv_path = os.path.join(args.output_dir, "categorized.csv")
-  runner_utils.write_dicts_to_csv(output_csv_rows, categorized_csv_path)
-
-  output_csv_path = os.path.join(args.output_dir, "categorized_filtered.csv")
-  columns_to_keep = [
+  filtered_columns = [
       "participant_id",
       "survey_text",
       "quote",
       "topic",
       "opinion",
   ]
-  _filter_csv_columns(categorized_csv_path, output_csv_path, columns_to_keep)
 
-  output_file_base = os.path.join(args.output_dir, "categorized")
+  # Write version of data with "Other" topics and opinions
+  categorized_csv_path = os.path.join(args.output_dir, "categorized_with_other.csv")
+  runner_utils.write_dicts_to_csv(output_csv_rows, categorized_csv_path)
+
+  # Dynamically add original_text_* columns to filtered_columns
+  if output_csv_rows:
+    original_cols = list()
+    for col in output_csv_rows[0].keys():
+      if col.startswith("original_text_"):
+        original_cols.append(col)
+    filtered_columns.extend(original_cols)
+
+  output_csv_path = os.path.join(args.output_dir, "categorized_with_other_filtered.csv")
+  _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
+  output_file_base = os.path.join(args.output_dir, "categorized_with_other")
   _process_and_print_topic_tree(output_csv_rows, output_file_base)
+
+  # Create another version without "Other" topics and opinions
+  csv_rows_without_other = _drop_other(output_csv_rows)
+  categorized_csv_path = os.path.join(args.output_dir, "categorized_without_other.csv")
+  runner_utils.write_dicts_to_csv(csv_rows_without_other, categorized_csv_path)
+  output_csv_path = os.path.join(args.output_dir, "categorized_without_other_filtered.csv")
+  _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
+
+  return log_dir
 
 
 if __name__ == "__main__":
   start_time = time.time()
-  asyncio.run(main())
+  log_dir_path = None
+  try:
+    log_dir_path = asyncio.run(main())
+  except Exception as e:
+    # Gracefully handle exceptions so the stack trace is saved to the log file.
+    logging.exception(f"Process crashed with an error: {e}")
+    raise
   end_time = time.time()
-  logging.info(f"Categorization completed in {end_time - start_time} seconds.")
+
+  if log_dir_path:
+    stats_file = os.path.join(log_dir_path, "stats.log")
+    if os.path.exists(stats_file):
+      with open(stats_file, "r") as f:
+        print(f.read())
+
+  logging.info(
+      f"Categorization completed in {_format_seconds(end_time - start_time)}."
+  )

@@ -18,8 +18,9 @@ import json
 import logging
 from typing import Any
 
-from src.models import custom_types
+from src import prompts
 from src.evals.eval_metrics import OPINION_CATEGORIZATION_METRICS
+from src.models import custom_types
 
 
 def parse_eval_response(
@@ -52,9 +53,9 @@ def prepare_opinion_eval_prompts(
     parent_topic_name: str,
 ) -> list[dict[str, Any]]:
   """Prepares prompts for opinion evaluation."""
-  prompts = []
+  prompt_jobs = []
   if not categorized_records:
-    return prompts
+    return prompt_jobs
 
   # Prepare data for evaluation
   quote_id_to_text_map = {
@@ -94,34 +95,9 @@ def prepare_opinion_eval_prompts(
       )
     criteria_str = json.dumps(formatted_criteria, indent=2)
 
-    base_prompt = f"""You are an expert evaluator.
+    final_prompt = prompts.get_autorater_opinion_eval_prompt(criteria_str, rubric_str, assigned_opinions_str)
 
-Task: Evaluate if the opinion categorization is correct based on the provided criteria.
-
-Criteria:
-{criteria_str}
-
-Rating Rubric:
-{rubric_str}
-
-Response to Evaluate:
-{assigned_opinions_str}
-"""
-
-    json_instructions = f"""
-RESPONSE STRUCTURE:
-Respond with only these two fields: 'score' and 'explanation', nothing else.
-Explanation should be as short as possible, and no more than once sentence.
-
-The response must follow this format:
-{{
-  "score": 4,
-  "explanation": "Brief reasoning for the score"
-}}
-"""
-    final_prompt = f"{base_prompt}\n\n{json_instructions}"
-
-    prompts.append({
+    prompt_jobs.append({
         "prompt": final_prompt,
         "metadata": {
             "record_id": record.id,
@@ -131,7 +107,7 @@ The response must follow this format:
         "response_mime_type": "application/json",
     })
 
-  return prompts
+  return prompt_jobs
 
 
 def process_opinion_eval_results(

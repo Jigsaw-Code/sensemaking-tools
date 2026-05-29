@@ -63,7 +63,7 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
         },
     ])
     mock_model.process_prompts_concurrently = AsyncMock(
-        return_value=(mock_results_df, None)
+        return_value=(mock_results_df, pd.DataFrame(), 0.0, 1.0)
     )
 
     # Execution
@@ -126,6 +126,26 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(
         len(set(all_quote_ids)), len(all_quote_ids)
     )  # Check for uniqueness
+
+  def test_join_response_text(self):
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("<response>Hello.</response>"),
+        "Hello.",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("<response>Hello</response>"),
+        "Hello.",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text(
+            "<response>Hello</response> <response>World!</response>"
+        ),
+        "Hello. World!",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("This text has no response tags."),
+        "This text has no response tags.",
+    )
 
 
 if __name__ == "__main__":

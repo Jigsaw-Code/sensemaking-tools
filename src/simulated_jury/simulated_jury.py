@@ -39,6 +39,12 @@ POSITIVE_APPROVAL_VOTES = frozenset([
     "Somewhat Agree",
 ])
 
+# The shorthand labels for the options (A-Z, a-z)
+STATEMENT_MAPPING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+# The maximum number of statements that can be ranked by the LLM
+MAX_STATEMENTS_FOR_RANKING = len(STATEMENT_MAPPING_CHARS)
+
 
 class VotingMode(Enum):
   RANK = 1
@@ -171,11 +177,13 @@ def _compute_stats_summary(
 class StatementMapper:
   """Maps characters to statements for parsing LLM responses."""
 
-  CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  CHARS = STATEMENT_MAPPING_CHARS
 
   def __init__(self, statements: list[str]):
-    if len(statements) > len(self.CHARS):
-      raise ValueError(f"Cannot map more than {len(self.CHARS)} statements.")
+    if len(statements) > MAX_STATEMENTS_FOR_RANKING:
+      raise ValueError(
+          f"Cannot map more than {MAX_STATEMENTS_FOR_RANKING} statements."
+      )
     self.statements = statements
     self.letter_to_statement = {
         self.CHARS[i]: statement for i, statement in enumerate(self.statements)
@@ -220,7 +228,7 @@ def parse_llm_ranking_response(resp: dict, job: dict) -> dict:
           >= job.get("retry_attempts", genai_model.MAX_LLM_RETRIES) - 1
       )
       if is_last_attempt:
-        logging.warning(
+        logging.debug(
             "Accepting partial ranking on final attempt (%d of %d statements).",
             len(ranking),
             len(statements),
@@ -232,13 +240,13 @@ def parse_llm_ranking_response(resp: dict, job: dict) -> dict:
         )
 
   except json.JSONDecodeError as e:
-    logging.warning(
+    logging.debug(
         "Could not parse ranking from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
     raise ValueError(f"Parsing failed with JSONDecodeError: {e}") from e
   except (IndexError, KeyError, ValueError) as e:
-    logging.warning(
+    logging.debug(
         "Could not parse ranking from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
@@ -280,13 +288,13 @@ def parse_llm_approval_response(resp: dict, job: dict) -> dict:
     return approval_dict
 
   except json.JSONDecodeError as e:
-    logging.warning(
+    logging.debug(
         "Could not parse approval from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
     raise ValueError(f"Parsing failed with JSONDecodeError: {e}") from e
   except (IndexError, KeyError, ValueError) as e:
-    logging.warning(
+    logging.debug(
         "Could not parse approval from response:"
         f" {raw_response_for_logging}. Error: {e}"
     )
@@ -463,7 +471,7 @@ async def run_simulated_jury(
     raise ValueError(f"Unsupported voting mode: {voting_mode}")
 
   start_time = time.monotonic()
-  llm_response_df, llm_response_stats_df = (
+  llm_response_df, llm_response_stats_df, _, _ = (
       await model.process_prompts_concurrently(
           jobs,
           response_parser=parser,

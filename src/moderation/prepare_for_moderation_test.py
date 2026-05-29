@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import tempfile
 import sys
 from google.cloud import dlp_v2
 from src.moderation.prepare_for_moderation import main
-from src.qualtrics.process_qualtrics_output import RESPONSE_TEXT, SURVEY_TEXT, RESPONDENT_ID, DURATION
+from src.qualtrics.process_qualtrics_output import RESPONSE_TEXT, SURVEY_TEXT, DURATION
 from src.evals.eval_metrics import INPUT_EVAL_METRICS
 
 
@@ -36,7 +36,6 @@ class PrepareForModerationTest(unittest.TestCase):
 
     # Create dummy input CSV
     pd.DataFrame({
-        RESPONDENT_ID: [1, 2],
         # Each survey text is two question answer pairs. The questions and
         # answers are repeated for simplicity.
         SURVEY_TEXT: [
@@ -64,7 +63,7 @@ class PrepareForModerationTest(unittest.TestCase):
             " comment. </response>"
             * 2,
         ],
-        INPUT_EVAL_METRICS.name + "Pointwise/score": [4, 1],
+        "score": [4, 1],
     }).to_csv(self.input_evals_csv_path, index=False)
 
   def tearDown(self):
@@ -73,7 +72,7 @@ class PrepareForModerationTest(unittest.TestCase):
   @patch("src.moderation.prepare_for_moderation.dlp_v2.DlpServiceClient")
   @patch("src.moderation.prepare_for_moderation.init_client")
   @patch("src.moderation.prepare_for_moderation.score_text")
-  @patch.dict(os.environ, {"API_KEY": "test_key"})
+  @patch.dict(os.environ, {"GCLOUD_API_KEY": "test_key"})
   def test_main(self, mock_score_text, mock_init_client, mock_dlp_client):
     # Mock Perspective API client and scoring
     mock_client = MagicMock()
@@ -113,8 +112,10 @@ class PrepareForModerationTest(unittest.TestCase):
         self.output_csv_path,
         "--data_type",
         "ROUND_1",
-        "--api_key",
+        "--gcloud_api_key",
         "test_key",
+        "--scorer_type",
+        "PERSPECTIVE",
     ]
     with patch.object(sys, "argv", test_args):
       main()
@@ -172,6 +173,81 @@ class PrepareForModerationTest(unittest.TestCase):
 
     # Check that score_text was called correctly
     self.assertEqual(mock_score_text.call_count, 4)
+
+  @patch("src.moderation.prepare_for_moderation.dlp_v2.DlpServiceClient")
+  @patch("src.moderation.prepare_for_moderation.ContentScorer")
+  @patch.dict(os.environ, {"GEMINI_API_KEY": "test_key", "GCLOUD_API_KEY": "test_key"})
+  def test_main_gemini(self, mock_scorer_class, mock_dlp_client):
+    # Mock ContentScorer instance and its score method
+    mock_scorer_instance = mock_scorer_class.return_value
+
+    def score_side_effect(tasks, attributes):
+      # tasks is List[{"text": str, "row_id": int}]
+      results = []
+      for task in tasks:
+        text = task["text"]
+        scores = {}
+        for attr in attributes:
+          if "toxic" in text:
+            scores[attr] = 0.8 if attr == "TOXICITY" else 0.7
+          else:
+            scores[attr] = 0.1
+        results.append({"row_id": task["row_id"], "scores": scores})
+      return results
+
+    mock_scorer_instance.score.side_effect = score_side_effect
+
+    # Mock DLP client
+    mock_dlp_instance = mock_dlp_client.return_value
+    mock_inspect_result = MagicMock()
+    mock_inspect_result.result.findings = []
+    mock_dlp_instance.inspect_content.return_value = mock_inspect_result
+
+    # Mock sys.argv
+    test_args = [
+        "prepare_for_moderation.py",
+        "--input_csv",
+        self.input_csv_path,
+        "--input_evals_csv",
+        self.input_evals_csv_path,
+        "--output_csv",
+        self.output_csv_path,
+        "--data_type",
+        "ROUND_1",
+        "--gemini_api_key",
+        "test_key",
+        "--gcloud_api_key",
+        "test_key",
+        # Default should be GEMINI, so we don't need to specify it, but for clarity:
+        "--scorer_type",
+        "GEMINI",
+    ]
+    with patch.object(sys, "argv", test_args):
+      main()
+
+    # Check if output file exists
+    self.assertTrue(os.path.exists(self.output_csv_path))
+
+    # Check the content of the output file
+    df = pd.read_csv(self.output_csv_path)
+    self.assertEqual(len(df), 2)
+
+    # Check specific scores
+    col = "Toxicity Score (of the worst response)"
+    clean_row = df[df[col] < 0.5].iloc[0]
+    toxic_row = df[df[col] > 0.5].iloc[0]
+
+    self.assertAlmostEqual(clean_row["Toxicity Score (of the worst response)"], 0.1)
+    self.assertAlmostEqual(toxic_row["Toxicity Score (of the worst response)"], 0.8)
+
+    # Check that ContentScorer.score was called once (Batching!)
+    self.assertEqual(mock_scorer_instance.score.call_count, 1)
+
+    # Check that it received the correct number of tasks
+    # Each row in ROUND_1 dummy data has 2 snippets
+    # 2 rows * 2 snippets = 4 snippets total
+    call_args = mock_scorer_instance.score.call_args[0]
+    self.assertEqual(len(call_args[0]), 4)
 
 
 if __name__ == "__main__":

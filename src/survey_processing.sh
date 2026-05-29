@@ -34,10 +34,11 @@ set -e
 
 INPUT_CSV=""
 OUTPUT_DIR=""
+GEMINI_API_KEY=""
+TRANSLATION_MODEL_NAME="gemini-3.1-flash-lite-preview"
 
 # Optional overrides
 ROUND_1_QUESTION_RESPONSE_TEXT=""
-ROUND_1_FOLLOW_UP_QUESTIONS=""
 ROUND_1_FOLLOW_UP_QUESTIONS=""
 ROUND_1_FOLLOW_UP_QUESTION_RESPONSE_TEXTS=""
 ONE_LINE_QUESTION_TEXT_ARG=""
@@ -46,6 +47,8 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         --input_csv) INPUT_CSV="$2"; shift ;;
         --output_dir) OUTPUT_DIR="$2"; shift ;;
+        --gemini_api_key) GEMINI_API_KEY="$2"; shift ;;
+        --translation_model_name) TRANSLATION_MODEL_NAME="$2"; shift ;;
         --round_1_question_response_text) ROUND_1_QUESTION_RESPONSE_TEXT="$2"; shift ;;
         --round_1_follow_up_questions) ROUND_1_FOLLOW_UP_QUESTIONS="$2"; shift ;;
         --round_1_follow_up_question_response_text) ROUND_1_FOLLOW_UP_QUESTION_RESPONSE_TEXTS="$2"; shift ;;
@@ -82,3 +85,22 @@ python3 -m src.qualtrics.process_qualtrics_output \
     --input_csv "$INPUT_CSV" \
     --output_csv "$OUTPUT_DIR/processed.csv" \
     --data_type "ROUND_1" $OPTIONAL_ARGS
+
+# Then translate the non-English responses in-place if Gemini API key is provided
+if [ -n "$GEMINI_API_KEY" ]; then
+    echo "Translating responses using $TRANSLATION_MODEL_NAME..."
+
+    # Determine columns to translate
+    COLUMNS_TO_TRANSLATE="Q1,Q2,Q3,Q1FU_Text,Q2FU_Text,Q3FU_Text"
+    if [ -n "$ROUND_1_QUESTION_RESPONSE_TEXT" ] || [ -n "$ROUND_1_FOLLOW_UP_QUESTION_RESPONSE_TEXTS" ]; then
+        COLUMNS_TO_TRANSLATE="$ROUND_1_QUESTION_RESPONSE_TEXT,$ROUND_1_FOLLOW_UP_QUESTION_RESPONSE_TEXTS"
+    fi
+
+    # We read and write to the same file (processed.csv)
+    python3 -m src.translate_csv \
+        --input_csv "$OUTPUT_DIR/processed.csv" \
+        --output_csv "$OUTPUT_DIR/processed.csv" \
+        --columns "$COLUMNS_TO_TRANSLATE" \
+        --gemini_api_key "$GEMINI_API_KEY" \
+        --model_name "$TRANSLATION_MODEL_NAME"
+fi

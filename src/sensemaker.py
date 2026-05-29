@@ -62,6 +62,7 @@ class Sensemaker:
       original_csv_rows: Optional[List[Dict[str, Any]]] = None,
       output_dir: Optional[str] = None,
       run_autoraters: bool = True,
+      skip_quote_extraction: bool = False,
   ) -> Iterable[custom_types.Statement]:
     """Categorize statements into topics and opinions using an LLM.
 
@@ -73,6 +74,8 @@ class Sensemaker:
         original_csv_rows: Optional original CSV rows for semi-final dump.
         output_dir: Optional output directory for semi-final dump.
         run_autoraters: Whether to run autorater evaluations.
+        skip_quote_extraction: Whether to skip quote extraction and use whole
+          response as quote.
 
     Returns:
         The statements with topics and opinions assigned.
@@ -135,13 +138,18 @@ class Sensemaker:
         logging.info("Loaded statements with quotes from checkpoint.")
         statements_with_quotes = loaded_quotes
       else:
-        statements_with_quotes = (
-            await quote_extraction_lib.extract_quotes_from_text(
-                statements=statements_with_topics,
-                model=self._genai_model,
-                additional_context=additional_context,
-            )
-        )
+        if skip_quote_extraction:
+          statements_with_quotes = quote_extraction_lib.skip_quote_extraction(
+              statements=statements_with_topics
+          )
+        else:
+          statements_with_quotes = (
+              await quote_extraction_lib.extract_quotes_from_text(
+                  statements=statements_with_topics,
+                  model=self._genai_model,
+                  additional_context=additional_context,
+              )
+          )
 
         if output_dir:
           checkpoint_utils.save_checkpoint(

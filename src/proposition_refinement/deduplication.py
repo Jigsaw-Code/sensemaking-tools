@@ -100,7 +100,7 @@ async def generate_equivalence_sets(processed_by_topic_df, model):
     logging.debug('--- ready to jsonify ---\n%s', x)
     return json.loads(x)
 
-  response, _ = await model.process_prompts_concurrently(
+  response, _, _, _ = await model.process_prompts_concurrently(
       [{'prompt': prompt, 'topic': 'deduplication'}],
       # response_parser=lambda x, job: json.loads(x)
       response_parser=parser_with_logging,
@@ -148,7 +148,7 @@ async def _resolve_collision(collision_group, model):
       return match.group(1)
     raise ValueError(f'Could not parse proposition_id from response: {text}')
 
-  response, _ = await model.process_prompts_concurrently(
+  response, _, _, _ = await model.process_prompts_concurrently(
       [{'prompt': prompt, 'topic': 'tie-breaker'}],
       response_parser=parser,
   )

@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -108,3 +108,22 @@ class OpinionResponseSchema(BaseModel):
 
   name: str
   subtopics: list[FlatTopic]
+
+
+class ScoreResponse(BaseModel):
+  """Schema for score generation for moderation and bridging."""
+
+  score: float = Field(description="The estimated probability (0.0 to 1.0).")
+
+
+class TranslationResponse(BaseModel):
+  """Schema for language detection and translation."""
+
+  is_target_language: bool = Field(
+      description="Whether the text is in the target language.")
+  translation: str = Field(
+      description=(
+          "The target language translation, if not already in this language. "
+          "Otherwise, leave it empty."
+      )
+  )

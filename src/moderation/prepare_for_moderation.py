@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,15 +13,18 @@
 # limitations under the License.
 
 """
-Reads a CSV with a "response_text" column and calls the Perspective API
+Reads a CSV with a "response_text" column and calls Gemini/ Perspective API
 to get toxicity, severe_toxicity, and profanity scores.
 
 Example Usage:
-  python3 -m src.prepare_for_moderation \
+  python3 -m src.moderation.prepare_for_moderation \
     --input_csv /path/to/data.csv \
     --output_csv /path/to/data_with_scores.csv \
     --data_type ROUND_1 \
-    --api_key "$API_KEY"
+    --gemini_api_key "$GEMINI_API_KEY" \
+    --gcloud_api_key "$GCLOUD_API_KEY" \
+    --scorer_type GEMINI \
+    --model_name gemini-3.1-flash-lite-preview
 """
 
 import argparse
@@ -33,13 +36,13 @@ from typing import Any, Callable
 
 from google.cloud import dlp_v2
 from src.evals.eval_metrics import INPUT_EVAL_METRICS
+from src.get_gemini_scores_lib import ContentScorer
 from src.get_perspective_scores_lib import init_client
 from src.get_perspective_scores_lib import score_text
 from src.qualtrics.process_qualtrics_output import DataType
 from src.qualtrics.process_qualtrics_output import DURATION
 from src.qualtrics.process_qualtrics_output import END_QUESTION_TAG
 from src.qualtrics.process_qualtrics_output import END_RESPONSE_TAG
-from src.qualtrics.process_qualtrics_output import RESPONDENT_ID
 from src.qualtrics.process_qualtrics_output import RESPONSE_TEXT
 from src.qualtrics.process_qualtrics_output import START_QUESTION_TAG
 from src.qualtrics.process_qualtrics_output import START_RESPONSE_TAG
@@ -49,7 +52,7 @@ import pandas as pd
 
 # The text column is renamed 'response' by the eval library we use.
 _INPUT_EVAL_TEXT_COL = "response"
-ORIGINAL_COLUMNS_TO_USE = [RESPONSE_TEXT, RESPONDENT_ID, DURATION]
+ORIGINAL_COLUMNS_TO_USE = [RESPONSE_TEXT, DURATION]
 
 # Output column names
 _TOXICITY_SCORE = "Toxicity Score (of the worst response)"
@@ -233,7 +236,7 @@ def main() -> None:
   """
   parser = argparse.ArgumentParser(
       description=(
-          "Analyze text from a CSV file for toxicity using the Perspective API."
+          "Analyze text from a CSV file for toxicity using Gemini/Perspective."
       )
   )
   parser.add_argument(
@@ -260,22 +263,41 @@ def main() -> None:
       ),
   )
   parser.add_argument(
-      "--api_key",
-      required=True,
-      help="API key for the Perspective API.",
+      "--gcloud_api_key",
+      help="API key for the Perspective API or DLP.",
+  )
+  parser.add_argument(
+      "--gemini_api_key",
+      help="API key for Gemini (GenAI).",
+  )
+  parser.add_argument(
+      "--scorer_type",
+      choices=["GEMINI", "PERSPECTIVE"],
+      default="GEMINI",
+      help="Backend to use for generating moderation scores.",
+  )
+  parser.add_argument(
+      "--model_name",
+      default="gemini-3.1-flash-lite-preview",
+      help="Gemini model name to use when scorer_type is GEMINI.",
   )
   args = parser.parse_args()
 
-  api_key = args.api_key
-  if not api_key:
+  gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
+  gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
+
+  if args.scorer_type == "GEMINI" and not gemini_api_key:
     print(
-        "Error: --api_key missing.",
+        "Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.",
         file=sys.stderr,
     )
     sys.exit(1)
-  client = init_client(api_key=api_key)
 
-  dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": api_key})
+  if (args.scorer_type == "PERSPECTIVE" or args.data_type) and not gcloud_api_key:
+    # DLP always runs, so we might need gcloud_api_key anyway if it's used for DLP.
+    pass
+
+  dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": gcloud_api_key})
 
   if args.data_type == DataType.ROUND_1:
     text_splitter = split_round_1_text
@@ -296,7 +318,7 @@ def main() -> None:
     # The input data evaluation output includes a score that we want to use for
     # moderation since it's a good proxy for data quality. We merge this data
     # into the existing input data.
-    score_col = INPUT_EVAL_METRICS.name + "Pointwise/score"
+    score_col = "score"
     input_evals_df = get_csv(
         args.input_evals_csv, [score_col, _INPUT_EVAL_TEXT_COL]
     )
@@ -332,14 +354,52 @@ def main() -> None:
 
   attributes_to_score = ["TOXICITY", "SEVERE_TOXICITY", "PROFANITY"]
 
-  scores_df = df[text_column].apply(
-      lambda t: pd.Series(
-          get_max_scores(client, str(t), attributes_to_score, text_splitter)
-      )
-  )
-  df[_PROFANITY_SCORE] = scores_df["PROFANITY"]
-  df[_TOXICITY_SCORE] = scores_df["TOXICITY"]
-  df[_SEVERE_TOXICITY_SCORE] = scores_df["SEVERE_TOXICITY"]
+  if args.scorer_type == "GEMINI":
+    print(f"Using Gemini ({args.model_name}) for moderation scoring...")
+    scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=args.model_name)
+
+    # Batch Scoring with Gemini
+    scoring_tasks = []
+    for idx, row in df.iterrows():
+      text = str(row[text_column])
+      snippets = text_splitter(text)
+      for snippet in snippets:
+        scoring_tasks.append({"text": snippet, "row_id": idx})
+
+    batch_results = scorer.score(scoring_tasks, attributes_to_score)
+
+    # Aggregate results (MAX per row)
+    row_scores = collections.defaultdict(lambda: collections.defaultdict(list))
+    for res in batch_results:
+      rid = res["row_id"]
+      for attr, val in res["scores"].items():
+        row_scores[rid][attr].append(val)
+
+    for attr in attributes_to_score:
+      df[attr] = 0.0
+      for rid, scores_dict in row_scores.items():
+        if attr in scores_dict:
+          df.at[rid, attr] = max(scores_dict[attr])
+
+    df[_PROFANITY_SCORE] = df["PROFANITY"]
+    df[_TOXICITY_SCORE] = df["TOXICITY"]
+    df[_SEVERE_TOXICITY_SCORE] = df["SEVERE_TOXICITY"]
+
+  elif args.scorer_type == "PERSPECTIVE":
+    print("Using Perspective API for moderation scoring...")
+    client = init_client(gcloud_api_key=gcloud_api_key)
+
+    scores_df = df[text_column].apply(
+        lambda t: pd.Series(
+            get_max_scores(client, str(t), attributes_to_score, text_splitter)
+        )
+    )
+    df[[_PROFANITY_SCORE, _TOXICITY_SCORE, _SEVERE_TOXICITY_SCORE]] = scores_df[
+        ["PROFANITY", "TOXICITY", "SEVERE_TOXICITY"]
+    ]
+  else:
+    raise ValueError(f"Unknown scorer_type: {args.scorer_type}")
+
   # Force scores to be from 0-1 with higher scores being worse.
   # Use the 90th percentile logest duration to be more robust to outliers.
   df[_TOO_FAST_SCORE] = (1 - df[DURATION] / df[DURATION].quantile(0.9)).clip(

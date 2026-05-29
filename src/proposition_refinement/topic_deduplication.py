@@ -71,7 +71,7 @@ async def _generate_topic_equivalence_sets(world_model_df, model):
 
   prompt = _generate_topic_equivalence_prompt(propositions_map)
 
-  response, _ = await model.process_prompts_concurrently(
+  response, _, _, _ = await model.process_prompts_concurrently(
       [{'prompt': prompt, 'topic': 'topic_deduplication'}],
       response_parser=_parse_equivalence_sets_with_logging,
   )
@@ -125,7 +125,7 @@ async def _resolve_winning_topic(prop_set, world_model_df, model):
         return topic
     raise ValueError(f'Could not parse topic from response: {text}')
 
-  response, _ = await model.process_prompts_concurrently(
+  response, _, _, _ = await model.process_prompts_concurrently(
       [{'prompt': prompt, 'topic': 'topic-tie-breaker'}],
       response_parser=parser,
       max_concurrent_calls=10,

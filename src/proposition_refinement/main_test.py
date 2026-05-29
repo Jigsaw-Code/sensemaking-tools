@@ -235,7 +235,9 @@ class PropositionRefinementMainTest(unittest.TestCase):
     world_model = {"topic_level_results": topic_level_df}
     mock_combine_props.return_value = (
         pd.DataFrame({"result": [["nuanced p1"]]}),
-        {},
+        pd.DataFrame(),
+        0.0,
+        1.0,
     )
 
     # Run stage
@@ -272,7 +274,7 @@ class PropositionRefinementMainTest(unittest.TestCase):
         ],
     })
     world_model = {"topic_level_results": topic_level_df}
-    mock_combine_props.return_value = (pd.DataFrame(), {})
+    mock_combine_props.return_value = (pd.DataFrame(), pd.DataFrame(), 0.0, 1.0)
 
     # Run stage
     asyncio.run(

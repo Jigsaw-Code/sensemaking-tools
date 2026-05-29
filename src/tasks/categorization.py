@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import time
 import difflib
 import pandas as pd
 from collections import defaultdict
@@ -27,7 +28,8 @@ from typing import Any, Callable, Coroutine, Iterable, Set, Tuple, Union, cast
 from more_itertools import batched
 from src.tasks.topic_modeling_util import parse_response
 from pydantic import TypeAdapter, ValidationError
-from src.models.genai_model import GenaiModel, MAX_LLM_RETRIES, WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS, MAX_CONCURRENT_CALLS
+from src import prompts
+from src.models import genai_model
 from src.sensemaker_utils import execute_concurrently, get_prompt
 from src import runner_utils
 from src.models.custom_types import (
@@ -43,7 +45,6 @@ from src.evals.autorater_evals import (
     prepare_opinion_eval_prompts,
     parse_eval_response,
 )
-from src.tasks.categorization_rules import OPINION_CATEGORIZATION_MAIN_RULES
 from src.tasks import topic_modeling, topic_modeling_util
 from src.tasks.topic_modeling import learn_topics, learn_opinions
 
@@ -56,7 +57,7 @@ MAX_ITEMS_PER_BATCH = 50
 
 async def categorize_topics(
     statements: list[Statement],
-    model: GenaiModel,
+    model: genai_model.GenaiModel,
     current_topics: list[Topic] | None = None,
     additional_context: str | None = None,
 ) -> tuple[list[Statement], list[Topic]]:
@@ -125,7 +126,7 @@ async def categorize_topics(
 async def learn_global_opinions(
     statements_with_topics_and_quotes: list[Statement],
     topics_to_process: list[Topic],
-    model: GenaiModel,
+    model: genai_model.GenaiModel,
     additional_context: str | None = None,
 ) -> dict[str, Any]:
   """Learns opinions for all topics globally using concurrent batching.
@@ -159,7 +160,7 @@ async def learn_global_opinions(
       return topic, [], None
 
     prompt_input_data = [f"<quote>{q.text}</quote>" for q in quotes]
-    instructions = topic_modeling.learn_opinions_prompt(topic)
+    instructions = prompts.get_topic_modeling_opinions_prompt(topic.name)
 
     # This might call the model for token counting
     chunks = await topic_modeling_util.create_chunks(
@@ -193,7 +194,7 @@ async def learn_global_opinions(
           "chunk_index": i,
           "total_chunks": len(chunks),
           "response_schema": OpinionResponseSchema,
-          "log_prefix_marker": "4",
+          "log_prefix_marker": "4 (Opinion Identification)",
           "progress_index": (
               i
           ),  # Approximate within topic, or could use global index
@@ -209,14 +210,21 @@ async def learn_global_opinions(
       f"across {len(topic_job_indices)} active topics."
   )
 
+  all_stage_stats = []
+  total_wall_delay = 0.0
+  start_time = time.time()
+
   # 3. Execute Phase 1: Initial Generation
   def _parse_opinion_response(resp, job):
     return parse_response(resp["text"], job["response_schema"])
 
-  results_df, _ = await model.process_prompts_concurrently(
+  results_df, stats, wall_delay, _ = await model.process_prompts_concurrently(
       generation_prompts,
       response_parser=_parse_opinion_response,
+      skip_log=True,
   )
+  all_stage_stats.extend(stats.to_dict("records"))
+  total_wall_delay += wall_delay
 
   # 4. Process Results and Prepare Merges (Phase 2)
   final_topic_map = {}
@@ -286,7 +294,7 @@ async def learn_global_opinions(
         continue
 
       # Prepare Merge Prompt
-      merge_instructions = topic_modeling_util.merge_opinions_prompt(topic_obj)
+      merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(topic_obj.name)
       prompt_str = get_prompt(
           merge_instructions, combined_opinions, additional_context
       )
@@ -298,7 +306,7 @@ async def learn_global_opinions(
           "response_schema": (
               OpinionResponseSchema
           ),  # Merge prompt expects same structure (JSON list of opinions)
-          "log_prefix_marker": "4",
+          "log_prefix_marker": "4 (Opinion Identification)",
           "is_merge": True,
       })
       merge_job_indices[topic_name] = merge_idx
@@ -307,10 +315,15 @@ async def learn_global_opinions(
   if merge_prompts:
     logging.info(f"Merging opinions for {len(merge_prompts)} topics...")
 
-    merge_results_df, _ = await model.process_prompts_concurrently(
-        merge_prompts,
-        response_parser=_parse_opinion_response,
+    merge_results_df, stats, wall_delay, _ = (
+        await model.process_prompts_concurrently(
+            merge_prompts,
+            response_parser=_parse_opinion_response,
+            skip_log=True,
+        )
     )
+    all_stage_stats.extend(stats.to_dict("records"))
+    total_wall_delay += wall_delay
 
     for topic_name, idx in merge_job_indices.items():
       result = merge_results_df.iloc[idx]["result"]
@@ -329,6 +342,14 @@ async def learn_global_opinions(
         )
         final_topic_map[topic_name] = NestedTopic(name=topic_name, subtopics=[])
 
+  if all_stage_stats:
+    model.log_stats_summary(
+        all_stage_stats,
+        "4 (Opinion Identification)",
+        total_wall_delay,
+        time.time() - start_time,
+    )
+
   return final_topic_map
 
 
@@ -336,7 +357,7 @@ async def categorize_opinions(
     statements_with_topics_and_quotes: list[Statement],
     topics_to_process: list[Topic],
     topic_to_opinions_map: dict[str, Any],
-    model: GenaiModel,
+    model: genai_model.GenaiModel,
     additional_context: str | None = None,
     run_autoraters: bool = True,
 ) -> Iterable[Statement]:
@@ -363,18 +384,38 @@ async def categorize_opinions(
 
   # Track work queue: Topic Name -> List of IDs to process for that topic
   # We use IDs to track statements to avoid deep copying lists repeatedly
-  # Initial work queue has all statements for all topics
-  topic_work_queue_ids: dict[str, list[str]] = {
-      t.name: list(input_statements_map.keys()) for t in topics_to_process
-  }
+  # Initial work queue has all statements for all topics following this rule:
+  # If topic is "education", the statement has a quote from "education" topic,
+  # then it'll be included in the work queue for "education" topic.
+  # However, if the statement has 2 quotes whose topics are "health" and
+  # "economy", then this statment will not be included in the work queue for
+  # "education", or any other topic that is not "health" or "economy".
+  topic_work_queue_ids: dict[str, list[str]] = dict()
+  for t in topics_to_process:
+    topic_work_queue_ids[t.name] = [
+      sid for sid, s in input_statements_map.items()
+      if t.name in [q.topic.name for q in s.quotes]
+    ]
 
   autorater_retry_counts: dict[str, int] = {}
-  MAX_AUTORATER_RETRIES = 3
+  # Use max_llm_retries override if provided, otherwise default to 3
+  MAX_AUTORATER_RETRIES = (
+      model.max_llm_retries if model.max_llm_retries != 10 else 3
+  )
 
   total_statements = len(input_statements_map)
   finalized_count_events = 0
 
-  for attempt in range(1, MAX_LLM_RETRIES + 1):
+  all_stage_5_stats = []
+  total_stage_5_wall_delay = 0.0
+
+  all_stage_6_stats = []
+  total_stage_6_wall_delay = 0.0
+  total_stage_6_duration = 0.0
+
+  stage_start_time = time.time()
+
+  for attempt in range(1, model.max_llm_retries + 1):
     if not topic_work_queue_ids:
       break
 
@@ -401,11 +442,19 @@ async def categorize_opinions(
       parsed_wrapper = parse_response(resp["text"], job["response_schema"])
       return parsed_wrapper.items if parsed_wrapper else []
 
-    results_df, stats = await model.process_prompts_concurrently(
+    (
+        results_df,
+        stats,
+        wall_delay,
+        duration,
+    ) = await model.process_prompts_concurrently(
         all_prompts,
         response_parser=_parser,
-        max_concurrent_calls=MAX_CONCURRENT_CALLS,
+        max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
+        skip_log=True,
     )
+    all_stage_5_stats.extend(stats.to_dict("records"))
+    total_stage_5_wall_delay += wall_delay
 
     # --- Phase 1: Aggregate Candidates and Failures ---
 
@@ -426,6 +475,9 @@ async def categorize_opinions(
       (
           phase2_finalized_count,
           autorater_retries,
+          stage_6_stats,
+          stage_6_wall_delay,
+          stage_6_duration,
       ) = await _run_opinion_autoraters(
           model,
           autorater_candidates,
@@ -434,23 +486,26 @@ async def categorize_opinions(
           MAX_AUTORATER_RETRIES,
       )
       finalized_count_events += phase2_finalized_count
+      all_stage_6_stats.extend(stage_6_stats)
+      total_stage_6_wall_delay += stage_6_wall_delay
+      total_stage_6_duration += stage_6_duration
 
       # Merge autorater retries into immediate retries
-      for t_name, stats in autorater_retries.items():
+      for t_name, stats_item in autorater_retries.items():
         if t_name not in immediate_retries:
           immediate_retries[t_name] = []
-        immediate_retries[t_name].extend(stats)
+        immediate_retries[t_name].extend(stats_item)
 
     # --- Phase 3: Construct Next Retry Queue ---
 
     # Process immediate retries (from LLM failures or Autorater retryable failures)
     next_topic_work_queue_ids: dict[str, list[str]] = {}
-    for t_name, stats in immediate_retries.items():
+    for t_name, stats_item in immediate_retries.items():
       if t_name not in next_topic_work_queue_ids:
         next_topic_work_queue_ids[t_name] = []
 
       # Dedupe
-      for s in stats:
+      for s in stats_item:
         if s.id not in next_topic_work_queue_ids[t_name]:
           next_topic_work_queue_ids[t_name].append(s.id)
 
@@ -465,7 +520,7 @@ async def categorize_opinions(
     if not topic_work_queue_ids:
       break
 
-    if attempt < MAX_LLM_RETRIES:
+    if attempt < model.max_llm_retries:
       retry_counts = {k: len(v) for k, v in topic_work_queue_ids.items()}
       total_retrying = sum(retry_counts.values())
       logging.info(
@@ -474,9 +529,10 @@ async def categorize_opinions(
       )
       logging.warning(
           f"Retrying {total_retrying} statements across {len(retry_counts)}"
-          f" topics. Sleeping {WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS}s..."
+          " topics. Sleeping"
+          f" {genai_model.WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS}s..."
       )
-      await asyncio.sleep(WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS)
+      await asyncio.sleep(genai_model.WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS)
 
   # Handle exhausted retries - Default to 'Other'
   _assign_defaults_for_exhausted_retries(
@@ -484,6 +540,24 @@ async def categorize_opinions(
       topics_to_process,
       input_statements_map,
   )
+
+  stage_duration = time.time() - stage_start_time
+
+  if all_stage_5_stats:
+    model.log_stats_summary(
+        all_stage_5_stats,
+        "5 (Opinion Categorization)",
+        total_stage_5_wall_delay,
+        stage_duration,
+    )
+
+  if all_stage_6_stats:
+    model.log_stats_summary(
+        all_stage_6_stats,
+        "6 (Opinion Evaluation)",
+        total_stage_6_wall_delay,
+        total_stage_6_duration,
+    )
 
   return input_statements_map.values()
 
@@ -528,7 +602,7 @@ def _prepare_opinion_prompts_for_pending_work(
     opinion_categorization_prompts = _prepare_categorization_prompts(
         pending_statements,
         opinions,
-        _opinion_categorization_prompt(opinions),
+        prompts.get_categorization_opinion_prompt(json.dumps([{"name": op.name} for op in opinions])),
         StatementRecordList,
         additional_context,
         parent_topic_name=topic.name,
@@ -617,12 +691,12 @@ def _process_opinion_llm_results(
 
 
 async def _run_opinion_autoraters(
-    model: GenaiModel,
+    model: genai_model.GenaiModel,
     autorater_candidates: list[dict[str, Any]],
     input_statements_map: dict[str, Statement],
     autorater_retry_counts: dict[str, int],
     max_autorater_retries: int,
-) -> Tuple[int, dict[str, list[Statement]]]:
+) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
   """Runs autoraters concurrently and processes results."""
   logging.info(
       f"Running autoraters for {len(autorater_candidates)} batches"
@@ -631,6 +705,9 @@ async def _run_opinion_autoraters(
 
   finalized_count = 0
   autorater_retries: dict[str, list[Statement]] = {}
+
+  model.total_wall_delay = 0.0
+  stage_start_time = time.time()
 
   # 1. Start Workers
   (
@@ -641,7 +718,7 @@ async def _run_opinion_autoraters(
       stop_event,
   ) = model.start_concurrent_workers(
       response_parser=parse_eval_response,
-      max_concurrent_calls=MAX_CONCURRENT_CALLS,
+      max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
   )
 
   # 2. Generate and Push Prompts
@@ -663,16 +740,22 @@ async def _run_opinion_autoraters(
       if "stats" not in p or p["stats"] is None:
         p["stats"] = {}
       if "retry_attempts" not in p:
-        p["retry_attempts"] = MAX_LLM_RETRIES
+        p["retry_attempts"] = model.max_llm_retries
+
+      p["log_prefix_marker"] = "6 (Opinion Evaluation)"
 
       queue.put_nowait(p)
 
   # 3. Signal Completion
-  for _ in range(MAX_CONCURRENT_CALLS):
+  for _ in range(genai_model.MAX_CONCURRENT_CALLS):
     queue.put_nowait(None)
 
   # 4. Wait for Workers
   await asyncio.gather(*workers)
+
+  stage_duration = time.time() - stage_start_time
+  # Skip direct logging to allow Stage 5 to aggregate Stage 6 summaries.
+  wall_delay = model.total_wall_delay
 
   # 5. Process Results
   for row in results_list:
@@ -729,7 +812,13 @@ async def _run_opinion_autoraters(
     unique_stats = {s.id: s for s in autorater_retries[t_name]}.values()
     autorater_retries[t_name] = list(unique_stats)
 
-  return finalized_count, autorater_retries
+  return (
+      finalized_count,
+      autorater_retries,
+      stats_list,
+      wall_delay,
+      stage_duration,
+  )
 
 
 def _assign_defaults_for_exhausted_retries(
@@ -769,97 +858,6 @@ def _assign_defaults_for_exhausted_retries(
       )
 
   return
-
-
-def _topic_categorization_prompt(topics: list[Topic]) -> str:
-  """Generates the prompt for categorizing statements into topics."""
-  topics_json_list = [{"name": t.name} for t in topics]
-  return f"""
-For each of the following statements, identify any relevant topic from the list below.
-Input Topics:
-{json.dumps(topics_json_list)}
-
-Important Considerations:
-- Ensure the assigned topic accurately reflects the meaning of the statement.
-- If relevant and necessary (e.g. when a statement contains multiple disjoint claims), a statement can be assigned to multiple topics.
-- Prioritize using the existing topics whenever possible. Keep the "Other" topic to minimum, ideally keep it empty.
-- Use "Other" topic if the statement is completely off-topic and doesn't really fit any of the topics.
-- All statements must be assigned at least one existing topic.
-- Do not create any new topics that are not listed in the Input Topics.
-- When generating the JSON output, minimize the size of the response. For example, prefer this compact format: {{"id": "5258", "topics": [{{"name": "Arts, Culture, And Recreation"}}]}} instead of adding unnecessary whitespace or newlines.
-
-class StatementRecordList(BaseModel):
-    items: list[StatementRecord]
-
-class StatementRecord(BaseModel):
-    id: str = Field(description="The unique identifier of the statement.")
-    topics: list[Topic] = Field(description="A list of topics assigned to the statement.")
-
-class Topic(BaseModel):
-    name: str
-
-Response must be a valid JSON object matching StatementRecordList schema. Example:
-{{
-  "items": [
-    {{
-      "id": "5258",
-      "topics": [{{"name": "Arts, Culture, And Recreation"}}]
-    }}
-  ]
-}}
-"""
-
-
-def _opinion_categorization_prompt(opinions: list[Topic]) -> str:
-  """Generates the prompt for categorizing quotes into opinions."""
-  opinions_json_list = [{"name": op.name} for op in opinions]
-
-  return f"""
-Categorize the following quotes based on the provided opinions.
-
-Input Opinions:
-{json.dumps(opinions_json_list)}
-
-{OPINION_CATEGORIZATION_MAIN_RULES}
-
-Other rules:
-- Prioritize using the existing opinions whenever possible.
-- Use "Other" opinion if the quote is completely off-topic and doesn't really fit any of the opinions. Keep the "Other" opinion to minimum, ideally keep it empty.
-- All quotes must be assigned at least one existing opinion.
-- Do not create any new opinions that are not listed in the Input Opinions.
-- Respond with a JSON array of objects, each with "id", "quote_id" (which is the id of the quote), and "topics" (A list of opinions assigned to the quote, each with a "name" key).
-- When generating the JSON output, minimize the size of the response. For example, prefer this compact format: {{"id": "5258", "quote_id": "q1", "topics": [{{"name": "Opinion from the Input list"}}]}} instead of adding unnecessary whitespace or newlines.
-
-VERY IMPORTANT:
-Double check to make sure that all quote ids and topic names are in the input. For example, if an input quote_id is '1183-Defining Freedom', then the output quote_id should be the same '1183-Defining Freedom', and not anything else like '1183' or '1188-Defining Freedom'.
-
-class StatementRecordList(BaseModel):
-    items: list[StatementRecord]
-
-class StatementRecord(BaseModel):
-    id: str = Field(description="The unique identifier of the statement.")
-    quote_id: str = Field(description="The unique identifier of the quote.")
-    topics: list[Topic] = Field(description="A list of opinions assigned to the quote.")
-
-class Topic(BaseModel):
-    name: str
-
-You must follow the rules for the instructions strictly.
-Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
-
-Response must be a valid JSON object matching StatementRecordList schema. Example:
-{{
-  "items": [
-     {{
-       "id": "5258",
-       "quote_id": "q1",
-       "topics": [
-          {{"name": "An opinion assigned to the quote."}}
-       ]
-     }}
-  ]
-}}
-"""
 
 
 def _create_token_based_batches(
@@ -907,7 +905,7 @@ def _prepare_categorization_prompts(
     attempt: int = 1,
 ) -> list[dict[str, Any]]:
   """Prepares prompts for a batch of statements."""
-  prompts = []
+  prompt_jobs = []
 
   # Create batches
   batches = _create_token_based_batches(
@@ -952,20 +950,24 @@ def _prepare_categorization_prompts(
         instructions, statements_for_model_prompt_data, additional_context
     )
 
-    prompts.append({
+    prompt_jobs.append({
         "prompt": prompt_str,
         "topic": f"{parent_topic_name or 'topics'}_batch_{i}_attempt_{attempt}",
         "batch_items": batch,
         "response_schema": output_schema,
-        "log_prefix_marker": "5" if is_opinion_categorization else "2",
+        "log_prefix_marker": (
+            "5 (Opinion Categorization)"
+            if is_opinion_categorization
+            else "2 (Topic Categorization)"
+        ),
     })
 
-  return prompts
+  return prompt_jobs
 
 
 async def _process_topic_categorization(
     statements_to_categorize: list[Statement],
-    model: GenaiModel,
+    model: genai_model.GenaiModel,
     target_topics: list[Topic],
     additional_context: str | None = None,
 ) -> list[StatementRecord]:
@@ -985,7 +987,8 @@ async def _process_topic_categorization(
   Returns:
       A list of StatementRecord objects with the results from the model.
   """
-  instructions = _topic_categorization_prompt(target_topics)
+  topics_json_str = json.dumps([{"name": t.name} for t in target_topics])
+  instructions = prompts.get_topic_categorization_prompt(topics_json_str)
 
   uncategorized_for_retry: list[Statement] = list(statements_to_categorize)
   successfully_categorized_llm_records: list[StatementRecord] = []
@@ -998,7 +1001,11 @@ async def _process_topic_categorization(
       f" {[t.name for t in target_topics[:20]]}"
   )
 
-  for attempt in range(1, MAX_LLM_RETRIES + 1):
+  all_stage_stats = []
+  total_wall_delay = 0.0
+  start_time = time.time()
+
+  for attempt in range(1, model.max_llm_retries + 1):
     if not uncategorized_for_retry:
       break
 
@@ -1006,7 +1013,7 @@ async def _process_topic_categorization(
     batches = _create_token_based_batches(
         uncategorized_for_retry, MAX_BATCH_TOKENS, max_items=MAX_ITEMS_PER_BATCH
     )
-    prompts = []
+    prompt_jobs = []
 
     logging.info(
         f"Split {len(uncategorized_for_retry)} items into"
@@ -1027,15 +1034,15 @@ async def _process_topic_categorization(
           instructions, statements_for_model_prompt_data, additional_context
       )
 
-      prompts.append({
+      prompt_jobs.append({
           "prompt": prompt_str,
           "topic": f"topics_batch_{i}_attempt_{attempt}",
           "batch_items": batch,
           "response_schema": output_schema,
-          "log_prefix_marker": "2",
+          "log_prefix_marker": "2 (Topic Categorization)",
       })
 
-    if not prompts:
+    if not prompt_jobs:
       if uncategorized_for_retry:
         logging.warning(
             "No prompts generated for remaining uncategorized items. Stopping"
@@ -1048,11 +1055,14 @@ async def _process_topic_categorization(
       parsed_wrapper = parse_response(resp["text"], job["response_schema"])
       return parsed_wrapper.items
 
-    results_df, _ = await model.process_prompts_concurrently(
-        prompts,
+    results_df, stats, wall_delay, _ = await model.process_prompts_concurrently(
+        prompt_jobs,
         response_parser=_parser,
-        max_concurrent_calls=MAX_CONCURRENT_CALLS,
+        max_concurrent_calls=genai_model.MAX_CONCURRENT_CALLS,
+        skip_log=True,
     )
+    all_stage_stats.extend(stats.to_dict("records"))
+    total_wall_delay += wall_delay
 
     # Process results
     current_batch_uncategorized = []
@@ -1061,9 +1071,9 @@ async def _process_topic_categorization(
     # prompts list matches results_df rows order if we iterate results_df['result']?
     # process_prompts_concurrently preserves order.
 
-    if len(results_df) != len(prompts):
+    if len(results_df) != len(prompt_jobs):
       logging.error(
-          f"Result count mismatch: expected {len(prompts)}, got"
+          f"Result count mismatch: expected {len(prompt_jobs)}, got"
           f" {len(results_df)}"
       )
       # Add all items to retry
@@ -1072,7 +1082,7 @@ async def _process_topic_categorization(
 
     for i, row in results_df.iterrows():
       result = row["result"]
-      batch_items = prompts[i]["batch_items"]
+      batch_items = prompt_jobs[i]["batch_items"]
 
       if isinstance(result, list):  # list[StatementRecord]
         processed_result = _process_categorized_llm_records(
@@ -1117,13 +1127,13 @@ async def _process_topic_categorization(
     if not uncategorized_for_retry:
       break
 
-    if attempt < MAX_LLM_RETRIES:
+    if attempt < model.max_llm_retries:
       logging.warning(
           f"Attempt {attempt}: {len(uncategorized_for_retry)} uncategorized"
           " items need retry. Retrying in"
-          f" {WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS}s..."
+          f" {genai_model.WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS}s..."
       )
-      await asyncio.sleep(WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS)
+      await asyncio.sleep(genai_model.WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS)
 
   if uncategorized_for_retry:
     item_ids = [s.id for s in uncategorized_for_retry]
@@ -1141,6 +1151,14 @@ async def _process_topic_categorization(
     for statement in uncategorized_for_retry:
       new_record = StatementRecord(id=statement.id, topics=[other_topic])
       successfully_categorized_llm_records.append(new_record)
+
+  if all_stage_stats:
+    model.log_stats_summary(
+        all_stage_stats,
+        "2 (Topic Categorization)",
+        total_wall_delay,
+        time.time() - start_time,
+    )
 
   return successfully_categorized_llm_records
 
@@ -1319,7 +1337,9 @@ def _find_missing_from_llm_response(
   ]
   if missing_statements:
     logging.warning(
-        f"Missing {len(missing_statements)} of {len(statements_sent_to_llm_batch)} statement IDs in model's response"
+        f"Missing {len(missing_statements)} of"
+        f" {len(statements_sent_to_llm_batch)} statement IDs in model's"
+        " response"
     )
     logging.debug(
         "Missing statements (up to 20):"

@@ -44,6 +44,7 @@ class CategorizationTest(unittest.TestCase):
     topic_map = {"Topic A": nested_topic}
 
     mock_model = MagicMock()
+    mock_model.max_llm_retries = 10
 
     # Mock process_prompts_concurrently
     fake_record = custom_types.StatementRecord(
@@ -62,7 +63,7 @@ class CategorizationTest(unittest.TestCase):
     }]
 
     mock_model.process_prompts_concurrently = AsyncMock(
-        return_value=(pd.DataFrame(results_data), {})
+        return_value=(pd.DataFrame(results_data), pd.DataFrame(), 0.0, 1.0)
     )
 
     # Mock autorater to pass
@@ -131,6 +132,7 @@ class CategorizationTest(unittest.TestCase):
     topic_map = {"Topic A": nested_topic}
 
     mock_model = MagicMock()
+    mock_model.max_llm_retries = 10
 
     # Mock process_prompts_concurrently with mismatched quote_id
     fake_record = custom_types.StatementRecord(
@@ -148,7 +150,7 @@ class CategorizationTest(unittest.TestCase):
     }]
 
     mock_model.process_prompts_concurrently = AsyncMock(
-        return_value=(pd.DataFrame(results_data), {})
+        return_value=(pd.DataFrame(results_data), pd.DataFrame(), 0.0, 1.0)
     )
 
     # Mock autorater to pass
@@ -237,6 +239,7 @@ class CategorizationTest(unittest.TestCase):
     ]
     topics = [custom_types.FlatTopic(name="T1")]
     mock_model = MagicMock()
+    mock_model.max_llm_retries = 10
 
     # Mock chunks
     with patch(
@@ -259,7 +262,7 @@ class CategorizationTest(unittest.TestCase):
       )
 
       mock_model.process_prompts_concurrently = AsyncMock(
-          return_value=(results_df, {})
+          return_value=(results_df, pd.DataFrame(), 0.0, 1.0)
       )
 
       result_map = asyncio.run(
@@ -303,6 +306,7 @@ class CategorizationTest(unittest.TestCase):
     }
 
     mock_model = MagicMock()
+    mock_model.max_llm_retries = 10
 
     # Mock process_prompts
     # It will be called multiple times: 1st attempt, 2nd, 3rd.
@@ -323,7 +327,7 @@ class CategorizationTest(unittest.TestCase):
 
     # Return same result every time
     mock_model.process_prompts_concurrently = AsyncMock(
-        return_value=(pd.DataFrame(results_data), {})
+        return_value=(pd.DataFrame(results_data), pd.DataFrame(), 0.0, 1.0)
     )
 
     # Mock autorater to FAIL every time
@@ -406,6 +410,7 @@ class CategorizationTest(unittest.TestCase):
         )
     }
     mock_model = MagicMock()
+    mock_model.max_llm_retries = 10
 
     fake_record = custom_types.StatementRecord(
         id="statement1",
@@ -421,7 +426,7 @@ class CategorizationTest(unittest.TestCase):
     }]
 
     mock_model.process_prompts_concurrently = AsyncMock(
-        return_value=(pd.DataFrame(results_data), {})
+        return_value=(pd.DataFrame(results_data), pd.DataFrame(), 0.0, 1.0)
     )
 
     # Side effect for autorater: Fail twice, then Pass
