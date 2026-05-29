@@ -24,7 +24,7 @@
     "@angular/platform-browser-dynamic": "18.2.13",
     "@angular/platform-server": "19.2.22",
     "@angular/router": "18.2.13",
-    "@angular/ssr": "19.2.25",
+    "@angular/ssr": "^19.2.25",
     "@conversationai/sensemaker-visualizations": "^1.0.46",
     "@sinclair/typebox": "^0.34.27",
     "express": "^4.22.2",
