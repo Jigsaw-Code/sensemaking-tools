@@ -30,7 +30,7 @@
         "@storybook/web-components": "^8.6.12",
         "@storybook/web-components-vite": "^8.6.12",
         "lit": "^3.3.0",
-        "storybook": "^8.6.12",
+        "storybook": "^8.6.18",
         "vite": "^6.4.2",
         "d3": "^7.9.0"
     },
