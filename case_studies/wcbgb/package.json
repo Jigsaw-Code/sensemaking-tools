@@ -50,5 +50,25 @@
   "dependencies": {
     "@sinclair/typebox": "^0.27.8",
     "ts-node": "^10.9.2"
+  },
+  "overrides": {
+    "tar": "^7.5.11",
+    "rollup": "^4.59.0",
+    "vite": {
+      "rollup": "^4.59.0"
+    },
+    "uuid": "^11.1.1",
+    "sockjs": "^0.3.24",
+    "gaxios": "^7.1.4",
+    "picomatch": "^4.0.4",
+    "@angular/core": "19.2.25",
+    "@angular/common": "19.2.25",
+    "@angular/compiler": "19.2.25",
+    "@angular/ssr": "19.2.27",
+    "@angular-devkit/build-angular": "19.2.27",
+    "serialize-javascript": "^7.0.5",
+    "ajv": "^8.20.0",
+    "webpack-dev-server": "^5.2.4",
+    "postcss": "^8.5.15"
   }
 }

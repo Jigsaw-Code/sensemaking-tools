@@ -1,10 +1,12 @@
 import "./assets/fonts/fonts.css";
 import "./sensemaker-chart.js";
 
-// Export the custom element for TypeScript support
-export const SensemakerChart = customElements.get("sensemaker-chart");
+// Export the custom element for TypeScript support - safe for Node
+export const SensemakerChart = (typeof customElements !== "undefined")
+  ? customElements.get("sensemaker-chart")
+  : null;
 
-// Auto-register the component if not already registered
-if (!customElements.get("sensemaker-chart")) {
+// Auto-register the component if not already registered - safe for Node
+if (typeof customElements !== "undefined" && !customElements.get("sensemaker-chart")) {
   customElements.define("sensemaker-chart", SensemakerChart);
 }
