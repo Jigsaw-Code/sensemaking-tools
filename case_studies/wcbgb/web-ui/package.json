@@ -42,7 +42,7 @@
     "@types/jasmine": "~5.1.0",
     "@types/node": "^18.18.0",
     "@types/papaparse": "^5.3.14",
-    "concurrently": "^9.0.1",
+    "concurrently": "^10.0.3",
     "jasmine-core": "~5.1.0",
     "jsdom": "^26.1.0",
     "karma": "~6.4.0",
