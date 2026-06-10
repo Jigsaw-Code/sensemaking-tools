@@ -1,4 +1,4 @@
-pytest==9.0.3
+pytest==8.4.1
 pytest-asyncio==1.0.0
 pandas==2.3.0
 vertexai==1.71.1

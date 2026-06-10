@@ -30,7 +30,7 @@ const defaultTheme = {
   fontFamily: "Noto Sans",
 };
 
-class SensemakerChart extends (typeof HTMLElement !== "undefined" ? HTMLElement : class {}) {
+class SensemakerChart extends HTMLElement {
   static get observedAttributes() {
     return [
       "data-source",
