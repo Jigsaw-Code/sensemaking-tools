@@ -6,6 +6,8 @@ import { CustomTooltipDirective } from './custom-tooltip.directive';
 
 // test host component
 @Component({
+  standalone: true,
+  imports: [CustomTooltipDirective],
   template: `
     <div [customTooltip]="tooltipTemplate">Host element</div>
     <ng-template #tooltipTemplate>Tooltip content</ng-template>
@@ -20,8 +22,7 @@ describe('CustomTooltipDirective', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [CustomTooltipDirective],
-      declarations: [TestComponent],
+      imports: [TestComponent],
       providers: [Overlay],
     }).compileComponents();
 

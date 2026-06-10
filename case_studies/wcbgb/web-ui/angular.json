@@ -37,10 +37,10 @@
             ],
             "scripts": [],
             "server": "src/main.server.ts",
-            "prerender": true,
-            "ssr": {
-              "entry": "server.ts"
-            }
+            "prerender": false
+            // "ssr": {
+            //   "entry": "server.ts"
+            // }
           },
           "configurations": {
             "production": {
