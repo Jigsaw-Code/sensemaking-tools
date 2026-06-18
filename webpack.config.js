@@ -178,10 +178,6 @@ module.exports = (env, argv) => {
     new CopyPlugin({
       patterns: [
         {
-          from: path.resolve(__dirname, `${src}/ok-dream.html`),
-          to: path.resolve(__dirname, `${dest}`),
-        },
-        {
           from: path.resolve(__dirname, `${src}/assets`),
           to: path.resolve(__dirname, `${dest}/assets`),
         },
