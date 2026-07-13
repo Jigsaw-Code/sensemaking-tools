@@ -377,7 +377,7 @@ async def main():
   parser.add_argument(
       "--model_name",
       type=str,
-      default="gemini-2.5-pro",
+      default="gemini-3.5-flash",
       help="The name of the generative model to use.",
   )
   parser.add_argument(

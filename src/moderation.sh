@@ -65,7 +65,7 @@ mkdir -p "$EVALS_DIR"
 python3 -m src.evals.evals \
     --baseline_csv "$PROCESSED_CSV" \
     --output_dir "$EVALS_DIR" \
-    --model_name "gemini-2.5-pro" \
+    --model_name "gemini-3.5-flash" \
     --metric_name input_evals \
     --gemini_api_key "$GEMINI_API_KEY"
 

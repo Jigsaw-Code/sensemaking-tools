@@ -253,7 +253,7 @@ python -m src.world_model.main --query=all_nuanced --output_format=csv \     <OU
 ```shell
 python -m src.proposition_simplification_runner \
 --input_csv <INPUT_CSV> --output_csv <OUTPUT_CSV> \
---gemini_api_key "$GEMINI_API_KEY" --model_name gemini-2.5-pro
+--gemini_api_key "$GEMINI_API_KEY" --model_name gemini-3.5-flash
 ```
 
 INPUT\_CSV should contain a single column called "original" with the original proposition text.  The OUTPUT\_CSV contains an additional column called "simplification" with the rewritten proposition.

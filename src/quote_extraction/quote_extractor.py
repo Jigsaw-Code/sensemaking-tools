@@ -193,7 +193,7 @@ def get_args():
   parser.add_argument(
       "--model_name",
       required=True,
-      help="Gemini model name (e.g., gemini-2.5-pro).",
+      help="Gemini model name (e.g., gemini-3.5-flash).",
   )
   parser.add_argument(
       "--gemini_api_key",

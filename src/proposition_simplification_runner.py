@@ -30,7 +30,7 @@ Sample command:
 python -m src.proposition_simplification_runner \
     --input_csv src/proposition_simplification.csv \
     --output_csv src/proposition_simplification_output.csv \
-    --model_name gemini-2.5-pro
+    --model_name gemini-3.5-flash
 """
 
 import argparse
@@ -141,8 +141,8 @@ def get_args():
   parser.add_argument(
       "--model_name",
       type=str,
-      default="gemini-2.5-pro",
-      help="The name of the AI model to use. Default: gemini-2.5-pro.",
+      default="gemini-3.5-flash",
+      help="The name of the AI model to use. Default: gemini-3.5-flash.",
   )
   parser.add_argument(
       "--proposition_column",

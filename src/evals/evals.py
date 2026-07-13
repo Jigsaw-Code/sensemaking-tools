@@ -203,8 +203,8 @@ def get_args():
   )
   parser.add_argument(
       "--model_name",
-      default="gemini-2.5-pro",
-      help="GenAI model name (e.g., gemini-2.5-pro).",
+      default="gemini-3.5-flash",
+      help="GenAI model name (e.g., gemini-3.5-flash).",
   )
   parser.add_argument(
       "--metric_name",

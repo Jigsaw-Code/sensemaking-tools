@@ -1054,7 +1054,7 @@ async def main():
   parser.add_argument(
       "--nuanced_propositions_model_name",
       type=str,
-      default="gemini-2.5-pro",
+      default="gemini-3.5-flash",
       help="The name of the generative model to use for nuanced propositions.",
   )
   parser.add_argument(

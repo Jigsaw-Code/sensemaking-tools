@@ -23,7 +23,7 @@ python3 -m src.generate_report_text.generate_report_text \
   --additional_context_file <ADDITIONAL_CONTEXT_TEXT_FILE> \
   --output_dir <OUTPUT_DIR> \
   --gemini_api_key "$GEMINI_API_KEY" \
-  --model_name gemini-2.5-pro
+  --model_name gemini-3.5-flash
 """
 
 import argparse
@@ -220,8 +220,8 @@ async def main():
   parser.add_argument(
       '--model_name',
       type=str,
-      default='gemini-2.5-pro',
-      help='The name of the Vertex AI model to use. Default: gemini-2.5-pro.',
+      default='gemini-3.5-flash',
+      help='The name of the Vertex AI model to use. Default: gemini-3.5-flash.',
   )
   parser.add_argument(
       '--gemini_api_key',

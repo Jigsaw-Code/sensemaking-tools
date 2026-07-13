@@ -16,7 +16,7 @@
 Runs opinion learning on a CSV of statements and quotes.
 
 Sample command:
-python opinion_learning_runner.py --input_file input.csv --output_file opinion_learning_output.csv --subject "Freedom and Equality" --vertex_project YOUR_PROJECT --vertex_location global --gemini_api_key YOUR_KEY --model_name gemini-2.5-pro --runs 5
+python opinion_learning_runner.py --input_file input.csv --output_file opinion_learning_output.csv --subject "Freedom and Equality" --vertex_project YOUR_PROJECT --vertex_location global --gemini_api_key YOUR_KEY --model_name gemini-3.5-flash --runs 5
 """
 
 import argparse
@@ -122,8 +122,8 @@ async def main():
   parser.add_argument(
       "--model_name",
       type=str,
-      default="gemini-2.5-pro",
-      help="The name of the Vertex AI model to use. Default: gemini-2.5-pro.",
+      default="gemini-3.5-flash",
+      help="The name of the Vertex AI model to use. Default: gemini-3.5-flash.",
   )
   parser.add_argument(
       "--log_level",
