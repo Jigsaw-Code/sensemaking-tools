@@ -909,7 +909,7 @@ class GenaiModel(BaseModel):
                   temperature=temperature,
                   safety_settings=self.safety_settings,
                   response_mime_type=response_mime_type,
-                  response_schema=response_schema,
+                  response_json_schema=response_schema,
                   thinking_config=thinking_config,
                   automatic_function_calling=genai.types.AutomaticFunctionCallingConfig(
                       maximum_remote_calls=max_concurrent_calls
