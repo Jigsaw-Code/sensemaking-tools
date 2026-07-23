@@ -46,6 +46,8 @@ print_step() {
   printf "\n%s%s\n" "${prefix}" "${1}"
 }
 
+# Step 1: Survey Processing (Qualtrics parsing)
+# Formats raw Qualtrics exports into a standard format.
 print_step "Processing the Survey Results"
 bash src/survey_processing.sh \
   --input_csv "$QUALTRICS_CSV" \
@@ -54,6 +56,8 @@ bash src/survey_processing.sh \
   --round_1_follow_up_questions "$FOLLOW_UP_QUESTION_COLS" \
   --round_1_follow_up_question_response_text "$FOLLOW_UP_RESPONSE_COLS"
 
+# Step 2: Categorization and Quote Extraction
+# Learns/assigns topics & opinions and extracts representative quotes via Gemini.
 print_step "Categorization and quote extraction"
 # Set --skip_autoraters to run faster
 python3 -m src.categorization_runner \
@@ -65,6 +69,8 @@ python3 -m src.categorization_runner \
   --model_name "$MODEL_NAME" \
   --log_level DEBUG
 
+# Step 3: Score Quotes with Bridging Classifiers
+# Scores extracted quotes on constructiveness attributes (e.g. reasoning, curiosity).
 print_step "Score Quotes with Bridging Classifiers"
 python3 -m src.get_bridging_scores \
   --input_csv "$WORKING_DIR/categorization_outputs/categorized_without_other_filtered.csv" \
@@ -72,6 +78,8 @@ python3 -m src.get_bridging_scores \
   --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
+# Step 4: Generating the Report Text
+# Generates hierarchical summaries for opinions, topics, and the overview.
 print_step "Generating the Report Text"
 python3 -m src.generate_report_text.generate_report_text \
   --input_csv "$WORKING_DIR/bridging_scores.csv" \
@@ -80,8 +88,15 @@ python3 -m src.generate_report_text.generate_report_text \
   --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
-# TODO: consider generating report HTML at this point
+# Step 5: Interactive Report UI
+# Copies the scored quotes and report summaries to the UI inputs folder.
+print_step "Copying outputs for Report UI"
+mkdir -p src/report_ui/input
+cp "$WORKING_DIR/bridging_scores.csv" src/report_ui/input/opinions.csv
+cp "$WORKING_DIR/report_outputs/report_data.json" src/report_ui/input/summary.json
 
+# Step 6: Creating Propositions
+# Generates distinct statements/propositions from categorization outputs.
 print_step "Creating Propositions"
 python3 -m src.propositions.proposition_generator \
   --r1_input_file "$WORKING_DIR/categorization_outputs/categorized_without_other_filtered.csv" \
@@ -91,6 +106,8 @@ python3 -m src.propositions.proposition_generator \
   --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
 
+# Step 7: Proposition Refinement (Simulated Jury)
+# Simulates a panel of jurists to vote/rank propositions via Schulze/PAV selection.
 print_step "Proposition Refinement"
 # Use --jury_size 0.02 to run as fast as possible.
 python3 -m src.proposition_refinement.main \
@@ -104,6 +121,8 @@ python3 -m src.proposition_refinement.main \
   --nuanced_propositions_model_name "$MODEL_NAME" \
   --jury_size 0.02
 
+# Step 8: Extract final propositions
+# Queries refined world model and outputs ranked simple and nuanced statements.
 print_step "Extract final propositions"
 python3 -m src.world_model.main --query=all_by_topic --output_format=csv \
   "$WORKING_DIR/proposition_outputs/refined_world_model.pkl" > "$WORKING_DIR/final_propositions_by_topic.csv"
@@ -111,6 +130,8 @@ python3 -m src.world_model.main --query=all_by_topic --output_format=csv \
 python3 -m src.world_model.main --query=all_nuanced --output_format=csv \
   "$WORKING_DIR/proposition_outputs/refined_world_model.pkl" > "$WORKING_DIR/final_nuanced_propositions.csv"
 
+# Step 9: Simplifying nuanced propositions
+# Simplifies the phrasing of final nuanced propositions for clarity.
 print_step "Simplifying nuanced propositions"
 python3 -m src.proposition_simplification_runner \
   --input_csv "$WORKING_DIR/final_nuanced_propositions.csv" \

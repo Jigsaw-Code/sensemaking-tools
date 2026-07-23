@@ -16,9 +16,9 @@ More details can be found in the README.md file, along with instructions for run
 ## Architecture & Tech Stack
 
 ### 1. LLM / Gemini Integration
-We use a custom wrapper for all Gemini model interactions. 
+We use a custom wrapper for all Gemini model interactions.
 - **NEVER** import `google-generativeai`, `vertexai`, `litellm`, or other direct API libraries in the feature code.
-- **ALWAYS** use the internal wrapper located at `src/models/genai_model.py`. 
+- **ALWAYS** use the internal wrapper located at `src/models/genai_model.py`.
 - *(Agent Note: If you are asked to implement a new LLM feature, first review `src/models/genai_model.py` to understand its expected inputs, outputs, and error handling).*
 
 ### 2. Data Handling (CSV)
@@ -49,3 +49,4 @@ Use these exact commands when verifying your work. Run them from the project roo
 1. When asked to create a new file, place it in the appropriate subdirectory within `src/`.
 2. Before presenting code, write unit tests for it using `pytest`.
 3. If your code requires new dependencies, ask the user for permission before adding them to `requirements.txt`.
+4. When asked to run, execute, or test the sensemaking pipeline, use the `/run-sensemaking` skill to guide the process step-by-step.
