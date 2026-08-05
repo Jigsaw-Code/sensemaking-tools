@@ -98,6 +98,32 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     self.assertEqual(token_count, 123)
     mock_client_instance.models.count_tokens.assert_called_once()
 
+  def test_call_gemini_with_fake_model(self, mock_genai_client):
+    """Tests injecting a FakeModel to handle generation requests."""
+    from src.models.fake_genai_model import FakeModel
+    
+    fake_model = FakeModel()
+    fake_model.set_responses({'test prompt': 'Injected Fake Response'})
+    
+    model = genai_model.GenaiModel(model_name=fake_model)
+    result = asyncio.run(model.call_gemini(prompt='test prompt', run_name='test_run'))
+    
+    self.assertEqual(result['text'], 'Injected Fake Response')
+    self.assertIsNone(result['error'])
+
+  def test_call_gemini_with_fake_model_unexpected_prompt(self, mock_genai_client):
+    """Tests injecting a FakeModel asserts on unexpected prompt."""
+    from src.models.fake_genai_model import FakeModel
+    
+    fake_model = FakeModel()
+    fake_model.set_responses({'known prompt': 'Response'})
+    
+    model = genai_model.GenaiModel(model_name=fake_model)
+    result = asyncio.run(model.call_gemini(prompt='unknown prompt', run_name='test_run'))
+    
+    self.assertIsInstance(result['error'], AssertionError)
+    self.assertIn('Unexpected prompt received: unknown prompt', str(result['error']))
+
   def test_call_gemini_success(self, mock_genai_client):
     """Tests a successful call to the Gemini API."""
     mock_client_instance = mock_genai_client.return_value
