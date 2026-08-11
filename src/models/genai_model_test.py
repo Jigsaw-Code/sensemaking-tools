@@ -889,5 +889,85 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     self.assertIn(mock.call(0.1), mock_sleep.call_args_list)
     self.assertEqual(mock_call_gemini.call_count, 2)
 
+  async def test_extract_error_details_quota_fallbacks_without_response(self):
+    """Tests that 429 quota errors are detected via code, status_code, or message when response is None."""
+    err_by_code = MockClientError(429)
+    is_quota, is_unavail, _ = await self.model._extract_error_details(
+        err_by_code, '[Test]'
+    )
+    self.assertTrue(is_quota)
+    self.assertFalse(is_unavail)
+
+    err_by_status_code = Exception('Rate limit')
+    err_by_status_code.status_code = 429
+    is_quota, is_unavail, _ = await self.model._extract_error_details(
+        err_by_status_code, '[Test]'
+    )
+    self.assertTrue(is_quota)
+    self.assertFalse(is_unavail)
+
+    err_by_str = MockClientError('RESOURCE_EXHAUSTED: Quota exceeded')
+    is_quota, is_unavail, _ = await self.model._extract_error_details(
+        err_by_str, '[Test]'
+    )
+    self.assertTrue(is_quota)
+    self.assertFalse(is_unavail)
+
+    # Verify RetryInfo is extracted from e.details even when response is None
+    err_with_details = MockClientError(
+        429,
+        response=None,
+        response_json={
+            'error': {
+                'details': [{
+                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                    'retryDelay': '15s',
+                }]
+            }
+        },
+    )
+    is_quota, _, delay = await self.model._extract_error_details(
+        err_with_details, '[Test]'
+    )
+    self.assertTrue(is_quota)
+    self.assertEqual(delay, 16)
+
+    # Verify synchronous response.json() (e.g. httpx.Response) works without TypeError
+    sync_response = mock.MagicMock()
+    sync_response.status_code = 429
+    sync_response.json.return_value = {
+        'error': {
+            'details': [{
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                'retryDelay': '12s',
+            }]
+        }
+    }
+    err_sync_json = MockClientError(429, response=sync_response, response_json={})
+    is_quota, _, delay = await self.model._extract_error_details(
+        err_sync_json, '[Test]'
+    )
+    self.assertTrue(is_quota)
+    self.assertEqual(delay, 13)
+
+  async def test_extract_error_details_service_unavailable_fallbacks_without_response(
+      self,
+  ):
+    """Tests that 503 service unavailable errors are detected via code or message when response is None."""
+    err_by_code = MockServerError(503, None)
+    is_quota, is_unavail, _ = await self.model._extract_error_details(
+        err_by_code, '[Test]'
+    )
+    self.assertFalse(is_quota)
+    self.assertTrue(is_unavail)
+
+    err_by_str = MockServerError('UNAVAILABLE: backend overloaded', None)
+    is_quota, is_unavail, _ = await self.model._extract_error_details(
+        err_by_str, '[Test]'
+    )
+    self.assertFalse(is_quota)
+    self.assertTrue(is_unavail)
+
+
 if __name__ == '__main__':
   unittest.main()

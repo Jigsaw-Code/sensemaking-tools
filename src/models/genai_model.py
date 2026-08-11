@@ -15,6 +15,7 @@
 """This module provides a wrapper around the Google Generative AI API."""
 
 import asyncio
+import inspect
 import logging
 import os
 import random
@@ -215,54 +216,67 @@ class GenaiModel(BaseModel):
   ) -> Tuple[bool, bool, int]:
     """Extracts error type and potential retry delay from an exception."""
     response = getattr(e, "response", None)
-    status_code = getattr(response, "status_code", None)
+    realized_status = (
+        getattr(response, "status_code", None)
+        or getattr(response, "status", None)
+        or getattr(e, "code", None)
+        or getattr(e, "status_code", None)
+    )
 
-    # Preempt any future library shifts: the modern HTTP client (httpx) uses
-    # `status_code`, but historically `google-genai` async requests occasionally
-    # used an `aiohttp` backend, which strictly returns `status` instead. We check
-    # for both to remain perfectly forward and backward compatible.
-    if response is not None and status_code is None:
-      status_code = getattr(response, "status", None)
-      if status_code is None:
-        logging.warning(
-            f"{log_prefix} Received an error with a response object, but it "
-            "lacks both `.status_code` and `.status` properties. This "
-            "indicates an unknown underlying network transport structure."
-        )
-
+    err_str = str(e)
     is_quota_error = (
-        isinstance(e, google_genai_errors.ClientError)
-        and response is not None
-        and status_code == 429
+        (
+            isinstance(e, google_genai_errors.ClientError)
+            and (
+                realized_status == 429
+                or "429" in err_str
+                or "RESOURCE_EXHAUSTED" in err_str
+                or "Quota exceeded" in err_str
+            )
+        )
+        or realized_status == 429
+        or "RESOURCE_EXHAUSTED" in err_str
     )
     is_service_unavailable = (
-        isinstance(e, google_genai_errors.ServerError)
-        and response is not None
-        and status_code == 503
-    ) or isinstance(e, google_exceptions.ServiceUnavailable)
-
-    delay = FAIL_RETRY_DELAY_SECONDS
-    if is_quota_error:
-      try:
-        error_details = await e.response.json()
-        for detail in error_details.get("error", {}).get("details", []):
-          if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
-            retry_delay_str = detail.get("retryDelay", "60s")
-            delay = self._parse_duration(retry_delay_str) + 1
-            break
-          else:
-            logging.debug(
-                f"{log_prefix} Error detail did not contain retry info, using"
-                f" default. Detail: {detail}"
+        (
+            isinstance(e, google_genai_errors.ServerError)
+            and (
+                realized_status == 503
+                or "503" in err_str
+                or "UNAVAILABLE" in err_str
             )
-      except (ValueError, AttributeError, TypeError, IndexError) as e:
-        logging.debug(
-            f"{log_prefix} Error parsing retry info. Did Gemini Response"
-            f" structure change? Error: {e}"
         )
+        or isinstance(e, google_exceptions.ServiceUnavailable)
+        or realized_status == 503
+    )
+
+    delay = max(FAIL_RETRY_DELAY_SECONDS, self._backoff_delay)
+    if is_quota_error:
+      found_delay = False
+      try:
+        error_details = getattr(e, "details", None)
+        if not isinstance(error_details, dict) or not error_details:
+          if response is not None and hasattr(response, "json"):
+            raw_json = response.json()
+            error_details = (
+                await raw_json if inspect.isawaitable(raw_json) else raw_json
+            )
+        if isinstance(error_details, dict):
+          for detail in error_details.get("error", {}).get("details", []):
+            if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+              retry_delay_str = detail.get("retryDelay", "60s")
+              delay = self._parse_duration(retry_delay_str) + 1
+              found_delay = True
+              break
+      except (ValueError, AttributeError, TypeError, IndexError) as parse_err:
+        logging.debug(
+            f"{log_prefix} Error parsing retry info from response. Error: {parse_err}"
+        )
+      if not found_delay:
+        delay = self._backoff_delay
+        self._backoff_delay = min(self._backoff_delay * 2, self._max_backoff_delay)
     elif is_service_unavailable:
       delay = self._backoff_delay
-      # Increase the backoff for the next potential failure
       self._backoff_delay = min(self._backoff_delay**2, self._max_backoff_delay)
     return is_quota_error, is_service_unavailable, delay
 
