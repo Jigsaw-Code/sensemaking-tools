@@ -467,6 +467,9 @@ const topics = opinionsGrouped.map((topic) => {
       text: o.text,
       count: o.count,
       countFormatted: formatNumber(o.count),
+      quotesCountFormatted: (
+        i18n.sections?.quotesCount || "{count} Quotes"
+      ).replace("{count}", formatNumber(o.count)),
       sampleQuotes: allSampleQuotes
         .filter((q) => q.fullID === o.fullID)
         .map((q) => q.text),
@@ -522,6 +525,10 @@ const conversationOverviewLead = (
   .replace("{topTopic1}", topics[0]?.text || "")
   .replace("{topTopic2}", topics[1]?.text || "");
 
+const topicsIdentifiedBadge = (
+  i18n.sections?.topicsIdentifiedBadge || "{count} topics identified"
+).replace("{count}", topicsIdentifiedFormatted);
+
 const baseOutput = {
   ...options,
   title,
@@ -531,6 +538,7 @@ const baseOutput = {
   totalParticipantsFormatted,
   topicsIdentified,
   topicsIdentifiedFormatted,
+  topicsIdentifiedBadge,
   opinionsIdentified,
   opinionsIdentifiedFormatted,
   propositionsGenerated,

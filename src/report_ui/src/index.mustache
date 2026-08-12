@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{i18n.locale}}" dir="{{i18n.direction}}">
 
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	{{! TODO remove }}
 	<meta name="robots" content="noindex,nofollow">
-	<title>Jigsaw Sensemaking Report - {{hed}}</title>
+	<title>{{i18n.meta.titlePrefix}} - {{title}}</title>
 	<link rel="stylesheet" href="reset.css" inline>
 	<link rel="stylesheet" href="style.css" inline>
 	<link rel="stylesheet" href="print.css" inline>
@@ -19,16 +19,16 @@
 </head>
 
 <body>
-	<a href="#content" class="skip-to-main">Skip to main content</a>
+	<a href="#content" class="skip-to-main">{{i18n.meta.skipToMain}}</a>
 	<header>
 		<div>
 			{{#logo}}
-				<img inline src="{{logo}}" alt="{{hed}} logo" class="logo">
+				<img inline src="{{logo}}" alt="{{title}} {{i18n.meta.logoAlt}}" class="logo">
 			{{/logo}}
 			{{^logo}}
-				<div class="hed">Jigsaw Sensemaking Report</div>
+				<div class="hed">{{i18n.meta.titlePrefix}}</div>
 			{{/logo}}
-			<button class="button-menu"><img inline src="svg/hamburger.svg" alt="Open menu"></button>
+			<button class="button-menu"><img inline src="svg/hamburger.svg" alt="{{i18n.meta.openMenuAlt}}"></button>
 		</div>
 	</header>
 	
@@ -36,8 +36,8 @@
 		<aside class="sidebar">
 			<nav>
 				<div class="sidebar-inner sidebar-inner--full-report is-active">
-					<a href="#executive-summary" class="button standalone-item is-active"><img inline src="svg/star.svg" alt="" role="presentation">Executive Summary</a>
-					<p>Conversation Topics</p>
+					<a href="#executive-summary" class="button standalone-item is-active"><img inline src="svg/star.svg" alt="" role="presentation">{{i18n.nav.executiveSummary}}</a>
+					<p>{{i18n.nav.conversationTopics}}</p>
 					<ul>
 						{{#topics}}
 						<li><a href="#topic-{{topicID}}" class="button"><span class="badge">{{quoteCountFormatted}}</span> <span class="text">{{text}}</span></a></li>
@@ -45,8 +45,8 @@
 					</ul>
 				</div>
 				<div class="sidebar-inner sidebar-inner--predicted-agreement">
-					<a href="#predicted-agreement-summary" class="button standalone-item is-active"><img inline src="svg/predict.svg" alt="" role="presentation">Predicted Agreement</a>
-					<p>Conversation Topics</p>
+					<a href="#predicted-agreement-summary" class="button standalone-item is-active"><img inline src="svg/predict.svg" alt="" role="presentation">{{i18n.nav.predictedAgreement}}</a>
+					<p>{{i18n.nav.conversationTopics}}</p>
 					<ul>
 						{{#predicted.topics}}
 						<li><a href="#predicted-{{topicID}}" class="button"> <span class="text">{{title}}</span></a></li>
@@ -64,12 +64,12 @@
 						<div class="content-toggle-inner">
 							<button class="content-toggle-btn is-active" data-target="full-report">
 								<img inline src="svg/check.svg" alt="" role="presentation">
-								Full Report
+								{{i18n.tabs.fullReport}}
 							</button>
 							{{#hasPredicted}}
 							<button class="content-toggle-btn" data-target="predicted-agreement">
 								<img inline src="svg/check.svg" alt="" role="presentation">
-								Predicted Agreement
+								{{i18n.tabs.predictedAgreement}}
 							</button>
 							{{/hasPredicted}}
 						</div>
@@ -78,15 +78,14 @@
 				<div id="full-report" class="app-tab is-visible">
 					<article id="executive-summary" aria-labelledby="executive-summary-title">
 						<section>
-							<button class="button-share" data-id="executive-summary" data-text="Executive Summary" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
-							<h2 id="executive-summary-title">Executive Summary</h2>
+							<button class="button-share" data-id="executive-summary" data-text="{{i18n.executiveSummary.title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							<h2 id="executive-summary-title">{{i18n.executiveSummary.title}}</h2>
 							<hr>
 							<ul class="summary-stats">
-								<li><span class="badge"><img inline src="svg/group.svg" alt="" role="presentation"></span><span class="text"><strong>{{totalParticipants}}</strong> Total Participants</span></li>
-								<li><span class="badge"><img inline src="svg/list_alt.svg" alt="" role="presentation"></span><span class="text"><strong>{{topicsIdentified}}</strong> Topics Identified</span></li>
-								<li><span class="badge"><img inline src="svg/thumbs.svg" alt="" role="presentation"></span><span class="text"><strong>{{opinionsIdentified}}</strong> Opinions Identified</span></li>
+								<li><span class="badge"><img inline src="svg/group.svg" alt="" role="presentation"></span><span class="text"><strong>{{totalParticipantsFormatted}}</strong> {{i18n.executiveSummary.totalParticipants}}</span></li>
+								<li><span class="badge"><img inline src="svg/list_alt.svg" alt="" role="presentation"></span><span class="text"><strong>{{topicsIdentifiedFormatted}}</strong> {{i18n.executiveSummary.topicsIdentified}}</span></li>
+								<li><span class="badge"><img inline src="svg/thumbs.svg" alt="" role="presentation"></span><span class="text"><strong>{{opinionsIdentifiedFormatted}}</strong> {{i18n.executiveSummary.opinionsIdentified}}</span></li>
 							</ul>
-							<p>This report summarizes the results of public input from {{totalParticipants}} participants.  From the participant responses, <strong>{{topicsIdentified}} high level topics</strong> were identified, as well as <strong>{{opinionsIdentified}} opinions.</strong> All participants were anonymous. </p>
 							{{#executiveSummary}}
 							<p>{{{.}}}</p>
 							{{/executiveSummary}}
@@ -94,30 +93,30 @@
 					</article>
 					<article>
 						<section id="participant-overview">
-							<button class="button-share" data-id="participant-overview" data-text="Participant Overview" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
-								<h2>Participant Overview</h2>
+							<button class="button-share" data-id="participant-overview" data-text="{{i18n.sections.participantOverview}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+								<h2>{{i18n.sections.participantOverview}}</h2>
 								<hr>
 								<div id="participant-overview-chart" class="demographic-chart"></div>
 						</section>
 					</article>
 					<article>
 						<section id="conversation-overview">
-							<button class="button-share" data-id="conversation-overview" data-text="Conversation Overview" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
-							<h2>Conversation Overview</h2>
+							<button class="button-share" data-id="conversation-overview" data-text="{{i18n.sections.conversationOverview}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							<h2>{{i18n.sections.conversationOverview}}</h2>
 							<hr>
-							<p>Below is a high level overview of the topics discussed in the conversation. The most discussed topics were {{topics.0.text}} and {{topics.1.text}}.</p>
+							<p>{{{conversationOverviewLead}}}</p>
 							
 							<div class="toggle-container">
-								<button class="button-filter-compare"><img inline src="svg/filter.svg" alt="" role="presentation"><span>Filter &amp; Compare</span></button>
+								<button class="button-filter-compare"><img inline src="svg/filter.svg" alt="" role="presentation"><span>{{i18n.sections.filterCompare}}</span></button>
 									{{#hasToggle}}
 								<fieldset class="toggle-group">
-									<legend class="sr-only">Toggle view by:</legend>
+									<legend class="sr-only">{{i18n.sections.toggleViewLegend}}</legend>
 									
 									<input type="radio" name="toggleView" id="option-topics" value="topics" checked>
-									<label for="option-topics">All Topics</label>
+									<label for="option-topics">{{i18n.sections.allTopics}}</label>
 									
 									<input type="radio" name="toggleView" id="option-opinions" value="opinions">
-									<label for="option-opinions">Top Opinions</label>
+									<label for="option-opinions">{{i18n.sections.topOpinions}}</label>
 								</fieldset>
 								{{/hasToggle}}
 							</div>
@@ -125,16 +124,16 @@
 							<div id="conversation-overview-chart"></div>
 						</section>
 					</article>
-					<div id="topics-identified">{{topicsIdentified}} topics identified</div>
+					<div id="topics-identified">{{topicsIdentifiedBadge}}</div>
 					{{#topics}}
 					<article id="topic-{{topicID}}" class="topic" aria-labelledby="topic-{{topicID}}-title">
 						<section>
-						<button class="button-share" data-id="topic-{{topicID}}" data-text="{{text}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+						<button class="button-share" data-id="topic-{{topicID}}" data-text="{{text}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
 							<div class="topic-overview">
 									<h2 id="topic-{{topicID}}-title" class="topic-overview-title">{{text}}</h2>
 									<div class="topic-overview-stats">
-										<div><span class="badge">{{opinionCountFormatted}}</span> Opinions</div>
-										<div><span class="badge">{{quoteCountFormatted}}</span> Total quotes</div>
+										<div><span class="badge">{{opinionCountFormatted}}</span> {{i18n.sections.opinionsBadge}}</div>
+										<div><span class="badge">{{quoteCountFormatted}}</span> {{i18n.sections.totalQuotesBadge}}</div>
 									</div>
 									<div class="topic-overview-summary">
 										<p>{{{summary}}}</p>
@@ -143,7 +142,7 @@
 									<div class="topic-overview-chart-inner">
 										<div class="donut-chart-title">
 											<span class="count">{{quoteCountFormatted}}</span>
-											<span class="underline">Total Quotes</span>
+											<span class="underline">{{i18n.sections.totalQuotesUnderline}}</span>
 										</div>
 										<div class="donut-chart-content"></div>
 									</div>
@@ -155,7 +154,7 @@
 								<details class="topic-opinion">
 									<summary>
 										<div class="summary-wrapper">
-											<span class="summary-overline">{{countFormatted}} Quotes</span>
+											<span class="summary-overline">{{quotesCountFormatted}}</span>
 											<span class="summary-text">{{text}}</span>
 										</div>
 										<svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -164,7 +163,7 @@
 									</summary>
 									<div class="topic-opinion-details">
 										<div class="topic-opinion-sample">	
-										<p class="print-only">Sample Quotes:</p>
+										<p class="print-only">{{i18n.sections.sampleQuotes}}</p>
 											<ul>
 												{{#sampleQuotes}}
 												<li>“{{.}}”</li>
@@ -173,7 +172,7 @@
 										</div>	
 										{{#viewAllQuotes}}
 										<div class="topic-opinion-view-all">
-											<button class="button-quotes" data-id="{{fullID}}"><img inline src="svg/eye.svg" alt="" role="presentation"><span>View all quotes and demographics</span></button>
+											<button class="button-quotes" data-id="{{fullID}}"><img inline src="svg/eye.svg" alt="" role="presentation"><span>{{i18n.sections.viewAllQuotesAndDemographics}}</span></button>
 										</div>
 										{{/viewAllQuotes}}
 									</div>
@@ -188,8 +187,8 @@
 				<div id="predicted-agreement" class="app-tab">
 				<article id="predicted-agreement-summary" aria-labelledby="predicted-agreement-summary-title">
 						<section>
-							<button class="button-share" data-id="predicted-agreement-summary" data-text="Predicted Agreement" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
-							<h2 id="predicted-agreement-summary-title">Predicted Agreement</h2>
+							<button class="button-share" data-id="predicted-agreement-summary" data-text="{{i18n.predicted.title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							<h2 id="predicted-agreement-summary-title">{{i18n.predicted.title}}</h2>
 							<hr>
 							<p>{{{predicted.text}}}</p>
 						</section>
@@ -198,14 +197,14 @@
 					{{#predicted.topics}}
 					<article class="predicted-topic">
 						<section id="predicted-{{topicID}}">
-							<button class="button-share" data-id="predicted-{{topicID}}" data-text="Predicted Agreement: {{title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+							<button class="button-share" data-id="predicted-{{topicID}}" data-text="{{i18n.predicted.title}}: {{title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
 							<h2>{{title}}</h2>
 							<hr>
 							<table class="predicted-table">
 								<thead>
 									<tr>
-										<th>Statement</th>
-										<th>Predicted Agreement</th>
+										<th>{{i18n.predicted.statementColumn}}</th>
+										<th>{{i18n.predicted.agreementColumn}}</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -230,10 +229,10 @@
 						<div class="drawer-toggle">
 							<div class="drawer-toggle-inner">
 								<button class="is-active" data-target="drawer-quotes">
-									Participant Quotes (<span class="drawer-quote-count"></span>)
+									{{i18n.drawer.participantQuotesTitle}} (<span class="drawer-quote-count"></span>)
 								</button>
 								<button data-target="drawer-demographics">
-									Participant Demographics
+									{{i18n.drawer.participantDemographics}}
 								</button>
 							</div>
 						</div>
@@ -255,31 +254,31 @@
 						<div id="drawer-demographics" class="tab">
 							<div id="drawer-demographics-chart" class="demographic-chart"></div>
 						</div>
-						<button class="button-close"><img inline src="svg/x.svg" alt="Close"></button>
+						<button class="button-close"><img inline src="svg/x.svg" alt="{{i18n.meta.closeAlt}}"></button>
 					</div>
 				</div>
 					<div id="filter-compare">
 					<div class="filter-compare-bg"></div>
 					<div class="filter-compare-content">
-						<h2 class="filter-compare-title">Filter and Compare Demographics</h2>
-						<p class="filter-compare-description">Add multiple groups to compare demographic segments side by side, or use a single group to filter the main view.</p>
+						<h2 class="filter-compare-title">{{i18n.filterModal.title}}</h2>
+						<p class="filter-compare-description">{{i18n.filterModal.description}}</p>
 						<div class="filter-compare-groups"></div>
-						<button class="button-add-group ghost">+ Add Group to Compare</button>
+						<button class="button-add-group ghost">{{i18n.filterModal.addGroup}}</button>
 						<div class="filter-compare-footer">
-							<button class="button-reset-groups ghost"><img inline src="svg/reset.svg" alt=""> Reset</button>
-							<button class="button-apply-groups">Apply Filters</button>
+							<button class="button-reset-groups ghost"><img inline src="svg/reset.svg" alt=""> {{i18n.filterModal.reset}}</button>
+							<button class="button-apply-groups">{{i18n.filterModal.applyFilters}}</button>
 						</div>
-						<button class="button-close"><img inline src="svg/x.svg" alt="Close"></button>
+						<button class="button-close"><img inline src="svg/x.svg" alt="{{i18n.meta.closeAlt}}"></button>
 					</div>
 			</div>
 
 			<div id="share" class="no-print">
 				<div class="share-bg"></div>
 				<div class="share-content">
-					<p class="share-title">Share <span></span></p>
-					<p class="share-description">Copy link to share</p>
-					<div class="share-url"><input id="share-url-input" type="text" readonly value="test"><button class="button-copy"><img inline src="svg/copy.svg" alt="Copy link"></button></div>
-					<div class="share-close"><button class="button-close-share">Close</button></div>
+					<p class="share-title">{{i18n.sections.share}} <span></span></p>
+					<p class="share-description">{{i18n.sections.copyLinkToShare}}</p>
+					<div class="share-url"><input id="share-url-input" type="text" readonly value="test"><button class="button-copy"><img inline src="svg/copy.svg" alt="{{i18n.meta.copyLinkAlt}}"></button></div>
+					<div class="share-close"><button class="button-close-share">{{i18n.sections.close}}</button></div>
 				</div>
 			</div>
 		</main>
