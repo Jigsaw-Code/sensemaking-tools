@@ -65,6 +65,10 @@ window.PAYLOAD = window.PAYLOAD || {};
 
 const i18n = window.PAYLOAD.i18n || {};
 const numberFormatter = new Intl.NumberFormat(i18n.locale || "en");
+const percentFormatter = new Intl.NumberFormat(i18n.locale || "en", {
+  style: "percent",
+  maximumFractionDigits: 1,
+});
 
 /**
  * Formats a number according to the active locale.
@@ -73,6 +77,19 @@ const numberFormatter = new Intl.NumberFormat(i18n.locale || "en");
  */
 function formatNumber(num) {
   return numberFormatter.format(num);
+}
+
+/**
+ * Formats a value as a localized percentage string.
+ * @param {number|string} value
+ * @returns {string}
+ */
+function formatPercent(value) {
+  if (value == null || value === "") return "";
+  const num = Number(value);
+  if (isNaN(num)) return "";
+  const ratio = num > 1 ? num / 100 : num;
+  return percentFormatter.format(ratio);
 }
 
 /**
@@ -243,7 +260,7 @@ function createDemographicChart({ id, data }) {
         item
           .append("span")
           .attr("class", "legend-text")
-          .html(`<strong>${d.value}</strong> ${d._pct}%`);
+          .html(`<strong>${d.value}</strong> ${formatPercent(d._pct)}`);
       });
     });
   };

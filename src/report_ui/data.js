@@ -98,6 +98,23 @@ i18n.locale = i18n.locale || "en";
 i18n.direction = i18n.direction || "ltr";
 
 const numberFormatter = new Intl.NumberFormat(i18n.locale);
+const percentFormatter = new Intl.NumberFormat(i18n.locale, {
+  style: "percent",
+  maximumFractionDigits: 1,
+});
+
+/**
+ * Formats a value as a localized percentage string.
+ * @param {number|string} value
+ * @returns {string|null}
+ */
+function formatPercent(value) {
+  if (value == null || value === "") return null;
+  const num = Number(value);
+  if (isNaN(num)) return null;
+  const ratio = num > 1 ? num / 100 : num;
+  return percentFormatter.format(ratio);
+}
 
 const overviewChart = config.overview_chart || "toggle";
 const options = {
@@ -421,8 +438,7 @@ function processPredicted(raw) {
       text: s.text,
       statements: (s.statements || []).map((s) => ({
         text: s.text,
-        predictedAgreement:
-          s.predicted_agreement != null ? `${s.predicted_agreement}%` : null,
+        predictedAgreement: formatPercent(s.predicted_agreement),
         hasPredictedAgreement: s.predicted_agreement != null,
       })),
     })),
