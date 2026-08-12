@@ -42,7 +42,7 @@
 	--header-height: 80px;
 	--overview-chart-width: 12rem;
 
-	--serif: "Noto Sans", sans-serif;
+	--serif: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 	--mono: Menlo, Consolas, Monaco, monospace;
 
 	/* z-index */
@@ -189,7 +189,7 @@ li {
 }
 
 button img, .button img, button svg, .button svg {
-	margin-right: 0.5rem;
+	margin-inline-end: 0.5rem;
 }
 
 button.ghost, .button.ghost {
