@@ -26,7 +26,7 @@ from pydantic import BaseModel
 logging.disable(logging.CRITICAL)
 
 
-class TestSchema(BaseModel):
+class DummySchema(BaseModel):
   field1: str
   field2: int
 
@@ -93,7 +93,7 @@ class OpenAICompatibleModelTest(unittest.TestCase):
         model.generate_content(
             prompt='test prompt',
             run_name='test_run',
-            response_schema=TestSchema,
+            response_schema=DummySchema,
         )
     )
 
@@ -104,7 +104,7 @@ class OpenAICompatibleModelTest(unittest.TestCase):
     self.assertIn('response_format', kwargs)
     self.assertEqual(kwargs['response_format']['type'], 'json_schema')
     self.assertEqual(
-        kwargs['response_format']['json_schema']['name'], 'TestSchema'
+        kwargs['response_format']['json_schema']['name'], 'DummySchema'
     )
 
   @patch('src.models.openai_compatible_model.AsyncOpenAI')
