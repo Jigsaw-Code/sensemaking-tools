@@ -77,19 +77,22 @@ const defaultI18n = JSON.parse(
   fs.readFileSync("./src/default-translations.json", "utf-8"),
 );
 
-const userI18nPath = fs.existsSync(`./input/${prefix}translations.json`)
-  ? `./input/${prefix}translations.json`
-  : fs.existsSync("./input/translations.json")
-    ? "./input/translations.json"
-    : null;
+const userI18nPath =
+  config.translations && fs.existsSync(`./input/${config.translations}`)
+    ? `./input/${config.translations}`
+    : fs.existsSync(`./input/${prefix}translations.json`)
+      ? `./input/${prefix}translations.json`
+      : fs.existsSync("./input/translations.json")
+        ? "./input/translations.json"
+        : null;
 
 const userI18n = userI18nPath
   ? JSON.parse(fs.readFileSync(userI18nPath, "utf-8"))
   : {};
 
 const i18n = deepMerge(defaultI18n, userI18n);
-i18n.locale = config.locale || userI18n.locale || defaultI18n.locale || "en";
-i18n.direction = config.direction || userI18n.direction || defaultI18n.direction || "ltr";
+i18n.locale = i18n.locale || "en";
+i18n.direction = i18n.direction || "ltr";
 
 const numberFormatter = new Intl.NumberFormat(i18n.locale);
 

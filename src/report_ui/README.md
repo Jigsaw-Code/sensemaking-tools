@@ -31,6 +31,7 @@ In config.json, optionally add these properties
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `logo` | `string` | `""` | Header image file. options: `"logo.png"` or `"logo.svg"`. |
+| `translations` | `string` | `""` | Optional filename in `input/` for UI translations (e.g., `"translations.json"` or `"es-ES.json"`). Defaults to `input/translations.json` if present. |
 | `overview_chart` | `string` | `"toggle"` | Overview chart display mode. Options: `"toggle"`, `"topics"`, or `"opinions"`. |
 | `number_of_top_opinions` | `number` | `10` | The number of items to show in the opinions overview chart. |
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
@@ -102,6 +103,17 @@ This file contains the topics and their predicted agreement data (Propositions) 
 }
 ```
 
+### `translations.json` Format (Optional)
+The report UI can be localized into any language and writing direction (LTR or RTL).
+
+To translate your report:
+1. **Create your translation file**: Make a copy of `src/default-translations.json` and save it to `input/translations.json` (or any custom filename in `input/` specified in `config.json` via `"translations": "your-filename.json"`).
+2. **Translate string values**: Replace the English strings in your copy with your translated text. Any keys you omit will automatically fall back to the default English strings in `src/default-translations.json`.
+3. **Configure language & direction**: Set the `locale` (a standard BCP 47 language tag like `"es-ES"`, `"fr-FR"`, or `"fa-IR"` used for number formatting and HTML language attributes) and `direction` (`"ltr"` or `"rtl"`) at the root of your JSON file.
+
+> **Right-to-Left (RTL) Languages:**
+> For languages written right-to-left (such as Arabic, Persian, or Hebrew), simply set `"direction": "rtl"` and the corresponding `locale` (e.g. `"fa-IR"` or `"ar-EG"`). The document layout, font stacks, chart tooltips, and interactive controls will automatically align to RTL.
+
 ---
 
 ## Development guide
@@ -114,6 +126,7 @@ If you are a developer looking to modify the report or build process, here is th
 
 *   **`input/`**: Raw data entry point.
 *   **`src/`**: Source code for the report.
+    *   `default-translations.json`: Canonical reference dictionary containing all default UI strings.
     *   `script.js`: Frontend logic and charts.
     *   `style.css`: Visual styling.
     *   `index.mustache`: HTML template used during the build.
