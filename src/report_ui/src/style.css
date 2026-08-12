@@ -591,6 +591,11 @@ article h2 {
 	display: block;
 }
 
+[dir="rtl"] .demographic-svg,
+[dir="rtl"] .topic-svg {
+	transform: scaleX(-1);
+}
+
 #conversation-overview-chart .topic-group-count {
 	font-size: var(--12px);
 	min-width: 84px;
