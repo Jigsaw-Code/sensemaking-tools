@@ -174,9 +174,14 @@ function createDemographicChart({ id, data }) {
       : 800;
 
     data.forEach((demographic) => {
+      const otherCategory = (
+        i18n.chart?.otherCategory || "Other"
+      ).toLowerCase();
+      const isOther = (val) =>
+        val.toLowerCase() === "other" || val.toLowerCase() === otherCategory;
       const sortedValues = [...demographic.values].sort((a, b) => {
-        if (a.value.toLowerCase() === "other") return 1;
-        if (b.value.toLowerCase() === "other") return -1;
+        if (isOther(a.value)) return 1;
+        if (isOther(b.value)) return -1;
         return d3.ascending(a.value.toLowerCase(), b.value.toLowerCase());
       });
 

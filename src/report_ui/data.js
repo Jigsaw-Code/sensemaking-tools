@@ -527,7 +527,8 @@ const demographics = demoKeys.map((key) => {
 
   if (values.length > 6) {
     const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
-    values = [...values.slice(0, 5), { value: "Other", count: otherCount }];
+    const otherCategory = i18n.chart?.otherCategory || "Other";
+    values = [...values.slice(0, 5), { value: otherCategory, count: otherCount }];
   }
 
   return { label, values };
