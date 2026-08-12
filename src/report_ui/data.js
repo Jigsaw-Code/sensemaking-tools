@@ -9,9 +9,6 @@
 
 import fs from "fs";
 
-const args = process.argv.slice(2);
-const dev = args[0] && args[0] === "dev";
-const prefix = dev ? "test-" : "";
 const demographics_prefix = "demo:";
 /**
  * @typedef {Object} RawOpinion
@@ -36,14 +33,14 @@ const opinions = JSON.parse(
 }));
 
 const config = JSON.parse(
-  fs.readFileSync(`./input/${prefix}config.json`, "utf-8"),
+  fs.readFileSync("./input/config.json", "utf-8"),
 );
 
 const summary = JSON.parse(
-  fs.readFileSync(`./input/${prefix}summary.json`, "utf-8"),
+  fs.readFileSync("./input/summary.json", "utf-8"),
 );
 
-const predictedPath = `./input/${prefix}predicted.json`;
+const predictedPath = "./input/predicted.json";
 const predictedRaw = fs.existsSync(predictedPath)
   ? JSON.parse(fs.readFileSync(predictedPath, "utf-8"))
   : [];
@@ -77,14 +74,20 @@ const defaultI18n = JSON.parse(
   fs.readFileSync("./src/default-translations.json", "utf-8"),
 );
 
-const userI18nPath =
-  config.translations && fs.existsSync(`./input/${config.translations}`)
-    ? `./input/${config.translations}`
-    : fs.existsSync(`./input/${prefix}translations.json`)
-      ? `./input/${prefix}translations.json`
-      : fs.existsSync("./input/translations.json")
-        ? "./input/translations.json"
-        : null;
+const userI18nPath = (() => {
+  if (config.translations) {
+    if (fs.existsSync(`./input/${config.translations}`)) {
+      return `./input/${config.translations}`;
+    }
+    if (fs.existsSync(`./input/${config.translations}.json`)) {
+      return `./input/${config.translations}.json`;
+    }
+  }
+  if (fs.existsSync("./input/translations.json")) {
+    return "./input/translations.json";
+  }
+  return null;
+})();
 
 const userI18n = userI18nPath
   ? JSON.parse(fs.readFileSync(userI18nPath, "utf-8"))

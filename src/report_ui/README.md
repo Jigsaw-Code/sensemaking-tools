@@ -120,8 +120,6 @@ To translate your report:
 
 If you are a developer looking to modify the report or build process, here is the architectural overview.
 
-**Note**: Please add the following testing files to the `input` folder: `test-config.json`, `test-summary.json`, and `test-opinions.csv`.
-
 ### Project Structure
 
 *   **`input/`**: Raw data entry point.

@@ -111,14 +111,13 @@ const tasks = {
    * Converts input CSV data to JSON and runs the data processing script.
    * Uses `csvtojson` for conversion and executes `data.js`.
    */
-  data: (dev) => {
+  data: () => {
     console.log("...converting opinions csv to json and processing data");
     const fileDescriptor = fs.openSync("temp/opinions.json", "w");
 
     try {
       // Stream output of csvtojson directly to the file descriptor
-      const prefix = dev ? `test-` : "";
-      execSync(`npx -y -q csvtojson input/${prefix}opinions.csv`, {
+      execSync(`npx -y -q csvtojson input/opinions.csv`, {
         stdio: ["ignore", fileDescriptor, "inherit"],
       });
     } catch (e) {
@@ -128,7 +127,7 @@ const tasks = {
       fs.closeSync(fileDescriptor);
     }
 
-    runInherit(`node data.js${dev ? " dev" : ""}`);
+    runInherit("node data.js");
   },
 
   /**
