@@ -96,6 +96,60 @@ class CategorizationRunnerTest(unittest.TestCase):
     ):
       categorization_runner._convert_csv_rows_to_statements(csv_rows)
 
+  @mock.patch(
+      'os.path.expanduser',
+      return_value=io.StringIO(
+          "participant_id,survey_text\n"
+          "1,Este es un texto en español para probar.\n"
+          "2,这是一个测试中文的文本。"
+      ),
+  )
+  @mock.patch('os.path.exists', return_value=True)
+  def test_read_csv_to_dicts_multilingual(self, mock_expanduser, mock_exists):
+    # pylint: disable=protected-access
+    output = categorization_runner._read_csv_to_dicts('dummy_path')
+    mock_exists.assert_called()
+    mock_expanduser.assert_called()
+    self.assertEqual(
+        output,
+        [
+            {
+                'participant_id': '1',
+                'survey_text': 'Este es un texto en español para probar.',
+            },
+            {
+                'participant_id': '2',
+                'survey_text': '这是一个测试中文的文本。',
+            },
+        ],
+    )
+
+  def test_convert_csv_rows_to_statements_multilingual(self):
+    csv_rows = [
+        {
+            'participant_id': '1',
+            'survey_text': 'Este es un texto en español.',
+        },
+        {
+            'participant_id': '2',
+            'survey_text': '这是一个中文文本。',
+        },
+    ]
+    statements = categorization_runner._convert_csv_rows_to_statements(csv_rows)
+    self.assertEqual(
+        statements,
+        [
+            custom_types.Statement(
+                id='1',
+                text='Este es un texto en español.',
+            ),
+            custom_types.Statement(
+                id='2',
+                text='这是一个中文文本。',
+            ),
+        ],
+    )
+
   @mock.patch('src.runner_utils.generate_and_save_topic_tree')
   def test_process_and_print_topic_tree(self, mock_generate_and_save):
     output_csv_rows = [
