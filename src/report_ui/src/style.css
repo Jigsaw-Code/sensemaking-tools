@@ -203,7 +203,7 @@ button.ghost, .button.ghost {
 	padding: 0.5rem 1rem;
 	position: absolute;
 	top: 2rem;
-	right: 2rem;
+	inset-inline-end: 2rem;
 	font-size: var(--12px);
 	transform: translateY(-0.25rem);
 }
@@ -299,9 +299,10 @@ header button {
 }
 
 #content {
-	margin-left: calc(var(--sidebar-width) + 2rem);
-	padding: 2rem 2rem 2rem 0;
-	width: calc(100% - var(--sidebar-width));
+	flex: 1;
+	min-width: 0;
+	padding: 2rem;
+	padding-inline-start: 0;
 	max-width: 960px;
 }
 
@@ -320,7 +321,7 @@ article.topic {
 
 article h2 {
 	width: 100%;
-	padding-right: 8rem;
+	padding-inline-end: 8rem;
 }
 
 /* title/toggle */
@@ -369,11 +370,17 @@ article h2 {
 }
 
 .content-toggle-btn:first-child {
-	border-radius: var(--border-radius) 0 0 var(--border-radius);
+	border-start-start-radius: var(--border-radius);
+	border-end-start-radius: var(--border-radius);
+	border-start-end-radius: 0;
+	border-end-end-radius: 0;
 }
 
 .content-toggle-btn:last-child {
-	border-radius: 0 var(--border-radius) var(--border-radius) 0;
+	border-start-end-radius: var(--border-radius);
+	border-end-end-radius: var(--border-radius);
+	border-start-start-radius: 0;
+	border-end-start-radius: 0;
 }
 
 .content-toggle-btn:hover {
@@ -399,7 +406,9 @@ article h2 {
 	width: var(--sidebar-width);
 	height: calc(100svh - var(--header-height));
 	padding: 2rem;
-	position: fixed;
+	position: sticky;
+	top: var(--header-height);
+	flex-shrink: 0;
 	overflow-y: auto;
 	z-index: calc(var(--z-top) - 1);
 }
@@ -439,7 +448,7 @@ article h2 {
 
 .sidebar nav .standalone-item img, .sidebar nav .standalone-item svg {
 	width: 1.5rem;
-	margin-right: 1rem;
+	margin-inline-end: 1rem;
 	display: inline-block;
 	vertical-align: middle;
 }
@@ -459,7 +468,7 @@ article h2 {
 	width: 3.5rem;
 	min-width: 3.5rem;
 	text-align: center;
-	margin-right: 0.5rem;
+	margin-inline-end: 0.5rem;
 }
 
 .sidebar li a {
@@ -492,11 +501,11 @@ article h2 {
 }
 
 .summary-stats li:first-of-type {
-	padding-left: 0;
+	padding-inline-start: 0;
 }
 
 .summary-stats li:last-of-type {
-	padding-right: 0;
+	padding-inline-end: 0;
 }
 
 .summary-stats li span.badge {
@@ -515,7 +524,7 @@ article h2 {
 	display: flex;
 	flex-direction: column;
 	font-weight: 500;
-	margin-left: 1rem;
+	margin-inline-start: 1rem;
 	font-size: var(--14px);
 	color: var(--color-badge-text-light);
 }
@@ -540,7 +549,7 @@ article h2 {
 }
 
 #conversation-overview fieldset label {
-	margin-right: 0.5rem;
+	margin-inline-end: 0.5rem;
 }
 
 #conversation-overview-chart .topic-wrapper {
@@ -586,15 +595,16 @@ article h2 {
 	font-size: var(--12px);
 	min-width: 84px;
 	flex-shrink: 0;
-	text-align: right;
+	text-align: end;
 	white-space: nowrap;
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
 }
 
 #conversation-overview-chart .topic-group-count img {
 	display: inline-block;
-	margin-left: 0.25rem;
+	margin-inline-start: 0.25rem;
 }
 
 
@@ -644,17 +654,17 @@ article h2 {
 
 .topic-overview-title {
 	margin-top: 0;
-	padding-right: 6rem;
+	padding-inline-end: 6rem;
 }
 
 .topic-overview-stats {
 	display: flex;
 	margin: 1rem 0;
-	padding-right: 6rem;
+	padding-inline-end: 6rem;
 }
 
 .topic-overview-stats div {
-	margin-right: 1rem;
+	margin-inline-end: 1rem;
 	font-size: var(--14px);
 	font-weight: 500;
 	color: var(--color-badge-text-light);
@@ -668,14 +678,14 @@ article h2 {
 	font-weight: 600;
 	font-size: var(--12px);
 	padding: 0.25rem 0.5rem;
-	margin-right: 0.25rem;
+	margin-inline-end: 0.25rem;
 	width: 3.5rem;
 	text-align: center;
 }
 
 .topic-overview-summary {
 	width: calc(100% - var(--overview-chart-width));
-	padding-right: 2rem;
+	padding-inline-end: 2rem;
 }
 
 .topic-overview-summary p {
@@ -725,9 +735,8 @@ article h2 {
 	padding: 1rem 2rem;
 	border: 1px solid transparent;
 	border-bottom: 1px solid var(--color-bg);
-	/* Use negative transform to break out of the parent's padding */
-	width: calc(100% + 4rem);
-	transform: translateX(-2rem);
+	margin-inline: -2rem;
+	width: auto;
 }
 
 .topic-opinion:last-of-type {
@@ -754,7 +763,7 @@ article h2 {
 
 
 .topic-opinion summary .summary-wrapper {
-	padding-right: 1rem;
+	padding-inline-end: 1rem;
 	display: flex;
 	flex-direction: column;
 	
@@ -797,7 +806,7 @@ article h2 {
 	padding: 1.5rem;
 	border: 1px solid var(--color-border);
 	border-radius: calc(var(--border-radius) * 0.5);
-	border-bottom-left-radius: 0;
+	border-end-start-radius: 0;
 	background: var(--color-white);
 	line-height: 1.5;
 }
@@ -857,10 +866,10 @@ article h2 {
 .drawer-content {
 	position: absolute;
 	top: 0;
-	right: 0;
+	inset-inline-end: 0;
 	background: var(--color-card-bg);
-	border-top-left-radius: calc(var(--border-radius) * 0.5);
-	border-bottom-left-radius: calc(var(--border-radius) * 0.5);
+	border-start-start-radius: calc(var(--border-radius) * 0.5);
+	border-end-start-radius: calc(var(--border-radius) * 0.5);
 	padding: 2rem;
 	width: 100%;
 	height: 100%;
@@ -872,21 +881,26 @@ article h2 {
 	transition: transform 0.25s ease;
 }
 
-#drawer.is-open .drawer-content {
+[dir="rtl"] .drawer-content {
+	transform: translateX(-100%);
+}
+
+#drawer.is-open .drawer-content,
+[dir="rtl"] #drawer.is-open .drawer-content {
 	transform: translateX(0);
 }
 
 #drawer .button-close {
 	position: absolute;
 	top: 0.75rem;
-	right: 0.75rem;
+	inset-inline-end: 0.75rem;
 	background: none;
 	border: none;
 	z-index: var(--z-top);
 }
 
 #drawer .button-close img {
-	margin-right: 0;
+	margin-inline-end: 0;
 }
 
 #drawer .tab {
@@ -936,7 +950,8 @@ article h2 {
 .drawer-quotes-filters select {
 	border-radius: calc(var(--border-radius) * 0.25);
 	border: 1px solid var(--color-border);
-	padding: 0.25rem 2rem 0.25rem 0.5rem;
+	padding: 0.25rem 0.5rem;
+	padding-inline-end: 2rem;
 	font-size: var(--14px);
 	font-weight: 500;
 	appearance: none;
@@ -946,6 +961,10 @@ article h2 {
 	background-position: right 0.6rem center;
 	background-size: 10px 6px;
 	text-transform: capitalize;
+}
+
+[dir="rtl"] .drawer-quotes-filters select {
+	background-position: left 0.6rem center;
 }
 
 .drawer-opinion {
@@ -1028,7 +1047,7 @@ article h2 {
 	font-size: var(--18px);
 	font-weight: 500;
 	line-height: 1.325;
-	padding-right: 2rem;
+	padding-inline-end: 2rem;
 }
 
 .filter-compare-description {
@@ -1040,14 +1059,14 @@ article h2 {
 #filter-compare .button-close {
 	position: absolute;
 	top: 0.75rem;
-	right: 0.75rem;
+	inset-inline-end: 0.75rem;
 	background: none;
 	border: none;
 	z-index: var(--z-top);
 }
 
 #filter-compare .button-close img {
-	margin-right: 0;
+	margin-inline-end: 0;
 }
 
 .filter-compare-groups {
@@ -1104,7 +1123,7 @@ article h2 {
 .filter-select-wrapper::after {
 	content: "";
 	position: absolute;
-	right: 1rem;
+	inset-inline-end: 1rem;
 	top: 50%;
 	transform: translateY(100%);
 	width: 10px;
@@ -1148,19 +1167,30 @@ article h2 {
 	justify-content: flex-end;
 	margin-top: 0.5rem;
 	align-items: center;
-	padding: 0.5rem 0 1rem 0;
+	z-index: var(--z-top);
+	padding: 1rem 0;
+	border-top: 1px solid var(--color-border);
 }
 
-.button-add-group {
-	align-self: flex-start;
+.filter-compare-footer button {
+	padding: 0.5rem 1rem;
+	font-size: var(--14px);
 }
 
-#filter-compare .is-hidden {
-	display: none;
+.button-reset-groups {
+	border: none;
+	background: none;
+	color: var(--color-text-secondary);
+	cursor: pointer;
+	text-decoration: underline;
+}
+
+.button-reset-groups:hover {
+	background: none;
+	color: var(--color-text);
 }
 
 .button-apply-groups {
-	text-align: center;
 	background: var(--color-badge-bg-dark);
 	color: var(--color-badge-text-dark);
 }
@@ -1170,6 +1200,36 @@ article h2 {
 	color: var(--color-badge-text-dark);
 }
 
+.button-add-group {
+	border: 1px dashed var(--color-border);
+	padding: 0.75rem;
+	font-size: var(--14px);
+	text-align: center;
+	cursor: pointer;
+	width: 100%;
+}
+
+.button-add-group:hover {
+	background: var(--color-bg);
+}
+
+.button-delete-group {
+	border: none;
+	background: none;
+	color: var(--color-text-secondary);
+	cursor: pointer;
+	padding: 0.25rem;
+	display: flex;
+	align-items: center;
+}
+
+.button-delete-group:hover {
+	background: none;
+	color: var(--color-text);
+}
+
+
+/* share modal */
 #share {
 	display: none;
 	position: fixed;
@@ -1231,7 +1291,7 @@ article h2 {
 .share-url .button-copy {
 	position: absolute;
 	top: 50%;
-	right: 0.5rem;
+	inset-inline-end: 0.5rem;
 	transform: translateY(-50%);
 	width: 2rem;
 	height: 2rem;
@@ -1243,7 +1303,7 @@ article h2 {
 	content: "Copied!";
 	position: absolute;
 	top: 50%;
-	right: 0;
+	inset-inline-end: 0;
 	transform: translateY(-50%);
 	background: var(--color-badge-bg-light);
 	color: var(--color-badge-text-light);
@@ -1278,7 +1338,7 @@ article h2 {
 }
 
 .share-close {
-	text-align: right;
+	text-align: end;
 }
 
 .button-close-share {
@@ -1309,11 +1369,11 @@ article h2 {
 }
 
 #predicted-agreement th:first-of-type, #predicted-agreement td:first-of-type {
-	text-align: left;
+	text-align: start;
 }
 
 #predicted-agreement th:last-of-type, #predicted-agreement td:last-of-type {
-	text-align: right;
+	text-align: end;
 	min-width: 10rem;
 }
 
@@ -1411,7 +1471,7 @@ article h2 {
 .legend-item {
 	display: flex;
 	align-items: center;
-	margin-right: 0.5rem;
+	margin-inline-end: 0.5rem;
 	margin-bottom: 0.25rem;
 }
 
@@ -1420,7 +1480,7 @@ article h2 {
 	width: 0.75rem;
 	height: 0.75rem;
 	border-radius: 0.25rem;
-	margin-right: 0.25rem;
+	margin-inline-end: 0.25rem;
 }
 
 .legend-text {
@@ -1441,8 +1501,8 @@ article h2 {
 
 @media screen and (max-width: 1024px) {
 	#content {
-		margin-left: auto;
-		margin-right: auto;
+		margin-inline-start: auto;
+		margin-inline-end: auto;
 		padding: 2rem 0.5rem;
 		width: 100%;
 		max-width: 960px;
@@ -1452,12 +1512,20 @@ article h2 {
 		pointer-events: none;
 		transform: translate(-100%, 0);
 		position: fixed;
-		left: 0;
+		top: var(--header-height);
+		inset-inline-start: 0;
+		left: auto;
+		right: auto;
 		transition: all 0.25s ease;
 		background: var(--color-bg);
 	}
 
-	.sidebar.is-open {
+	[dir="rtl"] .sidebar {
+		transform: translate(100%, 0);
+	}
+
+	.sidebar.is-open,
+	[dir="rtl"] .sidebar.is-open {
 		pointer-events: auto;
 		transform: translate(0, 0);
 	}
@@ -1481,13 +1549,13 @@ article h2 {
 	}
 	
 	.topic-overview-stats {
-		padding-right: 0;
+		padding-inline-end: 0;
 	}
 
 	.topic-overview-summary {
 		order: 4;
 		width: 100%;
-		padding-right: 0;
+		padding-inline-end: 0;
 	}
 
 	.topic-overview-chart {
