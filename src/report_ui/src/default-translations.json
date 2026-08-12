@@ -1,0 +1,75 @@
+{
+  "locale": "en",
+  "direction": "ltr",
+  "meta": {
+    "titlePrefix": "Jigsaw Sensemaking Report",
+    "skipToMain": "Skip to main content",
+    "openMenuAlt": "Open menu",
+    "closeAlt": "Close",
+    "copyLinkAlt": "Copy link",
+    "logoAlt": "Logo"
+  },
+  "nav": {
+    "executiveSummary": "Executive Summary",
+    "conversationTopics": "Conversation Topics",
+    "predictedAgreement": "Predicted Agreement"
+  },
+  "tabs": {
+    "fullReport": "Full Report",
+    "predictedAgreement": "Predicted Agreement"
+  },
+  "executiveSummary": {
+    "title": "Executive Summary",
+    "totalParticipants": "Total Participants",
+    "topicsIdentified": "Topics Identified",
+    "opinionsIdentified": "Opinions Identified"
+  },
+  "sections": {
+    "participantOverview": "Participant Overview",
+    "conversationOverview": "Conversation Overview",
+    "conversationLeadTemplate": "Below is a high level overview of the topics discussed in the conversation. The most discussed topics were {topTopic1} and {topTopic2}.",
+    "filterCompare": "Filter & Compare",
+    "toggleViewLegend": "Toggle view by:",
+    "allTopics": "All Topics",
+    "topOpinions": "Top Opinions",
+    "topicsIdentifiedBadge": "{count} topics identified",
+    "opinionsBadge": "Opinions",
+    "totalQuotesBadge": "Total quotes",
+    "totalQuotesUnderline": "Total Quotes",
+    "quotesCount": "{count} Quotes",
+    "sampleQuotes": "Sample Quotes:",
+    "viewAllQuotesAndDemographics": "View all quotes and demographics",
+    "share": "Share",
+    "shareModalTitle": "Share {title}",
+    "copyLinkToShare": "Copy link to share",
+    "close": "Close"
+  },
+  "predicted": {
+    "title": "Predicted Agreement",
+    "statementColumn": "Statement",
+    "agreementColumn": "Predicted Agreement"
+  },
+  "drawer": {
+    "participantQuotesTitle": "Participant Quotes",
+    "participantQuotes": "Participant Quotes ({count})",
+    "participantDemographics": "Participant Demographics",
+    "noQuotes": "No quotes for the selected filters.",
+    "unknownOpinion": "Unknown Opinion"
+  },
+  "filterModal": {
+    "title": "Filter and Compare Demographics",
+    "description": "Add multiple groups to compare demographic segments side by side, or use a single group to filter the main view.",
+    "addGroup": "+ Add Group to Compare",
+    "deleteGroup": "Delete group",
+    "reset": "Reset",
+    "applyFilters": "Apply Filters",
+    "allParticipants": "All Participants",
+    "groupLabelPrefix": "Group",
+    "anyOption": "Any"
+  },
+  "chart": {
+    "lowSampleSize": "Low sample size",
+    "opinionsMeta": "({count} opinions)",
+    "otherCategory": "Other"
+  }
+}

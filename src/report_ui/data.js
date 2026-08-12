@@ -48,6 +48,51 @@ const predictedRaw = fs.existsSync(predictedPath)
   ? JSON.parse(fs.readFileSync(predictedPath, "utf-8"))
   : [];
 
+// --- Localization (i18n) Setup ---
+
+/**
+ * Recursively deep merges source object into target object.
+ * @param {Object} target - The default target object.
+ * @param {Object} source - The source object with overrides.
+ * @returns {Object} A new deeply merged object.
+ */
+function deepMerge(target, source) {
+  const output = { ...target };
+  for (const key of Object.keys(source || {})) {
+    if (
+      source[key] instanceof Object &&
+      key in target &&
+      target[key] instanceof Object &&
+      !Array.isArray(source[key])
+    ) {
+      output[key] = deepMerge(target[key], source[key]);
+    } else if (source[key] !== undefined) {
+      output[key] = source[key];
+    }
+  }
+  return output;
+}
+
+const defaultI18n = JSON.parse(
+  fs.readFileSync("./src/default-translations.json", "utf-8"),
+);
+
+const userI18nPath = fs.existsSync(`./input/${prefix}translations.json`)
+  ? `./input/${prefix}translations.json`
+  : fs.existsSync("./input/translations.json")
+    ? "./input/translations.json"
+    : null;
+
+const userI18n = userI18nPath
+  ? JSON.parse(fs.readFileSync(userI18nPath, "utf-8"))
+  : {};
+
+const i18n = deepMerge(defaultI18n, userI18n);
+i18n.locale = config.locale || userI18n.locale || defaultI18n.locale || "en";
+i18n.direction = config.direction || userI18n.direction || defaultI18n.direction || "ltr";
+
+const numberFormatter = new Intl.NumberFormat(i18n.locale);
+
 const overviewChart = config.overview_chart || "toggle";
 const options = {
   logo: config.logo || "",
@@ -117,12 +162,12 @@ function sum(arr) {
 }
 
 /**
- * Formats a number with commas (e.g. 1000 -> "1,000").
+ * Formats a number according to the active locale.
  * @param {number} num
  * @returns {string}
  */
-function addComma(num) {
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+function formatNumber(num) {
+  return numberFormatter.format(num);
 }
 
 /**
@@ -144,18 +189,24 @@ function groupBy(array, column) {
 }
 
 /**
- * Generates a URL-safe slug from a string.
+ * Generates a URL-safe slug from a string supporting all Unicode scripts.
  * @param {string} str - The input string.
  * @param {boolean} [useFirstWords=false] - If true, limits the slug to the first 5 words.
  * @returns {string} A lowercase, alphanumeric slug.
  */
 function generateId(str, useFirstWords = false) {
-  // replace anything that isn't a letter with ""
+  if (!str) return "item";
   const words = str
     .split(" ")
     .slice(0, useFirstWords ? 5 : undefined)
     .join(" ");
-  return words.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return (
+    words
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Strip diacritics where applicable
+      .replace(/[^\p{L}\p{N}]+/gu, "") || "item"
+  );
 }
 
 /**
@@ -376,7 +427,8 @@ function processPredicted(raw) {
 
 // 1. Calculate aggregate statistics
 const byParticipant = groupBy(opinions, "participant_id");
-const totalParticipants = addComma(byParticipant.length);
+const totalParticipants = formatNumber(byParticipant.length);
+const totalParticipantsFormatted = formatNumber(byParticipant.length);
 const propositionsGenerated = 0; // Placeholder / Todo
 
 // 2. Perform transformations
@@ -386,9 +438,11 @@ const predicted = processPredicted(predictedRaw);
 
 // 3. Calculate high-level counts
 const topicsIdentified = summary.sub_contents.length;
+const topicsIdentifiedFormatted = formatNumber(topicsIdentified);
 const opinionsIdentified = opinionsGrouped
   .map((t) => t.opinions.length)
   .reduce((a, b) => a + b, 0);
+const opinionsIdentifiedFormatted = formatNumber(opinionsIdentified);
 
 // 4. Construct final payload (frontend-ready)
 const topics = opinionsGrouped.map((topic) => {
@@ -399,20 +453,20 @@ const topics = opinionsGrouped.map((topic) => {
     topicID: topic.topicID,
     text: topic.text,
     topicCount: topic.count,
-    topicCountFormatted: addComma(topic.count),
+    topicCountFormatted: formatNumber(topic.count),
     opinionCount: topic.opinions.length,
-    opinionCountFormatted: addComma(topic.opinions.length),
+    opinionCountFormatted: formatNumber(topic.opinions.length),
     // rawQuoteCount: Sum of all quotes (including duplicates/same user)
     rawQuoteCount: sum(topic.opinions.map((o) => o.count)),
     // quoteCount: Unique participants
     quoteCount: getUniqueQuoteCount(topic.opinions),
-    quoteCountFormatted: addComma(getUniqueQuoteCount(topic.opinions)),
+    quoteCountFormatted: formatNumber(getUniqueQuoteCount(topic.opinions)),
     summary: topic.summary,
     // Map opinions to frontend structure (only sample quotes included)
     opinions: topic.opinions.map((o) => ({
       text: o.text,
       count: o.count,
-      countFormatted: addComma(o.count),
+      countFormatted: formatNumber(o.count),
       sampleQuotes: allSampleQuotes
         .filter((q) => q.fullID === o.fullID)
         .map((q) => q.text),
@@ -454,24 +508,37 @@ const demographics = demoKeys.map((key) => {
   return { label, values };
 });
 
-demographics.sort((a, b) => a.label - b.label);
+demographics.sort((a, b) => a.label.localeCompare(b.label, i18n.locale));
 
 // 7. Prepare outputs
 const executiveSummary = parseSummary(cleanMarkdown(summary.text || ""));
 const title = stripMarkdownHeader(summary.title);
 
+// Dynamic sentence interpolation
+const conversationOverviewLead = (
+  i18n.sections?.conversationLeadTemplate ||
+  "Below is a high level overview of the topics discussed in the conversation. The most discussed topics were {topTopic1} and {topTopic2}."
+)
+  .replace("{topTopic1}", topics[0]?.text || "")
+  .replace("{topTopic2}", topics[1]?.text || "");
+
 const baseOutput = {
   ...options,
   title,
   executiveSummary,
+  conversationOverviewLead,
   totalParticipants,
+  totalParticipantsFormatted,
   topicsIdentified,
+  topicsIdentifiedFormatted,
   opinionsIdentified,
+  opinionsIdentifiedFormatted,
   propositionsGenerated,
   topics,
   demographics,
   predicted,
   hasPredicted: predicted.topics.length > 0,
+  i18n,
 };
 
 // --- File Writing ---
@@ -486,6 +553,7 @@ staticOutput.payload = JSON.stringify({
   topics,
   demographics,
   options,
+  i18n,
 }).replace(/</g, "\\u003c");
 fs.writeFileSync("./temp/data-static.json", JSON.stringify(staticOutput));
 
@@ -496,6 +564,7 @@ inlineOutput.payload = JSON.stringify({
   demographics,
   options,
   quotes,
+  i18n,
 }).replace(/</g, "\\u003c");
 fs.writeFileSync("./temp/data-inline.json", JSON.stringify(inlineOutput));
 
