@@ -111,13 +111,14 @@ const tasks = {
    * Converts input CSV data to JSON and runs the data processing script.
    * Uses `csvtojson` for conversion and executes `data.js`.
    */
-  data: () => {
+  data: (dev) => {
     console.log("...converting opinions csv to json and processing data");
     const fileDescriptor = fs.openSync("temp/opinions.json", "w");
 
     try {
       // Stream output of csvtojson directly to the file descriptor
-      execSync("npx -y -q csvtojson input/opinions.csv", {
+      const prefix = dev ? `test-` : "";
+      execSync(`npx -y -q csvtojson input/${prefix}opinions.csv`, {
         stdio: ["ignore", fileDescriptor, "inherit"],
       });
     } catch (e) {
@@ -127,7 +128,7 @@ const tasks = {
       fs.closeSync(fileDescriptor);
     }
 
-    runInherit("node data.js");
+    runInherit(`node data.js${dev ? " dev" : ""}`);
   },
 
   /**
@@ -260,10 +261,10 @@ const tasks = {
    * Main Pipeline: Builds the project using the Static strategy.
    * Standard build with separate CSS/JS files.
    */
-  static: () => {
+  static: (test) => {
     console.log("\n** BUILDING REPORT (STATIC) **\n");
     tasks.start();
-    tasks.data();
+    tasks.data(test);
     tasks.htmlStatic();
     tasks.assets();
     tasks.end();
@@ -299,7 +300,7 @@ const tasks = {
    */
   dev: () => {
     tasks.start(true);
-    tasks.data();
+    tasks.data(true);
   },
 
   /**
@@ -307,6 +308,7 @@ const tasks = {
    * Intended for GitHub Pages deployment.
    */
   github: () => {
+    tasks.static(true);
     console.log("...deploying to github docs");
 
     rm("docs");

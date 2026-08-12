@@ -180,42 +180,7 @@ The script follows a recursive summarization process to ensure accuracy:
 2. It synthesizes those opinion summaries into a summary for the overall **topic**.
 3. It creates the high-level **overview** based on the topic summaries.
 
-#### 5\. Interactive Report
-
-In order to build the web interface to explore the summarized data, begin by **copying  the processed data** into the UI input folder.
-
-```shell
-cp <OUTPUT_DIR>/bridging_scores.csv src/report_ui/input/opinions.csv
-cp <OUTPUT_DIR>/report_text/report_data.json src/report_ui/input/summary.json
-```
-
-##### **Customize the Report (Optional)**:
-
-You can edit `src/report_ui/input/config.json` to customize the report. Key options include:
-
-* `title`: Set the display title of the report.
-* `logo`: Set the filename of your header image (placed in the `input/` folder).
-* `overview_chart`: Set the display mode for the main chart (`"toggle"`, `"topics"`, or `"opinions"`).
-* `number_of_sample_quotes`: Control how many quote previews to display for each opinion.
-* `chart_colors`: Provide an array of hex color codes to customize the chart palette.
-* `excludedTopics`: Add topic names to this array to hide them from the report.
-* `excludedOpinions`: Add opinion names to this array to hide them from the report.
-* *For a full list of configuration options, check the `README.md` file in `src/report_ui/`.*
-3. **Install dependencies**:
-
-```shell
-cd src/report_ui
-npm install
-```
-
-##### **View and Build the Report**:
-
-4. **Local Viewing**: Run `npm run dev` to start a local web server to view the report.
-5. **Web Server Deployment**: Run `npm run build` to output a version optimized for delivery via a web server to `src/report_ui/output/static`.
-6. **Offline Viewing**: Run `npm run inline` to output a self-contained version of the report to `src/report_ui/output/inline`.
-   * *Note: This may not be suitable for larger conversations.*
-
-#### 6\. Proposition Generation & Simulated Juries
+#### 5\. Proposition Generation & Simulated Juries
 
 Generate distinct propositions and use a simulated jury technique to rank them and identify statements likely to receive broad agreement. These statements can be used in future validation polls.
 
@@ -260,9 +225,7 @@ python -m src.proposition_simplification_runner \
 
 INPUT\_CSV should contain a single column called "original" with the original proposition text.  The OUTPUT\_CSV contains an additional column called "simplification" with the rewritten proposition.
 
----
-
-### Appendix: Standalone Simulated Juries
+**Note: Standalone Simulated Juries**
 
 If you have a simple CSV of statements and participants and want to predict agreement *without* running the full pipeline, you can run the jury standalone:
 
@@ -272,6 +235,67 @@ python3 -m src.simulated_jury.main \
   --statements_csv <CSV_WITH_STATEMENTS_TO_TEST> \
   --output_csv <OUTPUT_DIR>/jury_results.csv \
   --statement_column "proposition"
+```
+
+#### 6\. Interactive Report
+
+In order to build the web interface to explore the summarized data, begin by **copying the processed data** into the UI input folder.
+
+```shell
+cp <OUTPUT_DIR>/bridging_scores.csv src/report_ui/input/opinions.csv
+cp <OUTPUT_DIR>/report_text/report_data.json src/report_ui/input/summary.json
+```
+
+##### **Customize the Report (Optional)**:
+
+You can edit `src/report_ui/input/config.json` to customize the report. Key options include:
+
+* `title`: Set the display title of the report.
+* `logo`: Set the filename of your header image (placed in the `input/` folder).
+* `overview_chart`: Set the display mode for the main chart (`"toggle"`, `"topics"`, or `"opinions"`).
+* `number_of_sample_quotes`: Control how many quote previews to display for each opinion.
+* `chart_colors`: Provide an array of hex color codes to customize the chart palette.
+* `demographic_colors`: Provide an array of hex color codes to customize the participant chart palette.
+* `excludedTopics`: Add topic names to this array to hide them from the report.
+* `excludedOpinions`: Add opinion names to this array to hide them from the report.
+* *For a full list of configuration options, check the `README.md` file in `src/report_ui/`.*
+
+##### **Add Advanced Features (Optional)**:
+
+You can enhance your report by configuring two additional features before building:
+
+1. **Demographic Support:** You can add demographic dimensions to your data by ensuring the relevant columns in your `opinions.csv` are prefixed with `demo:`. For example, `demo:Age` or `demo:Location`. The tool will automatically use these to build a demographic breakdown chart and quote filters.
+2. **Predicted Agreement (Propositions):** Because you generated propositions in step 5, you can feature them in a dedicated "Predicted Agreement" tab. Create a `predicted.json` file in `src/report_ui/input/` structured exactly like this:
+```json
+{
+  "text": "Introductory text for the predicted agreement tab.",
+  "sub_contents": [
+    {
+      "title": "## Topic Name",
+      "text": "Optional context for this topic.",
+      "statements": [
+        {
+          "text": "The text of the proposition/statement",
+          "predicted_agreement": 85
+        }
+      ]
+    }
+  ]
+}
+```
+
+##### **View and Build the Report**:
+
+3. **Web Server Deployment (Static)**: Run `npm run build` from the `src/report_ui` directory to output a version optimized for delivery via a web server to `src/report_ui/output/static`.
+4. **Offline Viewing (Inline)**: Run `npm run inline` to output a self-contained version of the report to `src/report_ui/output/inline`.
+   * *Note: This may not be suitable for larger conversations.*
+
+*(Optional) Local Development:*
+If you want to view the report using a live local server during development, you will need to install the dev dependencies first:
+```shell
+cd src/report_ui
+npm install
+npm run dev
 ```
 
 ## Our Approach

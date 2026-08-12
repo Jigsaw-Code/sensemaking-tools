@@ -32,6 +32,23 @@
  */
 
 /**
+ * Represents a DemographicItem
+ * @typedef {Object} DemographicItem
+ * @property {string} value - The display value of the demographic item group.
+ * @property {number} count - The count of demographic item.
+ * @property {number} [_startIndex] - Calculated index for stacked bar visualization.
+ * @property {number} [_startCount] - Calculated offset for stacked bar visualization.
+ * @property {number} [_pct] - Calculated percentage of the total demographic count.
+ */
+
+/**
+ * Represents a Demographic breakdown
+ * @typedef {Object} Demographic
+ * @property {string} label - The display label of the demographic.
+ * @property {DemographicItem[]} values - Array of demographic key/values.
+ */
+
+/**
  * Represents the raw Quote object structure stored in quotes.json or payload.
  * @typedef {Object} RawQuote
  * @property {string} id - Matches the 'fullID' of an Opinion.
@@ -41,15 +58,19 @@
 /**
  * The global data payload injected by the build process.
  * Handles both "inline" (all data in one file) and "static" (fetches quotes separately) modes.
- * @type {{ topics: Topic[], quotes?: RawQuote[], options: { logo: string, overviewChart: string, hasToggle: boolean, sampleQuoteCount: number, topOpinionCount: number, chartColors: string[] } }}
+ * @type {{ topics: Topic[], demographics: [Demographic[]] quotes?: RawQuote[], options: { logo: string, overviewChart: string, hasToggle: boolean, sampleQuoteCount: number, topOpinionCount: number, topicColors: string[] } }}
  */
 window.PAYLOAD = window.PAYLOAD || {};
+// console.log(window.PAYLOAD);
 
 /**
  * Default color palette used for visualizing different topics.
  * @constant {string[]}
  */
-const PALETTE = window.PAYLOAD.options.chartColors || ["#ccc"];
+const TOPIC_PALETTE = window.PAYLOAD.options.topicColors || ["#333"];
+const DEMOGRAPHIC_PALETTE = window.PAYLOAD.options.demographicColors || [
+  "#333",
+];
 
 /**
  * Default number of top opinions to display in the Opinion Chart view.
@@ -64,15 +85,233 @@ const NUM_TOP_OPINIONS = window.PAYLOAD.options.topOpinionCount || 10;
 const OVERVIEW_CHART_TYPE = window.PAYLOAD.options.overviewChart || "toggle";
 
 /**
+ * Quote threshold for warning
+ * @constant {number}
+ */
+let lowSampleThreshold = window.PAYLOAD.options.lowSampleThreshold || 30;
+
+/**
+ * Global modal opinion ID
+ * @constant {string}
+ */
+let currentDrawerId = "";
+/** @type {{ key: string, value: string }[]} */
+let currentDrawerFilters = [];
+
+/** @type {Opinion[]} */
+let flatOpinions = [];
+/** @type {Map<string, RawQuote[]>} */
+let quoteMap;
+/** @type {{ key: string, value: string }[][]} */
+let compareGroups = [[]];
+let activeOverviewChart = "topics";
+
+function renderOverviewChart() {
+  if (activeOverviewChart === "opinions") createOpinionChart();
+  else createTopicChart();
+}
+
+/**
+ * Renders a demographic chart.
+ * Displays each demographic breakdown as a stacked horizontal bar using SVG.
+ * Each segment represents a demographic value, sized by its share of participants.
+ */
+
+function createDemographicChart({ id, data }) {
+  /** @type {Demographic[]} */
+  const svgHeight = 16;
+  const borderRadius = 4;
+  const containerSel = d3.select(`#${id}`);
+  const render = () => {
+    containerSel.html("");
+
+    const containerNode = containerSel.node();
+    const containerWidth = containerNode
+      ? containerNode.getBoundingClientRect().width
+      : 800;
+
+    data.forEach((demographic) => {
+      const sortedValues = [...demographic.values].sort((a, b) => {
+        if (a.value.toLowerCase() === "other") return 1;
+        if (b.value.toLowerCase() === "other") return -1;
+        return d3.ascending(a.value.toLowerCase(), b.value.toLowerCase());
+      });
+
+      // Total count across all values for this demographic (denominator for %)
+      const totalCount = d3.sum(sortedValues, (d) => d.count);
+
+      // Calculate cumulative offsets for the stacked bar effect
+      let currentAccumulator = 0;
+      const processedValues = sortedValues.map((d, i) => {
+        const startVal = currentAccumulator;
+        currentAccumulator += d.count;
+        return {
+          ...d,
+          _startIndex: i,
+          _startCount: startVal,
+          _pct: Math.round((d.count / totalCount) * 100),
+        };
+      });
+
+      const top = processedValues[0];
+
+      const wrapper = containerSel
+        .append("div")
+        .attr("class", "demographic-wrapper");
+
+      wrapper
+        .append("div")
+        .attr("class", "demographic-header")
+        .text(demographic.label);
+
+      const svg = wrapper
+        .append("svg")
+        .attr("class", "demographic-svg")
+        .attr("width", "100%")
+        .attr("height", svgHeight);
+
+      const gapSize = containerWidth > 600 ? 4 : 2;
+
+      const totalRowGapPixels = Math.max(
+        0,
+        (processedValues.length - 1) * gapSize,
+      );
+
+      svg
+        .selectAll("rect")
+        .data(processedValues)
+        .enter()
+        .append("rect")
+        .attr("class", "demographic-rect")
+        .attr("y", 0)
+        .attr("height", svgHeight)
+        .attr("x", (d) => {
+          const startRatio = d._startCount / totalCount;
+          const shiftRight = d._startIndex * gapSize;
+          const shiftLeft = startRatio * totalRowGapPixels;
+
+          return `calc(${startRatio * 100}% + ${shiftRight - shiftLeft}px)`;
+        })
+        .attr("width", (d) => {
+          const ratio = d.count / totalCount;
+          const shrinkPixels = ratio * totalRowGapPixels;
+          return `calc(${ratio * 100}% - ${shrinkPixels}px)`;
+        })
+        .attr("rx", borderRadius)
+        .attr(
+          "fill",
+          (d, i) => DEMOGRAPHIC_PALETTE[i % DEMOGRAPHIC_PALETTE.length],
+        );
+
+      const legend = wrapper.append("div").attr("class", "demographic-legend");
+
+      processedValues.forEach((d, i) => {
+        const item = legend.append("div").attr("class", "legend-item");
+        item
+          .append("span")
+          .attr("class", "legend-color")
+          .style(
+            "background",
+            DEMOGRAPHIC_PALETTE[i % DEMOGRAPHIC_PALETTE.length],
+          );
+        item
+          .append("span")
+          .attr("class", "legend-text")
+          .html(`<strong>${d.value}</strong> ${d._pct}%`);
+      });
+    });
+  };
+
+  render();
+
+  let resizeTimer;
+  const onResize = () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(render, 250);
+  };
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
+}
+
+/**
+ * Returns an array of groups, each with a label and topics array.
+ * When no compare groups are active, returns a single group for all participants.
+ * @returns {{ label: string, topics: Topic[] }[]}
+ */
+function getTopicData() {
+  const GROUP_LABELS = ["A", "B", "C", "D"];
+
+  const groupDescription = (group) =>
+    group.length === 0
+      ? "All Participants"
+      : group
+          .map(
+            (f) => `<div class="topic-group-item">${f.key}: ${f.value}</div>`,
+          )
+          .join("");
+
+  if (compareGroups.length === 1 && compareGroups[0].length === 0) {
+    return [
+      {
+        label: "",
+        description: groupDescription(compareGroups[0]),
+        topics: window.PAYLOAD.topics,
+      },
+    ];
+  }
+
+  // loop through each group and filter opinions based on the group's demographic filters. Then aggregate quote counts for each opinion and topic, and return a new structured array that maps to the original topic structure.
+  return compareGroups.map((group, i) => {
+    const topics = window.PAYLOAD.topics
+      .map((topic) => {
+        const filteredOpinions = topic.opinions
+          .map((opinion) => {
+            const allQuotes = quoteMap?.get(opinion.fullID) ?? [];
+            const matched =
+              group.length === 0
+                ? allQuotes
+                : allQuotes.filter((q) =>
+                    group.every(({ key, value }) => q[key] === value),
+                  );
+            return {
+              ...opinion,
+              count: matched.length,
+              countFormatted: d3.format(",")(matched.length),
+            };
+          })
+          .filter((o) => o.count > 0);
+
+        const rawQuoteCount = d3.sum(filteredOpinions, (o) => o.count);
+        return {
+          ...topic,
+          opinions: filteredOpinions,
+          opinionCount: filteredOpinions.length,
+          rawQuoteCount,
+          quoteCount: rawQuoteCount,
+          quoteCountFormatted: d3.format(",")(rawQuoteCount),
+        };
+      })
+      .filter((t) => t.rawQuoteCount > 0);
+
+    return {
+      label: `Group ${GROUP_LABELS[i]}`,
+      description: groupDescription(group),
+      topics,
+    };
+  });
+}
+
+/**
  * Renders the primary "Conversation Overview" chart.
- * Displays topics as stacked horizontal bars using SVG.
- * Uses `rawQuoteCount` from the payload to determine bar widths.
+ * Displays topics as rows of stacked horizontal bars using SVG.
+ * When multiple compare groups are active, each topic shows one bar per group
+ * at half height; a single group uses full height.
  */
 function createTopicChart() {
-  /** @type {Topic[]} */
-  const data = window.PAYLOAD.topics;
+  const groups = getTopicData();
   const svgHeight = 32;
-  const borderRadius = 4;
+  const barHeight = groups.length > 1 ? svgHeight / 2 : svgHeight;
+  const borderRadius = groups.length > 1 ? 2 : 4;
   const containerSel = d3.select(`#conversation-overview-chart`);
 
   const render = () => {
@@ -83,29 +322,23 @@ function createTopicChart() {
       ? containerNode.getBoundingClientRect().width
       : 800;
 
-    // Use rawQuoteCount (sum of all opinion counts) for the scale
-    const maxCount = d3.max(data, (d) => d.rawQuoteCount);
+    const gapSize = containerWidth > 600 ? 4 : 2;
 
-    const sortedData = [...data].sort((a, b) =>
-      d3.descending(a.rawQuoteCount, b.rawQuoteCount),
+    const maxCount = d3.max(
+      groups.flatMap((g) => g.topics),
+      (d) => d.rawQuoteCount,
     );
 
-    sortedData.forEach((topic, index) => {
-      const sortedOpinions = [...topic.opinions].sort((a, b) =>
-        d3.descending(a.count, b.count),
-      );
+    const sortedTopicIDs = [...groups[0].topics]
+      .sort((a, b) => d3.descending(a.rawQuoteCount, b.rawQuoteCount))
+      .map((t) => t.topicID);
 
-      // Calculate cumulative offsets for the stacked bar effect
-      let currentAccumulator = 0;
-      const processedOpinions = sortedOpinions.map((d, i) => {
-        const startVal = currentAccumulator;
-        currentAccumulator += d.count;
-        return {
-          ...d,
-          _startIndex: i,
-          _startCount: startVal,
-        };
-      });
+    sortedTopicIDs.forEach((topicID, topicIdx) => {
+      const refTopic = groups[0].topics.find((t) => t.topicID === topicID);
+      if (!refTopic) return;
+
+      const topicColor = TOPIC_PALETTE[topicIdx % TOPIC_PALETTE.length];
+      const hoverColor = d3.color(topicColor).darker(0.8);
 
       const wrapper = containerSel.append("div").attr("class", "topic-wrapper");
 
@@ -113,61 +346,89 @@ function createTopicChart() {
         .append("div")
         .attr("class", "topic-header")
         .html(
-          `${topic.text} <span class="topic-meta">(${topic.opinionCount} opinions, ${topic.quoteCountFormatted} total quotes)</span>`,
+          `${refTopic.text} <span class="topic-meta">(${refTopic.opinionCount} opinions)</span>`,
         );
 
-      const svg = wrapper
-        .append("svg")
-        .attr("class", "topic-svg")
-        .attr("width", "100%")
-        .attr("height", svgHeight);
+      groups.forEach(({ label, topics, description }) => {
+        const topic = topics.find((t) => t.topicID === topicID);
+        if (!topic) return;
 
-      const gapSize = containerWidth > 600 ? 4 : 2;
+        const sortedOpinions = [...topic.opinions].sort((a, b) =>
+          d3.descending(a.count, b.count),
+        );
 
-      const totalRowGapPixels = Math.max(
-        0,
-        (processedOpinions.length - 1) * gapSize,
-      );
+        let currentAccumulator = 0;
+        const processedOpinions = sortedOpinions.map((d, i) => {
+          const startVal = currentAccumulator;
+          currentAccumulator += d.count;
+          return { ...d, _startIndex: i, _startCount: startVal };
+        });
 
-      const topicColor = PALETTE[index % PALETTE.length];
-      const hoverColor = d3.color(topicColor).darker(0.8);
+        const totalRowGapPixels = Math.max(
+          0,
+          (processedOpinions.length - 1) * gapSize,
+        );
 
-      svg
-        .selectAll("rect")
-        .data(processedOpinions)
-        .enter()
-        .append("rect")
-        .attr("class", "opinion-rect")
-        .attr("y", 0)
-        .attr("height", svgHeight)
-        .attr("x", (d) => {
-          const startRatio = d._startCount / maxCount;
-          const shiftRight = d._startIndex * gapSize;
-          const shiftLeft = startRatio * totalRowGapPixels;
+        const groupRow = wrapper.append("div").attr("class", "topic-group");
 
-          return `calc(${startRatio * 100}% + ${shiftRight - shiftLeft}px)`;
-        })
-        .attr("width", (d) => {
-          const ratio = d.count / maxCount;
-          const shrinkPixels = ratio * totalRowGapPixels;
-          return `calc(${ratio * 100}% - ${shrinkPixels}px)`;
-        })
-        .attr("fill", topicColor)
-        .on("mouseover", function () {
-          d3.select(this).attr("fill", hoverColor);
-        })
-        .on("mouseout", function () {
-          d3.select(this).attr("fill", topicColor);
-        })
-        .attr("rx", borderRadius)
-        .attr("data-tippy-content", (d) => {
-          return `
-            <div class="topic-text">${topic.text}</div>
-            <div class="quote-count">${d.countFormatted} Quotes</div>
-            <div class="opinion-text">${d.text}</div>
-          `;
-        })
-        .style("cursor", "pointer");
+        groupRow
+          .append("div")
+          .attr("class", "topic-group-label")
+          .attr(
+            "data-tippy-content",
+            `<div class="topic-group-label">${label}</div><div class="topic-group-description">${description}</div>`,
+          )
+          .text(label);
+
+        const svg = groupRow
+          .append("svg")
+          .attr("class", "topic-svg")
+          .attr("width", "100%")
+          .attr("height", barHeight);
+
+        svg
+          .selectAll("rect")
+          .data(processedOpinions)
+          .enter()
+          .append("rect")
+          .attr("class", "opinion-rect")
+          .attr("y", 0)
+          .attr("height", barHeight)
+          .attr("x", (d) => {
+            const startRatio = d._startCount / maxCount;
+            const shiftRight = d._startIndex * gapSize;
+            const shiftLeft = startRatio * totalRowGapPixels;
+            return `calc(${startRatio * 100}% + ${shiftRight - shiftLeft}px)`;
+          })
+          .attr("width", (d) => {
+            const ratio = d.count / maxCount;
+            const shrinkPixels = ratio * totalRowGapPixels;
+            return `calc(${ratio * 100}% - ${shrinkPixels}px)`;
+          })
+          .attr("fill", topicColor)
+          .on("mouseover", function () {
+            d3.select(this).attr("fill", hoverColor);
+          })
+          .on("mouseout", function () {
+            d3.select(this).attr("fill", topicColor);
+          })
+          .attr("rx", borderRadius)
+          .attr("data-tippy-content", (d) => {
+            return `
+              <div class="topic-text">${topic.text}</div>
+              <div class="quote-count">${d.countFormatted} Quotes</div>
+              <div class="opinion-text">${d.text}</div>
+            `;
+          })
+          .style("cursor", "pointer");
+
+        groupRow
+          .append("div")
+          .attr("class", "topic-group-count")
+          .html(
+            `${topic.quoteCountFormatted} Quotes${topic.quoteCount < lowSampleThreshold ? `<img src="svg/exclamation.svg" alt="" role="presentation" data-tippy-content="<div class='low-sample'>Low sample size</div>" />` : ""}`,
+          );
+      });
     });
 
     tippy(".opinion-rect", {
@@ -178,6 +439,22 @@ function createTopicChart() {
       delay: 0,
       duration: 0,
       followCursor: true,
+    });
+
+    tippy(".topic-group-label", {
+      allowHTML: true,
+      animation: "fade",
+      theme: "light",
+      delay: 0,
+      duration: 0,
+    });
+
+    tippy(".topic-group-count img", {
+      allowHTML: true,
+      animation: "fade",
+      theme: "light",
+      delay: 0,
+      duration: 0,
     });
   };
 
@@ -191,117 +468,154 @@ function createTopicChart() {
 }
 
 /**
+ * Renders the "Participant Overview" chart.
+ */
+function createParticipantChart() {
+  /** @type {Demographic[]} */
+  const data = window.PAYLOAD.demographics;
+  const id = "participant-overview-chart";
+  createDemographicChart({ id, data });
+}
+
+/**
  * Renders the alternative "Top Opinions" view.
  * Flattens the nested data structure (Topic -> Opinions) into a single list
  * to display the most popular opinions regardless of topic.
  */
 function createOpinionChart() {
-  /** @type {Topic[]} */
-  const data = window.PAYLOAD.topics;
-  const borderRadius = 4;
+  const groups = getTopicData();
+  const borderRadius = groups.length > 1 ? 2 : 4;
   const barHeight = 24;
-
+  const actualBarHeight = groups.length > 1 ? barHeight / 1.5 : barHeight;
   const gapSize = 12;
   const containerSel = d3.select(`#conversation-overview-chart`);
 
-  // Flatten opinions and inject parent topic metadata for reference
-  const opinions = data
-    .map((topic) => {
-      return topic.opinions.map((opinion) => ({
-        ...opinion,
-        topicText: topic.text,
-        topicId: topic.topicID,
-      }));
-    })
-    .flat();
+  // Color lookup keyed by topicID, using original payload order for consistency
+  const topicIndexMap = new Map();
+  window.PAYLOAD.topics.forEach((topic, i) =>
+    topicIndexMap.set(topic.topicID, i),
+  );
+  const topicColor = (topicId) => {
+    const idx = topicIndexMap.get(topicId) ?? 0;
+    return TOPIC_PALETTE[idx % TOPIC_PALETTE.length];
+  };
+
+  // Per-group flat map of fullID -> opinion (with injected topic metadata)
+  const groupOpinionMaps = groups.map(({ topics }) => {
+    const map = new Map();
+    topics.forEach((topic) => {
+      topic.opinions.forEach((op) => {
+        map.set(op.fullID, {
+          ...op,
+          topicText: topic.text,
+          topicId: topic.topicID,
+        });
+      });
+    });
+    return map;
+  });
+
+  // Top N opinion IDs ranked by the reference group (group 0)
+  const topOpinionIDs = [...groupOpinionMaps[0].values()]
+    .sort((a, b) => d3.descending(a.count, b.count))
+    .slice(0, NUM_TOP_OPINIONS)
+    .map((o) => o.fullID);
 
   const render = () => {
     containerSel.html("");
 
-    const maxCount = d3.max(opinions, (d) => d.count);
+    const maxCount = d3.max(
+      topOpinionIDs.flatMap((id) =>
+        groups.map((_, gi) => groupOpinionMaps[gi].get(id)?.count ?? 0),
+      ),
+    );
 
-    // Get top X opinions across all topics
-    const sortedData = [...opinions]
-      .sort((a, b) => d3.descending(a.count, b.count))
-      .slice(0, NUM_TOP_OPINIONS);
-
-    // Color map based on topic index to maintain consistency with Topic Chart
-    const topicIndexMap = new Map();
-    data.forEach((topic, index) => {
-      topicIndexMap.set(topic.topicID, index);
-    });
-
-    const topicColor = (d) => {
-      const topicIndex = topicIndexMap.get(d.topicId) || 0;
-      return PALETTE[topicIndex % PALETTE.length];
-    };
-
-    const div = containerSel.append("div").attr("class", "opinion-legend");
-    data.forEach((topic) => {
-      const isInTop = sortedData.some(
-        (opinion) => opinion.topicId === topic.topicID,
-      );
-      if (!isInTop) return;
-      const topicIndex = topicIndexMap.get(topic.topicID) || 0;
-      const color = PALETTE[topicIndex % PALETTE.length];
-      const item = div.append("div").attr("class", "legend-item");
+    // Legend: topics represented in the top opinions
+    const topicIDsInTop = new Set(
+      topOpinionIDs
+        .map((id) => groupOpinionMaps[0].get(id)?.topicId)
+        .filter(Boolean),
+    );
+    const legend = containerSel.append("div").attr("class", "opinion-legend");
+    window.PAYLOAD.topics.forEach((topic) => {
+      if (!topicIDsInTop.has(topic.topicID)) return;
+      const item = legend.append("div").attr("class", "legend-item");
       item
         .append("span")
         .attr("class", "legend-color")
-        .style("background-color", color);
+        .style("background-color", topicColor(topic.topicID));
       item.append("span").attr("class", "legend-text").text(topic.text);
     });
 
     const listContainer = containerSel
       .append("div")
-      .attr("class", "opinion-list-container")
-      .style("width", "100%")
-      .style("display", "flex")
-      .style("flex-direction", "column");
+      .attr("class", "opinion-list-container");
 
-    const rows = listContainer
-      .selectAll(".opinion-row")
-      .data(sortedData)
-      .enter()
-      .append("div")
-      .attr("class", "opinion-row")
-      .style("margin-bottom", `${gapSize}px`)
-      .style("width", "100%");
+    topOpinionIDs.forEach((fullID) => {
+      const refOp = groupOpinionMaps[0].get(fullID);
+      if (!refOp) return;
 
-    rows
-      .append("div")
-      .attr("class", "opinion-label")
-      .text((d) => `${d.text} (${d.countFormatted} quotes)`)
-      .style("font-size", "12px")
-      .style("color", "#000")
-      .style("margin-bottom", "4px")
-      .style("line-height", "1.2");
+      const color = topicColor(refOp.topicId);
+      const hoverColor = d3.color(color).darker(0.8);
 
-    rows
-      .append("div")
-      .attr("class", "opinion-bar")
-      .style("height", `${barHeight}px`)
-      .style("width", (d) => `${(d.count / maxCount) * 100}%`)
-      .style("background-color", topicColor)
-      .style("border-radius", `${borderRadius}px`)
-      .style("cursor", "pointer")
-      .style("transition", "background-color 0.2s ease")
-      .attr("data-tippy-content", (d) => {
-        return `
-            <div class="topic-text">${d.topicText}</div>
-            <div class="quote-count">${d.countFormatted} Quotes</div>
-            <div class="opinion-text">${d.text}</div>
-        `;
-      })
-      .on("mouseover", function () {
-        d3.select(this).style(
-          "background-color",
-          d3.color(topicColor(d3.select(this).data()[0])).darker(0.8),
-        );
-      })
-      .on("mouseout", function () {
-        d3.select(this).style("background-color", topicColor);
+      const opinionRow = listContainer
+        .append("div")
+        .attr("class", "opinion-row")
+        .style("margin-bottom", `${gapSize}px`);
+
+      opinionRow.append("div").attr("class", "opinion-label").text(refOp.text);
+
+      groups.forEach(({ label, description }, gi) => {
+        const op = groupOpinionMaps[gi].get(fullID);
+        const count = op?.count ?? 0;
+        const countFormatted = op?.countFormatted ?? "0";
+
+        const groupRow = opinionRow.append("div").attr("class", "topic-group");
+
+        groupRow
+          .append("div")
+          .attr("class", "topic-group-label")
+          .attr(
+            "data-tippy-content",
+            `<div class="topic-group-label">${label}</div><div class="topic-group-description">${description}</div>`,
+          )
+          .text(label);
+
+        const barWrapper = groupRow
+          .append("div")
+          .attr("class", "opinion-bar-wrapper");
+
+        barWrapper
+          .append("div")
+          .attr("class", "opinion-bar")
+          .style("height", `${actualBarHeight}px`)
+          .style("width", `${(count / maxCount) * 100}%`)
+          .style("background-color", color)
+          .style("border-radius", `${borderRadius}px`)
+          .style("cursor", "pointer")
+          .attr(
+            "data-tippy-content",
+            `
+            <div class="topic-text">${refOp.topicText}</div>
+            <div class="quote-count">${countFormatted} Quotes</div>
+            <div class="opinion-text">${refOp.text}</div>
+          `,
+          )
+          .on("mouseover", function () {
+            d3.select(this).style("background-color", hoverColor);
+          })
+          .on("mouseout", function () {
+            d3.select(this).style("background-color", color);
+          });
+
+        groupRow
+          .append("div")
+          .attr("class", "topic-group-count")
+          .html(
+            `${countFormatted} Quotes${count < lowSampleThreshold ? `<img src="svg/exclamation.svg" alt="" role="presentation" data-tippy-content="<div class='low-sample'>Low sample size</div>" />` : ""}`,
+          );
       });
+    });
 
     tippy(".opinion-bar", {
       allowHTML: true,
@@ -311,6 +625,22 @@ function createOpinionChart() {
       delay: 0,
       duration: 0,
       followCursor: true,
+    });
+
+    tippy(".topic-group-label", {
+      allowHTML: true,
+      animation: "fade",
+      theme: "light",
+      delay: 0,
+      duration: 0,
+    });
+
+    tippy(".topic-group-count img", {
+      allowHTML: true,
+      animation: "fade",
+      theme: "light",
+      delay: 0,
+      duration: 0,
     });
   };
 
@@ -373,7 +703,7 @@ function createDonutChart(topicData, index) {
       .outerRadius(radius)
       .cornerRadius(cornerRadius);
 
-    const baseColor = PALETTE[index % PALETTE.length];
+    const baseColor = TOPIC_PALETTE[index % TOPIC_PALETTE.length];
     const hoverColor = d3.color(baseColor).darker(0.8);
 
     svg
@@ -432,21 +762,75 @@ function createDonutCharts() {
  * @param {string[]} params.quotes - Array of quote strings.
  * @param {string} params.text - The opinion text used as the header.
  */
-function openQuotesModal({ quotes, text }) {
-  const modalSel = d3.select("#modal");
+function renderQuotesDrawer({ quotes, text }) {
+  const drawerSel = d3.select("#drawer");
   const quoteCount = d3.format(",")(quotes.length);
-  modalSel.select(".modal-quote-count").text(`${quoteCount} Quotes`);
-  modalSel.select(".modal-opinion").text(text);
-  const quotesList = modalSel.select(".modal-quotes");
+  drawerSel.select(".drawer-quote-count").text(quoteCount);
+  drawerSel.select(".drawer-opinion").text(text);
+  const quotesList = drawerSel.select(".drawer-quotes");
   quotesList.html("");
-  quotes.forEach((quote) => {
-    quotesList.append("li").text(quote);
-  });
-  modalSel.classed("is-open", true);
+
+  if (!quotes.length) {
+    quotesList.html("<li>No quotes for the selected filters.</li>");
+  } else {
+    // const demoProps = window.PAYLOAD.demographics.map((d) => d.label);
+    quotes.forEach((q) => {
+      // const demoHtml = demoProps
+      //   .map((prop) => `<span class="demographics--value">${q[prop]}</span>`)
+      //   .join("");
+      quotesList.append("li").html(`<span class="text">${q.quote}</span>`);
+    });
+  }
+  drawerSel.classed("is-open", true);
   quotesList.node().scrollTop = 0;
 
   // focus on close button for accessibility
-  modalSel.select(".button-close").node().focus();
+  drawerSel.select(".button-close").node().focus();
+}
+
+/**
+ * Filters quotes for the current drawer opinion by `currentDrawerFilters` and re-renders.
+ * Call this whenever `currentDrawerId` or `currentDrawerFilters` changes.
+ */
+function updateQuotesDrawer() {
+  const match = flatOpinions.find((o) => o.fullID === currentDrawerId);
+  const text = match?.text || "Unknown Opinion";
+  const quotesRaw = quoteMap.get(currentDrawerId);
+  const quotes =
+    currentDrawerFilters.length === 0
+      ? quotesRaw
+      : quotesRaw.filter((d) =>
+          currentDrawerFilters.every(({ key, value }) => d[key] === value),
+        );
+  renderQuotesDrawer({ quotes, text });
+}
+
+function createQuotesDrawerParticipantChart() {
+  const id = "drawer-demographics-chart";
+  const match = flatOpinions.find((o) => o.fullID === currentDrawerId);
+  const text = match?.text || "Unknown Opinion";
+  const quotesRaw = quoteMap.get(currentDrawerId);
+
+  const data = window.PAYLOAD.demographics.map(({ label }) => {
+    const counts = new Map();
+    quotesRaw.forEach((q) => {
+      const val = q[label];
+      if (val !== undefined && val !== null && val !== "") {
+        counts.set(val, (counts.get(val) || 0) + 1);
+      }
+    });
+    let values = Array.from(counts, ([value, count]) => ({ value, count }))
+      .filter(({ value, count }) => count > 0 && value !== "0")
+      .sort((a, b) => b.count - a.count);
+
+    if (values.length > 6) {
+      const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
+      values = [...values.slice(0, 5), { value: "Other", count: otherCount }];
+    }
+    return { label, values };
+  });
+
+  return createDemographicChart({ id, data });
 }
 
 /**
@@ -472,44 +856,179 @@ async function loadQuotesData() {
   }
 
   // Create lookup map for quick access by opinion.fullID
-  const quoteMap = new Map();
+  quoteMap = new Map();
   quotes.forEach((q) => {
     if (!quoteMap.has(q.id)) {
       quoteMap.set(q.id, []);
     }
-    quoteMap.get(q.id).push(q.quote);
+    quoteMap.get(q.id).push({ ...q });
   });
-  return quoteMap;
 }
 
 /**
  * Initializes the Quotes Modal logic.
  * Binds click events to ".button-quotes" to look up quotes via the Opinion's `fullID`.
  */
-async function createQuotesModal() {
+async function createQuotesDrawer() {
   // Flatten opinions to find metadata by ID easily
-  const opinions = window.PAYLOAD.topics.map((topic) => topic.opinions).flat();
-  const quoteMap = await loadQuotesData();
+  flatOpinions = window.PAYLOAD.topics.map((topic) => topic.opinions).flat();
+  await loadQuotesData();
+
+  let cleanupDemographicChart = null;
+
+  const closeModal = () => {
+    d3.select("#drawer").classed("is-open", false);
+    cleanupDemographicChart?.();
+    cleanupDemographicChart = null;
+  };
 
   // event listeners
-  d3.select("#modal .button-close").on("click", () => {
-    d3.select("#modal").classed("is-open", false);
-  });
+  d3.select("#drawer .button-close").on("click", closeModal);
 
   d3.selectAll(".button-quotes").on("click", function () {
-    const id = d3.select(this).attr("data-id"); // matches opinion.fullID
-    const match = opinions.find((o) => o.fullID === id);
-    const text = match?.text || "Unknown Opinion";
-    const quotes = quoteMap.get(id);
-    openQuotesModal({ quotes, text });
+    currentDrawerId = d3.select(this).attr("data-id"); // matches opinion.fullID
+    updateQuotesDrawer();
+    cleanupDemographicChart?.();
+    cleanupDemographicChart = createQuotesDrawerParticipantChart();
   });
 
   // keyup event listener for escape key to close modal
   document.addEventListener("keyup", (event) => {
     if (event.key === "Escape") {
-      const modalSel = d3.select("#modal");
-      if (modalSel.classed("is-open")) modalSel.classed("is-open", false);
+      const drawerSel = d3.select("#drawer");
+      if (drawerSel.classed("is-open")) closeModal();
     }
+  });
+
+  d3.selectAll(".drawer-quotes-filters select").on("change", function () {
+    const key = d3.select(this).attr("data-key");
+    const value = this.value;
+    currentDrawerFilters = currentDrawerFilters.filter((f) => f.key !== key);
+    if (value) currentDrawerFilters.push({ key, value });
+    updateQuotesDrawer();
+  });
+}
+
+/**
+ * Initializes the Filter Compare logic.
+ * Binds click events to ".button-filter-compare" to launch the moda.
+ */
+async function createFilterCompare() {
+  const GROUP_LABELS = ["A", "B", "C", "D"];
+  const demographics = window.PAYLOAD.demographics;
+  const modalSel = d3.select("#filter-compare");
+
+  const closeModal = () => modalSel.classed("is-open", false);
+
+  const renderGroups = () => {
+    const groupsSel = modalSel.select(".filter-compare-groups");
+    groupsSel.html("");
+
+    compareGroups.forEach((group, gi) => {
+      const card = groupsSel.append("div").attr("class", "filter-group-card");
+
+      const header = card.append("div").attr("class", "filter-group-header");
+
+      header
+        .append("span")
+        .attr("class", "filter-group-label")
+        .text(`Group ${GROUP_LABELS[gi]}`);
+
+      header
+        .append("button")
+        .attr(
+          "class",
+          `ghost button-delete-group${compareGroups.length <= 1 ? " is-hidden" : ""}`,
+        )
+        .html(
+          `<img src="svg/trash.svg" alt="" role="presentation"> Delete group`,
+        )
+        .on("click", () => {
+          compareGroups.splice(gi, 1);
+          renderGroups();
+        });
+
+      // const summaryText =
+      //   group.length === 0
+      //     ? "All Participants"
+      //     : group.map((f) => `${f.key}: ${f.value}`).join(", ");
+      // card
+      //   .append("div")
+      //   .attr("class", "filter-group-summary")
+      //   .text(summaryText);
+
+      const grid = card.append("div").attr("class", "filter-group-selects");
+
+      demographics.forEach(({ label, values }) => {
+        const currentVal = group.find((f) => f.key === label)?.value || "";
+        const slugLabel = label
+          .toLowerCase()
+          .replace(/\W+/g, "-")
+          .replace(/^-|-$/g, "");
+        const selectId = `filter-group-${gi}-${slugLabel}`;
+        const wrapper = grid
+          .append("div")
+          .attr("class", "filter-select-wrapper");
+        wrapper.append("label").attr("for", selectId).text(label);
+        const sel = wrapper
+          .append("select")
+          .attr("id", selectId)
+          .attr("data-key", label);
+        sel.append("option").attr("value", "").text("Any");
+        values.forEach(({ value }) => {
+          sel
+            .append("option")
+            .attr("value", value)
+            .text(value)
+            .property("selected", value === currentVal);
+        });
+        sel.on("change", function () {
+          const key = d3.select(this).attr("data-key");
+          const val = this.value;
+          compareGroups[gi] = compareGroups[gi].filter((f) => f.key !== key);
+          if (val) compareGroups[gi].push({ key, value: val });
+          const updated =
+            compareGroups[gi].length === 0
+              ? "All Participants"
+              : compareGroups[gi].map((f) => `${f.key}: ${f.value}`).join(", ");
+          card.select(".filter-group-summary").text(updated);
+        });
+      });
+    });
+
+    modalSel
+      .select(".button-add-group")
+      .classed("is-hidden", compareGroups.length >= GROUP_LABELS.length);
+  };
+
+  renderGroups();
+
+  d3.select("#filter-compare .button-close").on("click", closeModal);
+  d3.select("#filter-compare .filter-compare-bg").on("click", closeModal);
+
+  d3.selectAll(".button-filter-compare").on("click", () => {
+    modalSel.classed("is-open", true);
+  });
+
+  d3.select("#filter-compare .button-add-group").on("click", () => {
+    if (compareGroups.length < GROUP_LABELS.length) {
+      compareGroups.push([]);
+      renderGroups();
+    }
+  });
+
+  d3.select("#filter-compare .button-reset-groups").on("click", () => {
+    compareGroups = [[]];
+    renderGroups();
+  });
+
+  d3.select("#filter-compare .button-apply-groups").on("click", () => {
+    renderOverviewChart();
+    closeModal();
+  });
+
+  document.addEventListener("keyup", (event) => {
+    if (event.key === "Escape" && modalSel.classed("is-open")) closeModal();
   });
 }
 
@@ -595,9 +1114,50 @@ function createToggle() {
   const toggleInputs = document.querySelectorAll('input[name="toggleView"]');
   toggleInputs.forEach((input) => {
     input.addEventListener("change", (e) => {
-      const value = e.target.value;
-      if (value === "topics") createTopicChart();
-      else if (value === "opinions") createOpinionChart();
+      activeOverviewChart = e.target.value;
+      renderOverviewChart();
+    });
+  });
+}
+
+/**
+ * Initializes the Full Report / Predicted Agreement content toggle.
+ */
+function createContentToggle() {
+  const btns = document.querySelectorAll(".content-toggle-btn");
+  btns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.target;
+
+      btns.forEach((b) => d3.select(b).classed("is-active", false));
+      d3.select(btn).classed("is-active", true);
+      document
+        .querySelectorAll("#full-report, #predicted-agreement")
+        .forEach((el) => {
+          d3.select(el).classed("is-visible", el.id === target);
+        });
+
+      d3.selectAll(".sidebar-inner").classed("is-active", false);
+      d3.select(`.sidebar-inner--${target}`).classed("is-active", true);
+    });
+  });
+}
+
+/**
+ * Initializes the Quotes / Demographics content toggle.
+ */
+function createDrawerToggle() {
+  const btns = document.querySelectorAll(".drawer-toggle-inner button");
+  btns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.target;
+      btns.forEach((b) => d3.select(b).classed("is-active", false));
+      d3.select(btn).classed("is-active", true);
+      document
+        .querySelectorAll("#drawer-quotes, #drawer-demographics")
+        .forEach((el) => {
+          d3.select(el).classed("is-visible", el.id === target);
+        });
     });
   });
 }
@@ -606,23 +1166,16 @@ function createToggle() {
 (() => {
   if (OVERVIEW_CHART_TYPE === "toggle") createToggle();
 
-  if (OVERVIEW_CHART_TYPE === "opinions") createOpinionChart();
-  else createTopicChart();
+  activeOverviewChart =
+    OVERVIEW_CHART_TYPE === "opinions" ? "opinions" : "topics";
+  renderOverviewChart();
+  createParticipantChart();
   createDonutCharts();
-  createQuotesModal();
+  createQuotesDrawer();
+  createFilterCompare();
   createShare();
   createMenu();
   createPrint();
-
-  const warningSel = d3.select(".warning");
-  if (warningSel)
-    setTimeout(() => {
-      warningSel
-        .transition()
-        .duration(1000)
-        .style("opacity", 0)
-        .on("end", () => {
-          warningSel.remove();
-        });
-    }, 2000);
+  createContentToggle();
+  createDrawerToggle();
 })();

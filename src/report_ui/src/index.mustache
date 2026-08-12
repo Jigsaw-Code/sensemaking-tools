@@ -35,123 +35,244 @@
 	<div class="layout-wrapper">
 		<aside class="sidebar">
 			<nav>
-				<a href="#executive-summary" class="button standalone-item is-active"><img inline src="svg/star.svg" alt="" role="presentation">Executive Summary</a>
-				<p>Conversation Topics</p>
-				<ul>
-					{{#topics}}
-					<li><a href="#topic-{{topicID}}" class="button"><span class="badge">{{quoteCountFormatted}}</span> <span class="text">{{text}}</span></a></li>
-					{{/topics}}
-				</ul>
+				<div class="sidebar-inner sidebar-inner--full-report is-active">
+					<a href="#executive-summary" class="button standalone-item is-active"><img inline src="svg/star.svg" alt="" role="presentation">Executive Summary</a>
+					<p>Conversation Topics</p>
+					<ul>
+						{{#topics}}
+						<li><a href="#topic-{{topicID}}" class="button"><span class="badge">{{quoteCountFormatted}}</span> <span class="text">{{text}}</span></a></li>
+						{{/topics}}
+					</ul>
+				</div>
+				<div class="sidebar-inner sidebar-inner--predicted-agreement">
+					<a href="#predicted-agreement-summary" class="button standalone-item is-active"><img inline src="svg/predict.svg" alt="" role="presentation">Predicted Agreement</a>
+					<p>Conversation Topics</p>
+					<ul>
+						{{#predicted.topics}}
+						<li><a href="#predicted-{{topicID}}" class="button"> <span class="text">{{title}}</span></a></li>
+						{{/predicted.topics}}
+					</ul>
+				</div>
 			</nav>
 		</aside>
 
 		<main id="content">
 			<div id="app-container">
-			<article id="title">
-				<h1>{{title}}</h1>
-			</article>
-				<article id="executive-summary" aria-labelledby="executive-summary-title">
-					<section>
-						<button class="button-share" data-id="executive-summary" data-text="Executive Summary" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
-						<h2 id="executive-summary-title">Executive Summary</h2>
-						<hr>
-						<ul class="summary-stats">
-							<li><span class="badge"><img inline src="svg/group.svg" alt="" role="presentation"></span><span class="text"><strong>{{totalParticipants}}</strong> Total Participants</span></li>
-							<li><span class="badge"><img inline src="svg/list_alt.svg" alt="" role="presentation"></span><span class="text"><strong>{{topicsIdentified}}</strong> Topics Identified</span></li>
-							<li><span class="badge"><img inline src="svg/thumbs.svg" alt="" role="presentation"></span><span class="text"><strong>{{opinionsIdentified}}</strong> Opinions Identified</span></li>
-						</ul>
-						<p>This report summarizes the results of public input from {{totalParticipants}} participants.  From the participant responses, <strong>{{topicsIdentified}} high level topics</strong> were identified, as well as <strong>{{opinionsIdentified}} opinions.</strong> All participants were anonymous. </p>
-						{{#executiveSummary}}
-						<p>{{{.}}}</p>
-						{{/executiveSummary}}
-					</section>
-					<hr>
-					<section id="conversation-overview">
-						<h3>Conversation Overview</h3>
-						<p>Below is a high level overview of the topics discussed in the conversation. The most discussed topics were {{topics.0.text}} and {{topics.1.text}}.</p>
-						{{#hasToggle}}
-						<div class="toggle-container">
-							<fieldset class="toggle-group">
-								<legend class="sr-only">Toggle view by:</legend>
-								
-								<input type="radio" name="toggleView" id="option-topics" value="topics" checked>
-								<label for="option-topics">All Topics</label>
-								
-								<input type="radio" name="toggleView" id="option-opinions" value="opinions">
-								<label for="option-opinions">Top Opinions</label>
-							</fieldset>
+				<div id="title">
+					<h1>{{title}}</h1>
+					<div class="content-toggle">
+						<div class="content-toggle-inner">
+							<button class="content-toggle-btn is-active" data-target="full-report">
+								<img inline src="svg/check.svg" alt="" role="presentation">
+								Full Report
+							</button>
+							{{#hasPredicted}}
+							<button class="content-toggle-btn" data-target="predicted-agreement">
+								<img inline src="svg/check.svg" alt="" role="presentation">
+								Predicted Agreement
+							</button>
+							{{/hasPredicted}}
 						</div>
-						{{/hasToggle}}
-						<div id="conversation-overview-chart"></div>
+					</div>
+				</div>
+				<div id="full-report" class="app-tab is-visible">
+					<article id="executive-summary" aria-labelledby="executive-summary-title">
+						<section>
+							<button class="button-share" data-id="executive-summary" data-text="Executive Summary" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+							<h2 id="executive-summary-title">Executive Summary</h2>
+							<hr>
+							<ul class="summary-stats">
+								<li><span class="badge"><img inline src="svg/group.svg" alt="" role="presentation"></span><span class="text"><strong>{{totalParticipants}}</strong> Total Participants</span></li>
+								<li><span class="badge"><img inline src="svg/list_alt.svg" alt="" role="presentation"></span><span class="text"><strong>{{topicsIdentified}}</strong> Topics Identified</span></li>
+								<li><span class="badge"><img inline src="svg/thumbs.svg" alt="" role="presentation"></span><span class="text"><strong>{{opinionsIdentified}}</strong> Opinions Identified</span></li>
+							</ul>
+							<p>This report summarizes the results of public input from {{totalParticipants}} participants.  From the participant responses, <strong>{{topicsIdentified}} high level topics</strong> were identified, as well as <strong>{{opinionsIdentified}} opinions.</strong> All participants were anonymous. </p>
+							{{#executiveSummary}}
+							<p>{{{.}}}</p>
+							{{/executiveSummary}}
 						</section>
-				</article>
-				{{#topics}}
-				<article id="topic-{{topicID}}" class="topic" aria-labelledby="topic-{{topicID}}-title">
-					<section>
-					<button class="button-share" data-id="topic-{{topicID}}" data-text="{{text}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
-						<div class="topic-overview">
-								<h2 id="topic-{{topicID}}-title" class="topic-overview-title">{{text}}</h2>
-								<div class="topic-overview-stats">
-									<div><span class="badge">{{opinionCountFormatted}}</span> Opinions</div>
-									<div><span class="badge">{{quoteCountFormatted}}</span> Total quotes</div>
-								</div>
-								<div class="topic-overview-summary">
-									<p>{{{summary}}}</p>
-								</div>
-							<div class="topic-overview-chart">
-								<div class="topic-overview-chart-inner">
-									<div class="donut-chart-title">
-										<span class="count">{{quoteCountFormatted}}</span>
-										<span class="underline">Total Quotes</span>
+					</article>
+					<article>
+						<section id="participant-overview">
+							<button class="button-share" data-id="participant-overview" data-text="Participant Overview" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+								<h2>Participant Overview</h2>
+								<hr>
+								<div id="participant-overview-chart" class="demographic-chart"></div>
+						</section>
+					</article>
+					<article>
+						<section id="conversation-overview">
+							<button class="button-share" data-id="conversation-overview" data-text="Conversation Overview" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+							<h2>Conversation Overview</h2>
+							<hr>
+							<p>Below is a high level overview of the topics discussed in the conversation. The most discussed topics were {{topics.0.text}} and {{topics.1.text}}.</p>
+							
+							<div class="toggle-container">
+								<button class="button-filter-compare"><img inline src="svg/filter.svg" alt="" role="presentation"><span>Filter &amp; Compare</span></button>
+									{{#hasToggle}}
+								<fieldset class="toggle-group">
+									<legend class="sr-only">Toggle view by:</legend>
+									
+									<input type="radio" name="toggleView" id="option-topics" value="topics" checked>
+									<label for="option-topics">All Topics</label>
+									
+									<input type="radio" name="toggleView" id="option-opinions" value="opinions">
+									<label for="option-opinions">Top Opinions</label>
+								</fieldset>
+								{{/hasToggle}}
+							</div>
+							
+							<div id="conversation-overview-chart"></div>
+						</section>
+					</article>
+					<div id="topics-identified">{{topicsIdentified}} topics identified</div>
+					{{#topics}}
+					<article id="topic-{{topicID}}" class="topic" aria-labelledby="topic-{{topicID}}-title">
+						<section>
+						<button class="button-share" data-id="topic-{{topicID}}" data-text="{{text}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+							<div class="topic-overview">
+									<h2 id="topic-{{topicID}}-title" class="topic-overview-title">{{text}}</h2>
+									<div class="topic-overview-stats">
+										<div><span class="badge">{{opinionCountFormatted}}</span> Opinions</div>
+										<div><span class="badge">{{quoteCountFormatted}}</span> Total quotes</div>
 									</div>
-									<div class="donut-chart-content"></div>
+									<div class="topic-overview-summary">
+										<p>{{{summary}}}</p>
+									</div>
+								<div class="topic-overview-chart">
+									<div class="topic-overview-chart-inner">
+										<div class="donut-chart-title">
+											<span class="count">{{quoteCountFormatted}}</span>
+											<span class="underline">Total Quotes</span>
+										</div>
+										<div class="donut-chart-content"></div>
+									</div>
 								</div>
 							</div>
-						</div>
-						<hr>
-						<div class="topic-opinions">
-							{{#opinions}}
-							<details class="topic-opinion">
-								<summary>
-									<div class="summary-wrapper">
-										<span class="summary-overline">{{countFormatted}} Quotes</span>
-										<span class="summary-text">{{text}}</span>
+							<hr>
+							<div class="topic-opinions">
+								{{#opinions}}
+								<details class="topic-opinion">
+									<summary>
+										<div class="summary-wrapper">
+											<span class="summary-overline">{{countFormatted}} Quotes</span>
+											<span class="summary-text">{{text}}</span>
+										</div>
+										<svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+											<polyline points="6 9 12 15 18 9"></polyline>
+										</svg>
+									</summary>
+									<div class="topic-opinion-details">
+										<div class="topic-opinion-sample">	
+										<p class="print-only">Sample Quotes:</p>
+											<ul>
+												{{#sampleQuotes}}
+												<li>“{{.}}”</li>
+												{{/sampleQuotes}}
+											</ul>
+										</div>	
+										{{#viewAllQuotes}}
+										<div class="topic-opinion-view-all">
+											<button class="button-quotes" data-id="{{fullID}}"><img inline src="svg/eye.svg" alt="" role="presentation"><span>View all quotes and demographics</span></button>
+										</div>
+										{{/viewAllQuotes}}
 									</div>
-									<svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-										<polyline points="6 9 12 15 18 9"></polyline>
-									</svg>
-								</summary>
-								<div class="topic-opinion-details">
-									<div class="topic-opinion-sample">	
-									<p class="print-only">Sample Quotes:</p>
-										<ul>
-											{{#sampleQuotes}}
-											<li>“{{.}}”</li>
-											{{/sampleQuotes}}
-										</ul>
-									</div>	
-									{{#viewAllQuotes}}
-									<div class="topic-opinion-view-all">
-										<button class="button-quotes" data-id="{{fullID}}"><img inline src="svg/eye.svg" alt="" role="presentation"><span>View all quotes in this opinion</span></button>
-									</div>
-									{{/viewAllQuotes}}
-								</div>
-							</details>
-							{{/opinions}}
-						</div>
-					</section>
-				</article>
-				{{/topics}}
-			</div>
-			<div id="modal" class="no-print">
-				<div class="modal-bg"></div>
-				<div class="modal-content">
-					<p class="modal-quote-count"></p>
-					<p class="modal-opinion"></p>
-					<ul class="modal-quotes"></ul>
-					<button class="button-close"><img inline src="svg/x.svg" alt="Close modal"></button>
+								</details>
+								{{/opinions}}
+							</div>
+						</section>
+					</article>
+					{{/topics}}
 				</div>
+				{{#hasPredicted}}
+				<div id="predicted-agreement" class="app-tab">
+				<article id="predicted-agreement-summary" aria-labelledby="predicted-agreement-summary-title">
+						<section>
+							<button class="button-share" data-id="predicted-agreement-summary" data-text="Predicted Agreement" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+							<h2 id="predicted-agreement-summary-title">Predicted Agreement</h2>
+							<hr>
+							<p>{{{predicted.text}}}</p>
+						</section>
+					</article>
+					
+					{{#predicted.topics}}
+					<article class="predicted-topic">
+						<section id="predicted-{{topicID}}">
+							<button class="button-share" data-id="predicted-{{topicID}}" data-text="Predicted Agreement: {{title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>Share</span></button>
+							<h2>{{title}}</h2>
+							<hr>
+							<table class="predicted-table">
+								<thead>
+									<tr>
+										<th>Statement</th>
+										<th>Predicted Agreement</th>
+									</tr>
+								</thead>
+								<tbody>
+									{{#statements}}
+									<tr>
+										<td>{{text}}</td>
+										<td class="predicted-agreement">{{#hasPredictedAgreement}}{{predictedAgreement}}{{/hasPredictedAgreement}}</td>
+									</tr>
+									{{/statements}}
+								</tbody>
+							</table>
+						</section>
+					</article>
+					{{/predicted.topics}}
+				</div>
+				{{/hasPredicted}}
 			</div>
+			<div id="drawer" class="no-print">
+				<div class="drawer-bg"></div>
+					<div class="drawer-content">
+						<p class="drawer-opinion"></p>
+						<div class="drawer-toggle">
+							<div class="drawer-toggle-inner">
+								<button class="is-active" data-target="drawer-quotes">
+									Participant Quotes (<span class="drawer-quote-count"></span>)
+								</button>
+								<button data-target="drawer-demographics">
+									Participant Demographics
+								</button>
+							</div>
+						</div>
+						<div id="drawer-quotes" class="tab is-visible">
+							<div class="drawer-quotes-filters">
+							{{#demographics}}
+								<label class="sr-only" for="drawer-filter-{{label}}">{{label}}</label>
+								<select id="drawer-filter-{{label}}" data-key="{{label}}" aria-label="{{label}}">
+									<option value="">{{label}}</option>
+									{{#values}}
+									<option value="{{value}}">{{value}}</option>
+									{{/values}}
+								</select>
+							{{/demographics}}
+							</div>
+							<ul class="drawer-quotes"></ul>
+						</div>
+
+						<div id="drawer-demographics" class="tab">
+							<div id="drawer-demographics-chart" class="demographic-chart"></div>
+						</div>
+						<button class="button-close"><img inline src="svg/x.svg" alt="Close"></button>
+					</div>
+				</div>
+					<div id="filter-compare">
+					<div class="filter-compare-bg"></div>
+					<div class="filter-compare-content">
+						<h2 class="filter-compare-title">Filter and Compare Demographics</h2>
+						<p class="filter-compare-description">Add multiple groups to compare demographic segments side by side, or use a single group to filter the main view.</p>
+						<div class="filter-compare-groups"></div>
+						<button class="button-add-group ghost">+ Add Group to Compare</button>
+						<div class="filter-compare-footer">
+							<button class="button-reset-groups ghost"><img inline src="svg/reset.svg" alt=""> Reset</button>
+							<button class="button-apply-groups">Apply Filters</button>
+						</div>
+						<button class="button-close"><img inline src="svg/x.svg" alt="Close"></button>
+					</div>
+			</div>
+
 			<div id="share" class="no-print">
 				<div class="share-bg"></div>
 				<div class="share-content">
@@ -162,12 +283,6 @@
 				</div>
 			</div>
 		</main>
-
-	{{! TODO remove warning }}
-		<div class="warning no-print">
-			<div>This is a draft report using in progress data. Do not share or cite.</div>
-		</div>
-
 	</div>
 
 	<script src="script.js" inline></script>

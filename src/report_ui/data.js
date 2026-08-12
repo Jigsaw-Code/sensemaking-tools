@@ -9,6 +9,10 @@
 
 import fs from "fs";
 
+const args = process.argv.slice(2);
+const dev = args[0] && args[0] === "dev";
+const prefix = dev ? "test-" : "";
+const demographics_prefix = "demo:";
 /**
  * @typedef {Object} RawOpinion
  * @property {string} topic - The high-level topic category.
@@ -31,15 +35,25 @@ const opinions = JSON.parse(
   index,
 }));
 
-const config = JSON.parse(fs.readFileSync("./input/config.json", "utf-8"));
+const config = JSON.parse(
+  fs.readFileSync(`./input/${prefix}config.json`, "utf-8"),
+);
 
-const summary = JSON.parse(fs.readFileSync("./input/summary.json", "utf-8"));
+const summary = JSON.parse(
+  fs.readFileSync(`./input/${prefix}summary.json`, "utf-8"),
+);
+
+const predictedPath = `./input/${prefix}predicted.json`;
+const predictedRaw = fs.existsSync(predictedPath)
+  ? JSON.parse(fs.readFileSync(predictedPath, "utf-8"))
+  : [];
 
 const overviewChart = config.overview_chart || "toggle";
 const options = {
   logo: config.logo || "",
   overviewChart,
   hasToggle: overviewChart === "toggle",
+  lowSampleThreshold: config.low_sample_warning_threshold || 30,
   sampleQuoteCount: Math.min(
     Math.max(config.number_of_sample_quotes || 4, 2),
     10,
@@ -48,7 +62,7 @@ const options = {
     Math.max(config.number_of_top_opinions || 10, 2),
     20,
   ), // between 2 and 20 top opinions
-  chartColors: config.chart_colors || [
+  topicColors: config.chart_colors || [
     "#AFB42B",
     "#F4511E",
     "#3949AB",
@@ -56,6 +70,14 @@ const options = {
     "#00897B",
     "#EFB22F",
     "#aaa",
+  ],
+  demographicColors: config.demographic_colors || [
+    "#4886f7",
+    "#4071d5",
+    "#385db3",
+    "#2f4a93",
+    "#273874",
+    "#1e2656",
   ],
 };
 // --- Helper Functions ---
@@ -66,12 +88,23 @@ const options = {
  * @returns {string}
  */
 function cleanMarkdown(text) {
+  if (!text) return "";
   let html = text;
 
   html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
 
   return html;
+}
+
+/**
+ * Strips markdown header symbols (e.g. '#', '##') and leading whitespace.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripMarkdownHeader(text) {
+  if (!text) return "";
+  return text.replace(/^#+\s*/, "");
 }
 
 /**
@@ -133,13 +166,20 @@ function generateId(str, useFirstWords = false) {
 function sortAndExtractQuotes(values) {
   return (
     values
-      .map((v) => ({
-        index: v.index,
-        text: v.quote,
-        participant_id: v.participant_id,
-        // Convert bridging score to number, default to 0
-        avg_bridging: v.AVERAGE_OF_2_BRIDGING ? +v.AVERAGE_OF_2_BRIDGING : 0,
-      }))
+      .map((v) => {
+        const demos = Object.fromEntries(
+          Object.entries(v)
+            .filter(([k]) => k.startsWith(demographics_prefix))
+            .map(([k, val]) => [k.slice(demographics_prefix.length), val]),
+        );
+        return {
+          index: v.index,
+          text: v.quote,
+          participant_id: v.participant_id,
+          avg_bridging: v.AVERAGE_OF_2_BRIDGING ? +v.AVERAGE_OF_2_BRIDGING : 0,
+          ...demos,
+        };
+      })
       // Sort descending by bridging score (highest first)
       .sort((a, b) => b.avg_bridging - a.avg_bridging)
       .filter((v) => v.text)
@@ -158,20 +198,16 @@ function groupOpinions(opinions) {
   // 1. Group by high-level Topic
   const byTopic = groupBy(opinions, "topic");
 
-  const o = byTopic
-    .filter(([topicText]) => !config.excludedTopics.includes(topicText))
-    .map(([topicText, topicOpinions]) => {
+  const o = byTopic.map(([topicText, topicOpinions]) => {
     // 2. Find matching AI summary (stripping markdown headers)
     const topicMatch = summary.sub_contents.find(
-      (t) => t.title.replace("## ", "") === topicText,
+      (t) => stripMarkdownHeader(t.title) === topicText,
     );
 
     const topicId = generateId(topicText, true);
 
     // 3. Group by specific Opinion within the Topic
-      const byOpinion = groupBy(topicOpinions, "opinion")
-        .filter(([opinionText]) => !config.excludedOpinions || !config.excludedOpinions.includes(opinionText))
-        .map(([_, values]) => ({
+    const byOpinion = groupBy(topicOpinions, "opinion").map(([_, values]) => ({
       opinionID: generateId(values[0].opinion),
       // fullID is crucial: it links the UI chart to the specific quotes list
       fullID: `${topicId}-${generateId(values[0].opinion)}`,
@@ -208,11 +244,13 @@ function groupOpinions(opinions) {
 function flattenQuotes(opinionsGrouped) {
   const flat = [];
   opinionsGrouped.forEach((topic) => {
-    topic.opinions.forEach((opinion) => {
+    topic.opinions.forEach((opinion, i) => {
       opinion.quotes.forEach((quote) => {
+        const { index, text, participant_id, avg_bridging, fullID, ...demos } = quote;
         flat.push({
           id: opinion.fullID,
           quote: quote.text,
+          ...demos,
         });
       });
     });
@@ -240,7 +278,7 @@ const globalSampleParticipants = new Set();
 
 /**
  * Selects a small subset of quotes for the sample quotes.
- * Attempts to prioritize participants (participant_ids) who haven't been featured yet
+ * Attempts to prioritize participants (Participant IDs) who haven't been featured yet
  * to maximize the diversity of voices shown in the initial view.
  *
  * @param {Object[]} quotes - The full list of quotes for an opinion.
@@ -260,7 +298,9 @@ function getSampleQuotes(opinions) {
   const selected = [];
   // loop through the number of quotes we want to show in the sample
   for (let i = 0; i < options.sampleQuoteCount; i++) {
-    // loop through the sorted quotes and find the first quote whose participant (participant_id) hasn't been featured yet in the globalSampleParticipants set
+    // Loop through the sorted quotes and find the first quote whose
+    // participant (Participant ID) hasn't been featured yet in the
+    // globalSampleParticipants set.
     // loop through each opinion
     for (let o of opinions) {
       const possible = allQuotes.filter((q) => q.fullID === o.fullID);
@@ -294,18 +334,42 @@ function getSampleQuotes(opinions) {
 }
 
 /**
- * Counts the number of unique participants (participant_ids) in a list of opinions.
+ * Counts the number of unique participants (Participant IDs) in a list of opinions.
  * @param {Object[]} opinions
  * @returns {number} Unique participant count.
  */
 function getUniqueQuoteCount(opinions) {
-  const uniqueParticipants = new Set();
+  const uniqueParticipantIds = new Set();
   opinions.forEach((o) => {
     o.quotes.forEach((q) => {
-      uniqueParticipants.add(q.participant_id);
+      uniqueParticipantIds.add(q.participant_id);
     });
   });
-  return uniqueParticipants.size;
+  return uniqueParticipantIds.size;
+}
+
+/**
+ * Cleans and shapes raw predicted data for the mustache template.
+ * @param {Object[]} raw - Array of predicted topic objects from predicted.json.
+ * @returns {Object[]} Cleaned predicted topic objects.
+ */
+function processPredicted(raw) {
+  const data = Array.isArray(raw) ? raw[0] : raw;
+  if (!data || !data.sub_contents) return { text: "", topics: [] };
+  return {
+    text: data.text,
+    topics: data.sub_contents.map((s) => ({
+      topicID: generateId(s.title || "", true),
+      title: stripMarkdownHeader(s.title),
+      text: s.text,
+      statements: (s.statements || []).map((s) => ({
+        text: s.text,
+        predictedAgreement:
+          s.predicted_agreement != null ? `${s.predicted_agreement}%` : null,
+        hasPredictedAgreement: s.predicted_agreement != null,
+      })),
+    })),
+  };
 }
 
 // --- Main Execution ---
@@ -318,6 +382,7 @@ const propositionsGenerated = 0; // Placeholder / Todo
 // 2. Perform transformations
 const opinionsGrouped = groupOpinions(opinions);
 const quotes = flattenQuotes(opinionsGrouped);
+const predicted = processPredicted(predictedRaw);
 
 // 3. Calculate high-level counts
 const topicsIdentified = summary.sub_contents.length;
@@ -360,9 +425,40 @@ const topics = opinionsGrouped.map((topic) => {
 // Sort topics by unique quote count (most popular topics first)
 topics.sort((a, b) => b.quoteCount - a.quoteCount);
 
-// 5. Prepare outputs
+// Construct participant overview data for chart of demographics
+const uniqueParticipants = byParticipant.map(([, rows]) => rows[0]);
+
+const demoKeys = Object.keys(uniqueParticipants[0] || {}).filter((k) =>
+  k.startsWith(demographics_prefix),
+);
+
+const demographics = demoKeys.map((key) => {
+  const label = key.slice(demographics_prefix.length);
+  const counts = new Map();
+  uniqueParticipants.forEach((p) => {
+    const val = p[key];
+    if (val !== undefined && val !== null && val !== "") {
+      counts.set(val, (counts.get(val) || 0) + 1);
+    }
+  });
+  let values = Array.from(counts, ([value, count]) => ({
+    value,
+    count,
+  })).sort((a, b) => b.count - a.count);
+
+  if (values.length > 6) {
+    const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
+    values = [...values.slice(0, 5), { value: "Other", count: otherCount }];
+  }
+
+  return { label, values };
+});
+
+demographics.sort((a, b) => a.label - b.label);
+
+// 7. Prepare outputs
 const executiveSummary = parseSummary(cleanMarkdown(summary.text || ""));
-const title = config.title || summary.title?.replace("# ", "") || "";
+const title = stripMarkdownHeader(summary.title);
 
 const baseOutput = {
   ...options,
@@ -373,6 +469,9 @@ const baseOutput = {
   opinionsIdentified,
   propositionsGenerated,
   topics,
+  demographics,
+  predicted,
+  hasPredicted: predicted.topics.length > 0,
 };
 
 // --- File Writing ---
@@ -383,18 +482,21 @@ fs.writeFileSync("./temp/quotes.json", JSON.stringify(quotes));
 // B. Write static data (HTML payload contains topics; quotes loaded via fetch)
 const staticOutput = { ...baseOutput };
 // Escape HTML tags to prevent XSS issues when injecting into script tags
-staticOutput.payload = JSON.stringify({ topics, options }).replace(
-  /</g,
-  "\\u003c",
-);
+staticOutput.payload = JSON.stringify({
+  topics,
+  demographics,
+  options,
+}).replace(/</g, "\\u003c");
 fs.writeFileSync("./temp/data-static.json", JSON.stringify(staticOutput));
 
 // C. Write inline data (HTML payload contains topics AND all quotes)
 const inlineOutput = { ...baseOutput };
-inlineOutput.payload = JSON.stringify({ topics, quotes, options }).replace(
-  /</g,
-  "\\u003c",
-);
+inlineOutput.payload = JSON.stringify({
+  topics,
+  demographics,
+  options,
+  quotes,
+}).replace(/</g, "\\u003c");
 fs.writeFileSync("./temp/data-inline.json", JSON.stringify(inlineOutput));
 
 console.log("Data processing complete.");

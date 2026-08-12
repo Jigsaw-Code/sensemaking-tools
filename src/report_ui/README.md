@@ -17,7 +17,7 @@ If you are just here to generate a report from new data, follow these steps.
 Navigate to the `input/` folder. You must place the following files there, replacing any existing ones:
 
 1.  **`opinions.csv`**: The raw data containing participant quotes.
-    *   *Required Columns:* `topic`, `opinion`, `representative_text` (the quote), `rid` (participant ID).
+    *   *Required Columns:* `topic`, `opinion`, `representative_text` (the quote), `participant_id` (participant ID).
     *   *Optional:* `AVERAGE_OF_2_BRIDGING` (used for sorting quotes by importance).
 2.  **`summary.json`**: The AI-generated summary of the conversation.
     *   *Structure:* Must contain a `title`, `text` (executive summary), and `sub_contents` (array of topic objects with `title` and `text`).
@@ -34,7 +34,9 @@ In config.json, optionally add these properties
 | `overview_chart` | `string` | `"toggle"` | Overview chart display mode. Options: `"toggle"`, `"topics"`, or `"opinions"`. |
 | `number_of_top_opinions` | `number` | `10` | The number of items to show in the opinions overview chart. |
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
-| `chart_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes. |
+| `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
+| `topic_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes for overview chart. |
+| `demographic_colors` | `array` | `"#4886f7", "#4071d5", "#385db3", "#2f4a93", "#273874", "#1e2656",` | Array of six color codes for partipant chart. |
 
 ### 3. Generate the Report
 No dependecies are required to generate the report. Open your terminal/command prompt in the project folder and run:
@@ -61,7 +63,9 @@ All results are in the `output` folder ready to deploy or share. To preview:
 ### `opinions.csv` Format
 The logic relies on specific headers. Ensure your CSV looks like this:
 
-| topic | opinion | representative_text | rid |
+| topic | opinion | representative_text | participant_id |
+
+**Demographic Support:** You can add demographic data by including additional columns with the prefix `demo:`. For example, a column named `demo:Age` or `demo:Location`. The tool will automatically use these to build demographic breakdowns and filters. You'll need to merge this data with your opinions.csv file before running the build process.
 
 ### `summary.json` Format
 This file maps the visual topics to the text summaries.
@@ -78,11 +82,33 @@ This file maps the visual topics to the text summaries.
 }
 ```
 
+### `predicted.json` Format (Optional)
+This file contains the topics and their predicted agreement data (Propositions) to generate the "Predicted Agreement" tab. Ensure the JSON is formatted exactly as follows:
+```json
+{
+  "text": "Introductory text for the predicted agreement tab.",
+  "sub_contents": [
+    {
+      "title": "## Topic",
+      "text": "Optional context for this topic.",
+      "statements": [
+        {
+          "text": "Tk text...",
+          "predicted_agreement": 100
+        }
+      ]
+    }
+  ]
+}
+```
+
 ---
 
 ## Development guide
 
 If you are a developer looking to modify the report or build process, here is the architectural overview.
+
+**Note**: Please add the following testing files to the `input` folder: `test-config.json`, `test-summary.json`, and `test-opinions.csv`.
 
 ### Project Structure
 
@@ -95,6 +121,8 @@ If you are a developer looking to modify the report or build process, here is th
 *   **`build.js`**: The orchestration script. It handles file cleaning, data processing, templating, and asset copying.
 
 ### Key Commands
+
+*(Note: `npm run preview` and `npm run dev` require you to first install dependencies by running `npm install`.)*
 
 | Command | Description |
 | :--- | :--- |
