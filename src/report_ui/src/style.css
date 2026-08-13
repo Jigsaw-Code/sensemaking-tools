@@ -1305,7 +1305,7 @@ article h2 {
 }
 
 .share-url .button-copy:before { 
-	content: "Copied!";
+	content: attr(data-copied);
 	position: absolute;
 	top: 50%;
 	inset-inline-end: 0;
