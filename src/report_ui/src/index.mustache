@@ -44,6 +44,7 @@
 						{{/topics}}
 					</ul>
 				</div>
+				{{#hasPredicted}}
 				<div class="sidebar-inner sidebar-inner--predicted-agreement">
 					<a href="#predicted-agreement-summary" class="button standalone-item is-active"><img inline src="svg/predict.svg" alt="" role="presentation">{{i18n.nav.predictedAgreement}}</a>
 					<p>{{i18n.nav.conversationTopics}}</p>
@@ -53,6 +54,7 @@
 						{{/predicted.topics}}
 					</ul>
 				</div>
+				{{/hasPredicted}}
 			</nav>
 		</aside>
 
@@ -60,20 +62,20 @@
 			<div id="app-container">
 				<div id="title">
 					<h1>{{title}}</h1>
+					{{#hasPredicted}}
 					<div class="content-toggle">
 						<div class="content-toggle-inner">
 							<button class="content-toggle-btn is-active" data-target="full-report">
 								<img inline src="svg/check.svg" alt="" role="presentation">
 								{{i18n.tabs.fullReport}}
 							</button>
-							{{#hasPredicted}}
 							<button class="content-toggle-btn" data-target="predicted-agreement">
 								<img inline src="svg/check.svg" alt="" role="presentation">
 								{{i18n.tabs.predictedAgreement}}
 							</button>
-							{{/hasPredicted}}
 						</div>
 					</div>
+					{{/hasPredicted}}
 				</div>
 				<div id="full-report" class="app-tab is-visible">
 					<article id="executive-summary" aria-labelledby="executive-summary-title">
