@@ -1,11 +1,15 @@
-[
-  {
-    "text": "Summary",
-    "sub_contents": [
-      {
-        "text": "Text",
-        "predicted_agreement": 100
-      }
-    ]
-  }
-]
+{
+  "text": "Introductory summary text for the predicted agreement tab.",
+  "sub_contents": [
+    {
+      "title": "## Topic 1",
+      "text": "Additional details on topic 1",
+      "statements": [
+        {
+          "text": "Sample proposition statement text",
+          "predicted_agreement": 100
+        }
+      ]
+    }
+  ]
+}
