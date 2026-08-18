@@ -80,8 +80,10 @@
 				<div id="full-report" class="app-tab is-visible">
 					<article id="executive-summary" aria-labelledby="executive-summary-title">
 						<section>
-							<button class="button-share" data-id="executive-summary" data-text="{{i18n.executiveSummary.title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
-							<h2 id="executive-summary-title">{{i18n.executiveSummary.title}}</h2>
+							<header>
+								<h2 id="executive-summary-title">{{i18n.executiveSummary.title}}</h2>
+								<button class="button-share" data-id="executive-summary" data-text="{{i18n.executiveSummary.title}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							</header>
 							<hr>
 							<ul class="summary-stats">
 								<li><span class="badge"><img inline src="svg/group.svg" alt="" role="presentation"></span><span class="text"><strong>{{totalParticipantsFormatted}}</strong> {{i18n.executiveSummary.totalParticipants}}</span></li>
@@ -95,16 +97,20 @@
 					</article>
 					<article>
 						<section id="participant-overview">
-							<button class="button-share" data-id="participant-overview" data-text="{{i18n.sections.participantOverview}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							<header>
 								<h2>{{i18n.sections.participantOverview}}</h2>
-								<hr>
-								<div id="participant-overview-chart" class="demographic-chart"></div>
+								<button class="button-share" data-id="participant-overview" data-text="{{i18n.sections.participantOverview}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							</header>
+							<hr>
+							<div id="participant-overview-chart" class="demographic-chart"></div>
 						</section>
 					</article>
 					<article>
 						<section id="conversation-overview">
-							<button class="button-share" data-id="conversation-overview" data-text="{{i18n.sections.conversationOverview}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
-							<h2>{{i18n.sections.conversationOverview}}</h2>
+							<header>
+								<h2>{{i18n.sections.conversationOverview}}</h2>
+								<button class="button-share" data-id="conversation-overview" data-text="{{i18n.sections.conversationOverview}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							</header>
 							<hr>
 							<p>{{{conversationOverviewLead}}}</p>
 							
@@ -130,16 +136,18 @@
 					{{#topics}}
 					<article id="topic-{{topicID}}" class="topic" aria-labelledby="topic-{{topicID}}-title">
 						<section>
-						<button class="button-share" data-id="topic-{{topicID}}" data-text="{{text}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							<header>
+								<h2 id="topic-{{topicID}}-title" class="topic-overview-title">{{text}}</h2>
+								<button class="button-share" data-id="topic-{{topicID}}" data-text="{{text}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							</header>
 							<div class="topic-overview">
-									<h2 id="topic-{{topicID}}-title" class="topic-overview-title">{{text}}</h2>
-									<div class="topic-overview-stats">
-										<div><span class="badge">{{opinionCountFormatted}}</span> {{i18n.sections.opinionsBadge}}</div>
-										<div><span class="badge">{{quoteCountFormatted}}</span> {{i18n.sections.totalQuotesBadge}}</div>
-									</div>
-									<div class="topic-overview-summary">
-										<p>{{{summary}}}</p>
-									</div>
+								<div class="topic-overview-stats">
+									<div><span class="badge">{{opinionCountFormatted}}</span> {{i18n.sections.opinionsBadge}}</div>
+									<div><span class="badge">{{quoteCountFormatted}}</span> {{i18n.sections.totalQuotesBadge}}</div>
+								</div>
+								<div class="topic-overview-summary">
+									<p>{{{summary}}}</p>
+								</div>
 								<div class="topic-overview-chart">
 									<div class="topic-overview-chart-inner">
 										<div class="donut-chart-title">
@@ -189,8 +197,10 @@
 				<div id="predicted-agreement" class="app-tab">
 				<article id="predicted-agreement-summary" aria-labelledby="predicted-agreement-summary-title">
 						<section>
-							<button class="button-share" data-id="predicted-agreement-summary" data-text="{{i18n.predicted.title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
-							<h2 id="predicted-agreement-summary-title">{{i18n.predicted.title}}</h2>
+							<header>
+								<h2 id="predicted-agreement-summary-title">{{i18n.predicted.title}}</h2>
+								<button class="button-share" data-id="predicted-agreement-summary" data-text="{{i18n.predicted.title}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							</header>
 							<hr>
 							<p>{{{predicted.text}}}</p>
 						</section>
@@ -199,8 +209,10 @@
 					{{#predicted.topics}}
 					<article class="predicted-topic">
 						<section id="predicted-{{topicID}}">
-							<button class="button-share" data-id="predicted-{{topicID}}" data-text="{{i18n.predicted.title}}: {{title}}" ><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
-							<h2>{{title}}</h2>
+							<header>
+								<h2>{{title}}</h2>
+								<button class="button-share" data-id="predicted-{{topicID}}" data-text="{{i18n.predicted.title}}: {{title}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
+							</header>
 							<hr>
 							<table class="predicted-table">
 								<thead>

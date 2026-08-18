@@ -30,7 +30,7 @@
   }
 
 
-  header, footer, nav, aside, iframe, button, .no-print {
+  body > header, footer, nav, aside, iframe, button, .no-print {
     display: none !important;
   }
 

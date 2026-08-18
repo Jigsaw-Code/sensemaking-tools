@@ -201,11 +201,8 @@ button.ghost, .button.ghost {
 .button-share {
 	border: 1px solid var(--color-border);
 	padding: 0.5rem 1rem;
-	position: absolute;
-	top: 2rem;
-	inset-inline-end: 2rem;
 	font-size: var(--12px);
-	transform: translateY(-0.25rem);
+	flex-shrink: 0;
 }
 
 .button-filter-compare {
@@ -231,6 +228,18 @@ article.topic hr {
 section {
 	position: relative;
 	padding: 2rem 0;
+}
+
+section > header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 1rem;
+}
+
+section > header > :is(h1, h2, h3, h4, h5, h6) {
+	flex: 1;
+	min-width: 0;
 }
 
 section > *:not(hr) { 
@@ -266,7 +275,7 @@ section > *:not(hr) {
 }
 
 /* header */
-header {
+body > header {
 	background: var(--color-card-bg);
 	padding: 0 1rem;
 	height: var(--header-height);
@@ -280,18 +289,18 @@ header {
 	align-items: center;
 }
 
-header .logo {
+body > header .logo {
 	height: calc(var(--header-height) - 2rem);
 }
 
-header div {
+body > header div {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	width: 100%;
 }
 
-header button {
+body > header button {
 	width: 2.5rem;
 	height: 2.5rem;
 	padding: 0.5rem;
@@ -317,11 +326,6 @@ article {
 
 article.topic {
 	padding-bottom: 0;
-}
-
-article h2 {
-	width: 100%;
-	padding-inline-end: 8rem;
 }
 
 /* title/toggle */
@@ -657,15 +661,10 @@ article h2 {
 	flex-wrap: wrap;
 }
 
-.topic-overview-title {
-	margin-top: 0;
-	padding-inline-end: 6rem;
-}
-
 .topic-overview-stats {
 	display: flex;
+	width: 100%;
 	margin: 1rem 0;
-	padding-inline-end: 6rem;
 }
 
 .topic-overview-stats div {
@@ -1540,7 +1539,7 @@ article h2 {
 		transform: translate(0, 0);
 	}
 
-	header button {
+	body > header button {
 		display: block;
 	}
 }
@@ -1556,10 +1555,6 @@ article h2 {
 
 	.topic-overview {
 		flex-direction: column;
-	}
-	
-	.topic-overview-stats {
-		padding-inline-end: 0;
 	}
 
 	.topic-overview-summary {
