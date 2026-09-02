@@ -31,6 +31,22 @@
     }
   }
 
+  &__github-link {
+    display: inline !important;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+
+  &__github-icon {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 4px;
+    vertical-align: -3px;
+    fill: currentColor;
+  }
+
+
   &__headline {
     @include glue-breakpoints-mixins.bp(lg) {
       text-align: center;
@@ -54,21 +70,33 @@
   }
 
   &__contact-us {
-    margin-top: 2.5em;
+    margin-top: 0;
     margin-bottom: 0;
+
+    p {
+      font-size: 20px;
+      line-height: 32px;
+    }
   }
 
-    &__cta-btn.glue-button {
+  &__cta-btn.glue-button {
+    font-size: 1.125rem;
+    padding: 14px 32px;
+    height: auto;
+    min-height: 48px;
+    font-weight: 500;
+    border-radius: 28px;
+    letter-spacing: 0.25px;
+
+    &,
+    &.glue-button--medium-emphasis,
+    &.glue-button--high-emphasis {
+      background-color: colors.$accent-color;
+      border-color: colors.$accent-color;
+      color: colors.$app-white;
   
-      &,
-      &.glue-button--medium-emphasis,
-      &.glue-button--high-emphasis {
+      &:visited {
         background-color: colors.$accent-color;
-        border-color: colors.$accent-color;
-        color: colors.$app-white;
-  
-        &:visited {
-          background-color: colors.$accent-color;
           color: colors.$app-white;
         }
   

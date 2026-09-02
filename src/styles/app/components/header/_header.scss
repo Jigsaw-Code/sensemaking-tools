@@ -89,6 +89,9 @@
   }
 
   .app-header__link {
+    display: inline-flex;
+    align-items: center;
+
     &,
     &:focus,
     &:hover,
@@ -104,6 +107,15 @@
     &:hover {
       text-decoration: underline;
     }
+  }
+
+  .app-header__github-icon {
+    display: block !important;
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    fill: currentColor;
+    flex-shrink: 0;
   }
 }
 
