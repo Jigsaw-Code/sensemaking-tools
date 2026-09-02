@@ -1,3 +1,4 @@
+@use 'sass:color';
 @use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
 @use '@google/glue/lib/spacers/mixins' as glue-spacer-mixins;
 @use '../../colors/variables' as colors;
@@ -12,11 +13,14 @@
 
     &--left {
       margin-block-end: 1.5em;
+      p {
+          font-size: 20px;
+          line-height: 32px;
+        }
     }
 
     @include glue-breakpoints-mixins.bp(lg) {
       &--left {
-        border-inline-end: 1px solid colors.$line-grey;
         padding-inline-end: 82px;
         margin-block-end: 0;
       }
@@ -27,30 +31,109 @@
     }
   }
 
+  &__github-link {
+    display: inline !important;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+
+  &__github-icon {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 4px;
+    vertical-align: -3px;
+    fill: currentColor;
+  }
+
+
   &__headline {
     @include glue-breakpoints-mixins.bp(lg) {
       text-align: center;
     }
   }
 
-  &__contact-us {
-    margin-top: 2.5em;
-    margin-bottom: 0;
+  &__list {
+    margin-inline-start: 0;
+
+    li {
+      position: relative;
+      padding-left: 2rem;
+      
+      &::before {
+        content: "—";
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+    }
   }
 
-  &__logos {
-    @include glue-spacer-mixins.spacer(5, column, gap);
-    @include glue-spacer-mixins.spacer(3, row, gap);
-    @include glue-spacer-mixins.spacer(6, margin, top);
+  &__contact-us {
+    margin-top: 0;
+    margin-bottom: 0;
+
+    p {
+      font-size: 20px;
+      line-height: 32px;
+    }
+  }
+
+  &__cta-btn.glue-button {
+    font-size: 1.125rem;
+    padding: 14px 32px;
+    height: auto;
+    min-height: 48px;
+    font-weight: 500;
+    border-radius: 28px;
+    letter-spacing: 0.25px;
+
+    &,
+    &.glue-button--medium-emphasis,
+    &.glue-button--high-emphasis {
+      background-color: colors.$accent-color;
+      border-color: colors.$accent-color;
+      color: colors.$app-white;
+  
+      &:visited {
+        background-color: colors.$accent-color;
+          color: colors.$app-white;
+        }
+  
+        &:hover {
+          background-color: color.adjust(colors.$accent-color, $lightness: -8%);
+          border-color: color.adjust(colors.$accent-color, $lightness: -8%);
+          color: colors.$app-white;
+        }
+  
+        &:focus {
+          background-color: color.adjust(colors.$accent-color, $lightness: -8%);
+          border-color: color.adjust(colors.$accent-color, $lightness: -8%);
+          box-shadow: 0 0 0 2px colors.$app-white, 0 0 0 4px colors.$accent-color;
+          color: colors.$app-white;
+        }
+  
+        &:active {
+          background-color: color.adjust(colors.$accent-color, $lightness: -12%);
+          border-color: color.adjust(colors.$accent-color, $lightness: -12%);
+          color: colors.$app-white;
+        }
+      }
+    }
+                &__logos {
     align-items: center;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
+    @include glue-spacer-mixins.spacer(4, column, gap);
+      @include glue-spacer-mixins.spacer(4, row, gap);
+      @include glue-spacer-mixins.spacer(2, margin, top);
   }
 
   &__logo {
     object-fit: contain;
     width: 100%;
     max-width:156px;
+    max-height: 56px;
   }
 }

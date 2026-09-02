@@ -1,0 +1,61 @@
+@use '@google/glue/lib/breakpoints/mixins' as glue-breakpoints-mixins;
+@use '@google/glue/lib/colors/variables' as glue-colors-variables;
+@use '../../colors/variables' as colors;
+
+.app-modal {
+  align-items: center;
+  background-color: rgba(glue-colors-variables.$black, 0.6);
+  display: none;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+
+  &.glue-modal-open {
+    display: flex;
+  }
+
+  &.glue-modal-closing {
+    display: flex;
+  }
+
+  &__dialog {
+    background-color: colors.$app-white;
+    border-radius: 8px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+    max-width: 680px;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+
+    @include glue-breakpoints-mixins.bp(md) {
+      border-radius: 12px;
+      max-height: 85vh;
+    }
+  }
+
+  &__close-btn {
+    border-radius: 0 8px 0 8px;
+    z-index: 2;
+
+    @include glue-breakpoints-mixins.bp(md) {
+      border-radius: 0 12px 0 12px;
+    }
+  }
+
+  &__content-wrapper {
+    height: 100%;
+    overflow-y: auto;
+    width: 100%;
+
+    iframe {
+      border: 0;
+      display: block;
+      margin: 0 auto;
+      max-width: 100%;
+      width: 100%;
+    }
+  }
+}

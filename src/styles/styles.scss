@@ -14,6 +14,7 @@
 @use '@google/glue/lib/cards';
 @use '@google/glue/lib/ytvideo';
 @use '@google/glue/lib/carousel';
+@use '@google/glue/lib/modal' as glue-modal;
 
 // Import Glue layout overrides
 @use '@google/glue/lib/accessibility';
@@ -39,6 +40,7 @@
 @use 'app/components/link-bar-dropdown/link-bar-dropdown';
 @use 'app/components/link/link';
 @use 'app/components/list/list';
+@use 'app/components/modal/modal' as appModal;
 @use 'app/components/use-sensemaking/use-sensemaking';
 @use 'app/components/section/section';
 @use 'app/components/spacers/spacers' as appSpacers;
