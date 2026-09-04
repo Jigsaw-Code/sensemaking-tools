@@ -12,3 +12,4 @@ more_itertools==10.7.0
 pyink==25.12.0
 tqdm==4.70.0
 openai==2.50.0
+requests>=2.31.0

@@ -263,7 +263,6 @@ class GenaiModel(BaseModel):
       delay = self._backoff_delay
       # Increase the backoff for the next potential failure
       self._backoff_delay = min(self._backoff_delay**2, self._max_backoff_delay)
-
     return is_quota_error, is_service_unavailable, delay
 
   async def _handle_infrastructure_error(
