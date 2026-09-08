@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "",
   "main": "dev.js",
+  "bin": {
+    "jigsaw-sensemaking-generator": "bin/cli.js"
+  },
   "scripts": {
     "predev": "node build.js dev",
     "dev": "node dev.js",

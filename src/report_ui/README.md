@@ -59,6 +59,31 @@ All results are in the `output` folder ready to deploy or share. To preview:
 
 ---
 
+## Programmatic / CLI usage (optional)
+
+The copy-into-`input/` workflow above is unchanged. If your pipeline already has artefacts on disk, you can pass their paths directly instead of copying:
+
+```bash
+# Inline (single self-contained HTML) — use --output
+node build.js inline \
+  --bridging_scores /path/to/bridging_scores.csv \
+  --summary /path/to/report_data.json \
+  --output /path/to/report.html
+
+# Static (HTML + CSS/JS siblings) — use --outputDir
+node build.js static \
+  --opinions /path/to/opinions.csv \
+  --summary /path/to/report_data.json \
+  --outputDir /path/to/out
+# → /path/to/out/index.html plus assets
+```
+
+`--opinions` and `--bridging_scores` are aliases. Optional flags: `--inputDir`, `--config`, `--predicted`. Defaults still resolve under `./input` when flags are omitted.
+
+Using the wrong output flag for the mode fails with a clear error (`inline` forbids `--outputDir`; `static` forbids `--output`). With no path flags, behaviour matches the Quick start section (`output/static` / `output/inline`).
+
+---
+
 ## Configuration and input details
 
 ### `opinions.csv` Format

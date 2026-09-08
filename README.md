@@ -246,6 +246,16 @@ cp <OUTPUT_DIR>/bridging_scores.csv src/report_ui/input/opinions.csv
 cp <OUTPUT_DIR>/report_text/report_data.json src/report_ui/input/summary.json
 ```
 
+Alternatively, skip the copy step and pass paths explicitly:
+
+```shell
+cd src/report_ui
+node build.js inline \
+  --bridging_scores <OUTPUT_DIR>/bridging_scores.csv \
+  --summary <OUTPUT_DIR>/report_text/report_data.json \
+  --output <OUTPUT_DIR>/report.html
+```
+
 ##### **Customize the Report (Optional)**:
 
 You can edit `src/report_ui/input/config.json` to customize the report. Key options include:
