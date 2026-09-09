@@ -6,6 +6,24 @@
   .app-core-capabilities-card {
     padding: 0 28px 28px;
 
+    &__feature-name {
+      align-items: flex-end;
+      color: inherit;
+      display: flex;
+      font-size: 1.25rem;
+      font-weight: 700;
+      justify-content: center;
+      line-height: 1.4;
+      margin-top: 0;
+      min-height: calc(1.25rem * 1.4 * 2);
+      @include glue-spacers-mixins.spacer(3, 'margin', 'bottom');
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        font-size: 1.375rem;
+        min-height: calc(1.375rem * 1.4 * 2);
+      }
+    }
+
     &__image {
       @include glue-spacers-mixins.spacer(4, 'margin', 'bottom');
       height: auto;

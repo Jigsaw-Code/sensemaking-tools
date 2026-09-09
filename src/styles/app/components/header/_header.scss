@@ -38,11 +38,11 @@
   &,
   .app-header__logo-svg {
     height: 18px;
-    width: 202px;
+    width: 223px;
 
     @include glue-breakpoints-mixins.bp(lg) {
       height: 22px;
-      width: 246px;
+      width: 273px;
     }
   }
 }
