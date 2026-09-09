@@ -11,12 +11,19 @@
   &__content-column {
     height: 100%;
 
+    p,
+    li {
+      font-size: 16px;
+      line-height: 26px;
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        font-size: 18px;
+        line-height: 28px;
+      }
+    }
+
     &--left {
       margin-block-end: 1.5em;
-      p {
-          font-size: 20px;
-          line-height: 32px;
-        }
     }
 
     @include glue-breakpoints-mixins.bp(lg) {
@@ -120,6 +127,26 @@
         }
       }
     }
+  &__partners-inline {
+    border-top: 1px solid colors.$line-grey;
+    padding-top: 2.5rem;
+    margin-top: 2.5rem;
+
+    .use-sensemaking__partners-copy {
+      margin-left: 0;
+      margin-right: 0;
+      max-width: 100%;
+      text-align: left;
+      font-size: 16px;
+      line-height: 26px;
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        font-size: 18px;
+        line-height: 28px;
+      }
+    }
+  }
+
   &__logos {
     align-items: center;
     display: flex;
@@ -129,6 +156,13 @@
     @include glue-spacer-mixins.spacer(5, row, gap);
     @include glue-spacer-mixins.spacer(4, margin, top);
     @include glue-spacer-mixins.spacer(4, margin, bottom);
+
+    &--inline {
+      justify-content: flex-start;
+      margin-top: 1.25rem;
+      margin-bottom: 0;
+      gap: 1.25rem 2.5rem;
+    }
   }
 
   &__partners-copy {
@@ -149,6 +183,17 @@
     width: 100%;
     max-width: 190px;
     max-height: 68px;
+
+    &--small {
+      max-width: 115px;
+      max-height: 38px;
+      opacity: 0.85;
+      transition: opacity 0.2s ease;
+
+      &:hover {
+        opacity: 1;
+      }
+    }
   }
 
   &__faq-item {
