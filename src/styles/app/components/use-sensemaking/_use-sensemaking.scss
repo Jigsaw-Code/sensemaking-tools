@@ -159,9 +159,9 @@
 
     &--inline {
       justify-content: flex-start;
-      margin-top: 1.25rem;
+      margin-top: 0.75rem;
       margin-bottom: 0;
-      gap: 1.25rem 2.5rem;
+      gap: 1.5rem 2.5rem;
     }
   }
 
@@ -185,9 +185,9 @@
     max-height: 68px;
 
     &--small {
-      max-width: 115px;
-      max-height: 38px;
-      opacity: 0.85;
+      max-width: 140px;
+      max-height: 46px;
+      opacity: 0.9;
       transition: opacity 0.2s ease;
 
       &:hover {
