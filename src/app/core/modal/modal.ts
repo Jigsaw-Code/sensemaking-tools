@@ -30,6 +30,7 @@ module ModalModule {
         }
         
         trigger.addEventListener('click', () => {
+          modal!.setFocusAfterClosed(trigger);
           modal!.open();
         });
       }
