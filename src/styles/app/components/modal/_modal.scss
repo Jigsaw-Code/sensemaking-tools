@@ -38,7 +38,17 @@
 
   &__close-btn {
     border-radius: 0 8px 0 8px;
+    height: 32px;
+    padding: 0;
+    width: 32px;
     z-index: 2;
+
+    &::before,
+    &::after {
+      height: 16px;
+      left: 15px;
+      top: 8px;
+    }
 
     @include glue-breakpoints-mixins.bp(md) {
       border-radius: 0 12px 0 12px;
