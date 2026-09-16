@@ -11,12 +11,19 @@
   &__content-column {
     height: 100%;
 
+    p,
+    li {
+      font-size: 16px;
+      line-height: 26px;
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        font-size: 18px;
+        line-height: 28px;
+      }
+    }
+
     &--left {
       margin-block-end: 1.5em;
-      p {
-          font-size: 20px;
-          line-height: 32px;
-        }
     }
 
     @include glue-breakpoints-mixins.bp(lg) {
@@ -120,20 +127,94 @@
         }
       }
     }
-                &__logos {
+  &__partners-inline {
+    border-top: 1px solid colors.$line-grey;
+    padding-top: 2.5rem;
+    margin-top: 2.5rem;
+
+    .use-sensemaking__partners-copy {
+      margin-left: 0;
+      margin-right: 0;
+      max-width: 100%;
+      text-align: left;
+      font-size: 16px;
+      line-height: 26px;
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        font-size: 18px;
+        line-height: 28px;
+      }
+    }
+  }
+
+  &__logos {
     align-items: center;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    @include glue-spacer-mixins.spacer(4, column, gap);
-      @include glue-spacer-mixins.spacer(4, row, gap);
-      @include glue-spacer-mixins.spacer(2, margin, top);
+    @include glue-spacer-mixins.spacer(6, column, gap);
+    @include glue-spacer-mixins.spacer(5, row, gap);
+    @include glue-spacer-mixins.spacer(4, margin, top);
+    @include glue-spacer-mixins.spacer(4, margin, bottom);
+
+    &--inline {
+      justify-content: flex-start;
+      margin-top: 0.75rem;
+      margin-bottom: 0;
+      gap: 1.5rem 2.5rem;
+    }
+  }
+
+  &__partners-copy {
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 760px;
+    font-size: 16px;
+    line-height: 26px;
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      font-size: 18px;
+      line-height: 28px;
+    }
   }
 
   &__logo {
     object-fit: contain;
     width: 100%;
-    max-width:156px;
-    max-height: 56px;
+    max-width: 190px;
+    max-height: 68px;
+
+    &--small {
+      max-width: 140px;
+      max-height: 46px;
+      opacity: 0.9;
+      transition: opacity 0.2s ease;
+
+      &:hover {
+        opacity: 1;
+      }
+    }
+  }
+
+  &__faq-item {
+    p {
+      font-size: 16px;
+      line-height: 26px;
+
+      @include glue-breakpoints-mixins.bp(lg) {
+        font-size: 18px;
+        line-height: 28px;
+      }
+    }
+
+    @include glue-breakpoints-mixins.bp(lg) {
+      &--left {
+        padding-inline-end: 48px;
+      }
+
+      &--right {
+        padding-inline-start: 48px;
+      }
+    }
   }
 }
