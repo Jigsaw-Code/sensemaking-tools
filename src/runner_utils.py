@@ -23,7 +23,32 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from src.models import base_model
 from src.models import custom_types
+
+
+def max_concurrent_calls_arg(value: str) -> int:
+  """Argparse `type=` for a `--max_concurrent_calls` flag.
+
+  Delegates to base_model.validate_max_concurrent_calls so the CLI and the
+  models share a single definition of a valid value, and converts failures to
+  ArgumentTypeError so argparse shows the specific reason.
+
+  Args:
+      value: The raw command-line string.
+
+  Returns:
+      The parsed integer, which is >= 1.
+
+  Raises:
+      argparse.ArgumentTypeError: If `value` is not an integer >= 1.
+  """
+  try:
+    return base_model.validate_max_concurrent_calls(int(value))
+  except (TypeError, ValueError) as e:
+    raise argparse.ArgumentTypeError(
+        f"invalid value {value!r}: must be an integer >= 1."
+    ) from e
 
 
 def setup_logging(log_level_str: str, output_dir: Optional[str] = None) -> str:

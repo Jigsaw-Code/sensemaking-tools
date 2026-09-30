@@ -22,6 +22,7 @@ import pandas as pd
 from src.simulated_jury import simulated_jury
 from src.simulated_jury import sampling_utils
 from src.models import model_factory
+from src import runner_utils
 from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
 from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
 from src.social_choice import schulze
@@ -111,7 +112,7 @@ def main():
   parser.add_argument(
       "-c",
       "--max_concurrent_calls",
-      type=int,
+      type=runner_utils.max_concurrent_calls_arg,
       default=None,
       help=(
           "Maximum number of concurrent LLM API calls "

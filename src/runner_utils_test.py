@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
+import contextlib
+import io
 import json
 import os
 import unittest
@@ -86,6 +89,38 @@ class RunnerUtilsTest(unittest.TestCase):
         "  2. Opinion 1.1 (1 quotes)\n\n"
         "Total number of unique opinions: 2"
     ))
+
+
+class MaxConcurrentCallsArgTest(unittest.TestCase):
+  """Tests for runner_utils.max_concurrent_calls_arg."""
+
+  def test_accepts_positive_integers(self):
+    """Strings for integers >= 1 parse to ints."""
+    for value, expected in (("1", 1), ("5", 5), ("100", 100)):
+      with self.subTest(value=value):
+        self.assertEqual(runner_utils.max_concurrent_calls_arg(value), expected)
+
+  def test_rejects_invalid_values(self):
+    """Non-positive and non-integer strings raise ArgumentTypeError."""
+    for value in ("0", "-3", "abc", "2.5", ""):
+      with self.subTest(value=value):
+        with self.assertRaises(argparse.ArgumentTypeError):
+          runner_utils.max_concurrent_calls_arg(value)
+
+  def test_argparse_surfaces_specific_error(self):
+    """argparse shows our message rather than a generic 'invalid value'."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-c", type=runner_utils.max_concurrent_calls_arg, default=None
+    )
+    self.assertIsNone(parser.parse_args([]).c)
+    self.assertEqual(parser.parse_args(["-c", "5"]).c, 5)
+
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+      with self.assertRaises(SystemExit):
+        parser.parse_args(["-c", "0"])
+    self.assertIn("must be an integer >= 1", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -15,8 +15,59 @@
 """Abstract base class for model implementations."""
 
 from abc import ABC, abstractmethod
+import operator
 from typing import Any, Callable, Tuple
 import pandas as pd
+
+
+def validate_max_concurrent_calls(value: int) -> int:
+  """Validates a concurrency limit.
+
+  This is the single source of truth for the `max_concurrent_calls`
+  invariant. Both the models and the command-line flag parsers delegate to it.
+
+  Args:
+      value: The requested maximum number of concurrent calls. Any integral
+        type (including numpy integers) is accepted; bools are rejected.
+
+  Returns:
+      The validated value as a built-in int.
+
+  Raises:
+      TypeError: If `value` is not an integer.
+      ValueError: If `value` is less than 1.
+  """
+  if isinstance(value, bool):
+    raise TypeError("max_concurrent_calls must be an integer, got bool.")
+  try:
+    value = operator.index(value)
+  except TypeError as e:
+    raise TypeError(
+        f"max_concurrent_calls must be an integer, got {type(value).__name__}."
+    ) from e
+  if value < 1:
+    raise ValueError(f"max_concurrent_calls must be >= 1, got {value}.")
+  return value
+
+
+def resolve_max_concurrent_calls(value: int | None, default: int) -> int:
+  """Returns a validated concurrency limit, falling back to a default.
+
+  Args:
+      value: The requested maximum number of concurrent calls, or None to use
+        the default.
+      default: The model's default concurrency limit.
+
+  Returns:
+      The validated `value` if provided, otherwise `default`.
+
+  Raises:
+      TypeError: If `value` is not an integer.
+      ValueError: If `value` is less than 1.
+  """
+  if value is None:
+    return default
+  return validate_max_concurrent_calls(value)
 
 
 class BaseModel(ABC):
@@ -64,7 +115,8 @@ class BaseModel(ABC):
     Args:
         prompts: A list of dicts, each containing at least a 'prompt' key.
         response_parser: A callable to parse the response for each job.
-        max_concurrent_calls: Maximum number of concurrent calls.
+        max_concurrent_calls: Maximum number of concurrent calls. Must be an
+          integer >= 1; None uses the implementation's default.
         retry_attempts: Maximum number of retries per job.
         **kwargs: Additional model-specific arguments.
 
@@ -74,6 +126,10 @@ class BaseModel(ABC):
         - llm_response_stats: DataFrame with statistics.
         - wall_delay: Total wall-clock delay.
         - duration: Total wall-clock duration.
+
+    Raises:
+        TypeError: If `max_concurrent_calls` is not an integer.
+        ValueError: If `max_concurrent_calls` is less than 1.
     """
     pass
 

@@ -21,6 +21,7 @@ from typing import Any, Callable, Tuple
 from openai import AsyncOpenAI
 from pydantic import BaseModel as PydanticBaseModel
 import pandas as pd
+from src.models import base_model
 from src.models.base_model import BaseModel
 import random
 import time
@@ -162,11 +163,9 @@ class OpenAICompatibleModel(BaseModel):
       stats_list: list,
       stop_event: asyncio.Event,
       response_parser: Callable[[str, dict[str, Any]], Any],
-      max_concurrent_calls: int | None = None,
       pbar: Any = None,
   ):
     """Consumes jobs from the queue, calls the OpenAI API with retry logic."""
-    max_concurrent_calls = max_concurrent_calls or DEFAULT_MAX_CONCURRENT_CALLS
     initial_jitter = random.uniform(0, 1)
     await asyncio.sleep(initial_jitter)
 
@@ -264,8 +263,26 @@ class OpenAICompatibleModel(BaseModel):
       retry_attempts: int | None = 3,
       **kwargs,
   ) -> Tuple[pd.DataFrame, pd.DataFrame, float, float]:
-    """Orchestrates processing of multiple prompts concurrently."""
-    max_concurrent_calls = max_concurrent_calls or DEFAULT_MAX_CONCURRENT_CALLS
+    """Orchestrates processing of multiple prompts concurrently.
+
+    Args:
+        prompts: A list of dicts, each containing at least a 'prompt' key.
+        response_parser: A callable to parse the response for each job.
+        max_concurrent_calls: Maximum number of concurrent calls. Must be an
+          integer >= 1; None uses DEFAULT_MAX_CONCURRENT_CALLS.
+        retry_attempts: Maximum number of attempts per job.
+        **kwargs: Ignored; accepted for interface compatibility.
+
+    Returns:
+        A tuple of (results DataFrame, stats DataFrame, wall delay, duration).
+
+    Raises:
+        TypeError: If `max_concurrent_calls` is not an integer.
+        ValueError: If `max_concurrent_calls` is less than 1.
+    """
+    max_concurrent_calls = base_model.resolve_max_concurrent_calls(
+        max_concurrent_calls, DEFAULT_MAX_CONCURRENT_CALLS
+    )
     stage_start_time = time.time()
     queue = asyncio.Queue()
     final_results = []
@@ -283,7 +300,6 @@ class OpenAICompatibleModel(BaseModel):
                 final_stats,
                 stop_event,
                 response_parser,
-                max_concurrent_calls,
                 pbar,
             )
         )

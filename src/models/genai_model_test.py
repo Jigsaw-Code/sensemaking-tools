@@ -64,6 +64,48 @@ class GenaiModelInitTest(unittest.TestCase):
     self.assertEqual(model._parse_duration('12.345s'), 12)
 
 
+class GenaiModelMaxConcurrentCallsTest(unittest.TestCase):
+  """Invalid max_concurrent_calls is rejected at each public entry point."""
+
+  def setUp(self):
+    self.fake_client = mock.MagicMock()
+    self.model = genai_model.GenaiModel(model_name=self.fake_client)
+
+  def test_process_prompts_concurrently_rejects_invalid(self):
+    """Rejects before creating a progress bar or any workers."""
+    for value, error in ((0, ValueError), (-1, ValueError), (2.5, TypeError)):
+      with self.subTest(value=value):
+        with mock.patch.object(genai_model.tqdm.asyncio, 'tqdm') as mock_tqdm:
+          with self.assertRaises(error):
+            asyncio.run(
+                self.model.process_prompts_concurrently(
+                    [{'prompt': 'p'}],
+                    response_parser=lambda resp, job: resp,
+                    max_concurrent_calls=value,
+                )
+            )
+          mock_tqdm.assert_not_called()
+
+  def test_start_concurrent_workers_rejects_invalid(self):
+    """Rejects before scheduling any worker tasks."""
+    with mock.patch.object(genai_model.asyncio, 'create_task') as mock_create:
+      with self.assertRaises(ValueError):
+        self.model.start_concurrent_workers(
+            response_parser=lambda resp, job: resp, max_concurrent_calls=0
+        )
+      mock_create.assert_not_called()
+
+  def test_call_gemini_rejects_invalid(self):
+    """Rejects before calling the API."""
+    with self.assertRaises(ValueError):
+      asyncio.run(
+          self.model.call_gemini(
+              prompt='p', run_name='test', max_concurrent_calls=0
+          )
+      )
+    self.fake_client.aio.models.generate_content.assert_not_called()
+
+
 @mock.patch('google.genai.Client')
 class GenaiModelAsyncMethodsTest(unittest.TestCase):
 

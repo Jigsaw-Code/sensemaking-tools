@@ -29,6 +29,7 @@ from google.genai import types as genai_types
 from google.protobuf import duration_pb2, json_format
 from src.models import custom_types
 import pandas as pd
+from src.models import base_model
 from src.models.base_model import BaseModel
 
 
@@ -442,7 +443,6 @@ class GenaiModel(BaseModel):
     """Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
     """
-    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
     # Stagger the initial start of workers to prevent a thundering herd.
     initial_jitter = random.uniform(0, 1)
     await asyncio.sleep(initial_jitter)
@@ -634,7 +634,9 @@ class GenaiModel(BaseModel):
 
     Args:
         response_parser: A callable that parses the response from the LLM.
-        max_concurrent_calls: The maximum number of concurrent API calls.
+        max_concurrent_calls: The maximum number of concurrent API calls. Must
+          be an integer >= 1; None uses MAX_CONCURRENT_CALLS.
+        pbar: Optional progress bar updated as each job completes.
 
     Returns:
         A tuple containing:
@@ -643,8 +645,14 @@ class GenaiModel(BaseModel):
         - final_results: A list to hold the results.
         - final_stats: A list to hold the stats.
         - stop_event: An event to signal workers to stop.
+
+    Raises:
+        TypeError: If `max_concurrent_calls` is not an integer.
+        ValueError: If `max_concurrent_calls` is less than 1.
     """
-    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
+    max_concurrent_calls = base_model.resolve_max_concurrent_calls(
+        max_concurrent_calls, MAX_CONCURRENT_CALLS
+    )
     queue: asyncio.Queue = asyncio.Queue()
     final_results: list[dict] = []
     final_stats: list[dict] = []
@@ -681,7 +689,8 @@ class GenaiModel(BaseModel):
     Args:
         prompts: A list of prompts to process.
         response_parser: A callable that parses the response from the LLM.
-        max_concurrent_calls: The maximum number of concurrent API calls.
+        max_concurrent_calls: The maximum number of concurrent API calls. Must
+          be an integer >= 1; None uses MAX_CONCURRENT_CALLS.
         retry_attempts: The maximum number of times an LLM call should be
           retried.
         skip_log: If True, skip writing the summary block to the stats log file.
@@ -692,8 +701,14 @@ class GenaiModel(BaseModel):
         - llm_response_stats: A DataFrame with statistics for each job.
         - wall_delay: Total wall-clock delay during this execution.
         - duration: Total wall-clock duration of this execution.
+
+    Raises:
+        TypeError: If `max_concurrent_calls` is not an integer.
+        ValueError: If `max_concurrent_calls` is less than 1.
     """
-    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
+    max_concurrent_calls = base_model.resolve_max_concurrent_calls(
+        max_concurrent_calls, MAX_CONCURRENT_CALLS
+    )
     if retry_attempts is None:
       retry_attempts = self.max_llm_retries
 
@@ -868,13 +883,25 @@ class GenaiModel(BaseModel):
       response_mime_type: The response mime type to use for the model.
       response_schema: The response schema to use for the model.
       thinking_level: The thinking budget for the model's thinking process.
-      max_concurrent_calls: The maximum number of concurrent API calls.
+      max_concurrent_calls: Despite its name, this is passed to
+        AutomaticFunctionCallingConfig.maximum_remote_calls (the limit on
+        automatic function-calling round trips), not a concurrency limit.
+        Must be an integer >= 1; None uses MAX_CONCURRENT_CALLS.
 
     Returns:
       A dictionary containing the model's response and token count,
       or None if an error occurred.
+
+    Raises:
+      TypeError: If `max_concurrent_calls` is not an integer.
+      ValueError: If `max_concurrent_calls` is less than 1, or if `prompt` is
+        empty.
     """
-    max_concurrent_calls = max_concurrent_calls or MAX_CONCURRENT_CALLS
+    # TODO: Decouple maximum_remote_calls from max_concurrent_calls; it limits
+    # function-calling round trips, not concurrency.
+    max_concurrent_calls = base_model.resolve_max_concurrent_calls(
+        max_concurrent_calls, MAX_CONCURRENT_CALLS
+    )
     if not prompt:
       raise ValueError("Prompt must be present to call Gemini.")
 

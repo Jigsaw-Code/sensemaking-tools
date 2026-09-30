@@ -364,7 +364,7 @@ async def main() -> Optional[str]:
   parser.add_argument(
       "-c",
       "--max_concurrent_calls",
-      type=int,
+      type=runner_utils.max_concurrent_calls_arg,
       default=None,
       help=(
           "Maximum number of concurrent LLM API calls "

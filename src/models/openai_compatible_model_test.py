@@ -44,6 +44,27 @@ class OpenAICompatibleModelTest(unittest.TestCase):
         api_key='dummy_key', base_url='http://localhost:1234'
     )
 
+  @patch('src.models.openai_compatible_model.tqdm.asyncio.tqdm')
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_process_prompts_concurrently_rejects_invalid_max_concurrent_calls(
+      self, mock_async_openai, mock_tqdm
+  ):
+    """Invalid limits raise before any progress bar or workers are created."""
+    model = OpenAICompatibleModel(
+        model_name='test_model', endpoint_url='http://localhost:1234'
+    )
+    for value, error in ((0, ValueError), (-1, ValueError), (2.5, TypeError)):
+      with self.subTest(value=value):
+        with self.assertRaises(error):
+          asyncio.run(
+              model.process_prompts_concurrently(
+                  [{'prompt': 'p'}],
+                  response_parser=lambda resp, job: resp,
+                  max_concurrent_calls=value,
+              )
+          )
+    mock_tqdm.assert_not_called()
+
   @patch('src.models.openai_compatible_model.AsyncOpenAI')
   def test_generate_content_success(self, mock_async_openai):
     mock_client = mock_async_openai.return_value
