@@ -16,6 +16,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from src import prompts
 from src.models import custom_types
 from src.tasks import categorization
 
@@ -49,6 +50,84 @@ class CategorizationTest(unittest.TestCase):
         ],
         5,
     )
+
+  @patch.object(
+      categorization.topic_modeling_util,
+      "create_chunks",
+      new_callable=AsyncMock,
+  )
+  def test_learn_global_opinions_merge_uses_correct_topic(
+      self, mock_create_chunks
+  ):
+    """Each merge job must reference its own topic, not the last one seen."""
+    import pandas as pd
+
+    topic_a = custom_types.FlatTopic(name="Topic A")
+    topic_b = custom_types.FlatTopic(name="Topic B")
+    statement = custom_types.Statement(
+        id="s1",
+        text="text",
+        topics=[topic_a, topic_b],
+        quotes=[
+            custom_types.Quote(id="s1-A", text="quote a", topic=topic_a),
+            custom_types.Quote(id="s1-B", text="quote b", topic=topic_b),
+        ],
+    )
+    # Two chunks per topic forces a merge for both topics.
+    mock_create_chunks.return_value = [["chunk1"], ["chunk2"]]
+
+    def _opinion(topic_name, opinion_name):
+      return custom_types.OpinionResponseSchema(
+          name=topic_name,
+          subtopics=[custom_types.FlatTopic(name=opinion_name)],
+      )
+
+    captured_merge_jobs = []
+
+    async def _fake_process(jobs, **kwargs):
+      stats = pd.DataFrame()
+      if any(job.get("is_merge") for job in jobs):
+        captured_merge_jobs.extend(jobs)
+        rows = [
+            {**job, "result": _opinion(job["topic_obj"].name, "merged")}
+            for job in jobs
+        ]
+      else:
+        # Rows ordered A, A, B, B so the loop's last topic_obj is Topic B.
+        rows = [
+            {**job, "result": _opinion(job["topic_obj"].name, f"op{i}")}
+            for i, job in enumerate(jobs)
+        ]
+      return pd.DataFrame(rows), stats, 0.0, 1.0
+
+    mock_model = MagicMock()
+    mock_model.process_prompts_concurrently = AsyncMock(
+        side_effect=_fake_process
+    )
+
+    result = asyncio.run(
+        categorization.learn_global_opinions(
+            statements_with_topics_and_quotes=[statement],
+            topics_to_process=[topic_a, topic_b],
+            model=mock_model,
+        )
+    )
+
+    self.assertEqual(len(captured_merge_jobs), 2)
+    merge_jobs_by_topic = {
+        job["topic_obj"].name: job for job in captured_merge_jobs
+    }
+    self.assertEqual(set(merge_jobs_by_topic), {"Topic A", "Topic B"})
+    instructions_a = prompts.get_topic_modeling_merge_opinions_prompt("Topic A")
+    instructions_b = prompts.get_topic_modeling_merge_opinions_prompt("Topic B")
+    prompt_a = merge_jobs_by_topic["Topic A"]["prompt"]
+    prompt_b = merge_jobs_by_topic["Topic B"]["prompt"]
+    self.assertIn(instructions_a, prompt_a)
+    self.assertNotIn(instructions_b, prompt_a)
+    self.assertIn(instructions_b, prompt_b)
+    self.assertNotIn(instructions_a, prompt_b)
+    self.assertEqual(result["Topic A"].name, "Topic A")
+    self.assertEqual(result["Topic B"].name, "Topic B")
 
   def test_categorize_opinions_uses_quote_ids(self):
     import pandas as pd

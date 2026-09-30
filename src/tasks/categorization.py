@@ -249,11 +249,14 @@ async def learn_global_opinions(
 
   # Group results by topic name
   # We can iterate through the dataframe and collect results
-  topic_results: dict[str, list[NestedTopic]] = {}
+  topic_results: dict[str, list[NestedTopic]] = defaultdict(list)
+  # Map topic name to its Topic object, for use when building merge jobs.
+  topic_objs_by_name: dict[str, Topic] = {}
 
   # Initialize list for all expected topics
   for t in topics_to_process:
     topic_results[t.name] = []
+    topic_objs_by_name[t.name] = t
 
   for _, row in results_df.iterrows():
     topic_obj = row.get("topic_obj")
@@ -263,10 +266,7 @@ async def learn_global_opinions(
 
     result = row["result"]
     topic_name = topic_obj.name
-
-    if topic_name not in topic_results:
-      # Should not happen if initialized, but good safety
-      topic_results[topic_name] = []
+    topic_objs_by_name[topic_name] = topic_obj
 
     # Ensure an "Other" opinion exists for each topic.
     if not any(sub.name == "Other" for sub in result.subtopics):
@@ -310,7 +310,7 @@ async def learn_global_opinions(
 
       # Prepare Merge Prompt
       merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(
-          topic_obj.name
+          topic_name
       )
       prompt_str = get_prompt(
           merge_instructions, combined_opinions, additional_context
@@ -319,7 +319,7 @@ async def learn_global_opinions(
       merge_idx = len(merge_prompts)
       merge_prompts.append({
           "prompt": prompt_str,
-          "topic_obj": topic_obj,
+          "topic_obj": topic_objs_by_name[topic_name],
           "response_schema": (
               OpinionResponseSchema
           ),  # Merge prompt expects same structure (JSON list of opinions)
