@@ -135,8 +135,24 @@ async def generate_topics_with_chunking(
     schema_to_expect: any,
     additional_context: Optional[str] = None,
     chunks: Optional[List[List[str]]] = None,
+    max_concurrent_calls: Optional[int] = None,
 ) -> custom_types.FlatTopicList:
-  """Generates topics from a list of statements, handling token limits via chunking and merging."""
+  """Generates topics from a list of statements, handling token limits via chunking and merging.
+
+  Args:
+      model: The GenaiModel to use.
+      instructions: The prompt instructions.
+      prompt_input_data: The statement texts to generate topics from.
+      schema_to_expect: The response schema expected from the model.
+      additional_context: Optional context for the LLM prompt.
+      chunks: Optional precomputed chunks of prompt_input_data. If None,
+        chunks are computed here.
+      max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+        If None, the model's default is used.
+
+  Returns:
+      The generated (and, if chunked, merged) topics.
+  """
 
   if chunks is None:
     chunks = await create_chunks(
@@ -164,7 +180,9 @@ async def generate_topics_with_chunking(
     return parse_response(resp["text"], job["response_schema"])
 
   results_df, _, _, _ = await model.process_prompts_concurrently(
-      prompt_jobs, response_parser=parser
+      prompt_jobs,
+      response_parser=parser,
+      max_concurrent_calls=max_concurrent_calls,
   )
 
   partial_results = []

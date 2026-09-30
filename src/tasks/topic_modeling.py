@@ -61,8 +61,20 @@ async def learn_topics(
     statements: list[custom_types.Statement],
     model: GenaiModel,
     additional_context: Optional[str] = None,
+    max_concurrent_calls: Optional[int] = None,
 ) -> list[custom_types.FlatTopic]:
-  """Learns top-level topics from a list of statements."""
+  """Learns top-level topics from a list of statements.
+
+  Args:
+      statements: The statements to learn topics from.
+      model: The GenaiModel to use.
+      additional_context: Optional context for the LLM prompt.
+      max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+        If None, the model's default is used.
+
+  Returns:
+      The list of learned top-level topics.
+  """
   instructions = prompts.topic_modeling_learn_topics_prompt
   schema_to_expect = custom_types.FlatTopicList
   logging.debug("Using topic_modeling_learn_topics_prompt (expecting FlatTopicList)")
@@ -92,6 +104,7 @@ async def learn_topics(
         schema_to_expect=schema_to_expect,
         additional_context=additional_context,
         chunks=chunks,
+        max_concurrent_calls=max_concurrent_calls,
     )
     if isinstance(result, custom_types.FlatTopicList):
       return result.topics

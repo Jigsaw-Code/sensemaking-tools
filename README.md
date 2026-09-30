@@ -99,6 +99,10 @@ python3 -m src.categorization_runner \
 
   * #### **Considerations**: Use this when you have a specific taxonomy you want to enforce.
 
+* #### `--max_concurrent_calls N` (or `-c N`): Maximum number of concurrent LLM API calls, applied to every stage of categorization. Defaults to 100 for Gemini and 20 for open models.
+
+  * #### **Considerations**: Lower this (e.g. `-c 5`) if you hit rate limit or quota errors, or are using an API key with low quota. Higher values finish faster but consume quota more quickly.
+
 ##### Running with Gemma (and other open models)
 
 In addition to Google's Gemini API, the pipeline supports running on **open models (such as Gemma)** or any other open-weights model served via an **OpenAI API compatible endpoint** (e.g., using vLLM, LiteLLM, Ollama, or LM Studio).

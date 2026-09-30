@@ -104,6 +104,42 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
       self.model.process_prompts_concurrently.assert_called_once()
       self.model.generate_content.assert_called_once()
 
+  async def test_generate_topics_with_chunking_forwards_max_concurrent_calls(
+      self,
+  ):
+    self.model.process_prompts_concurrently.return_value = (
+        pd.DataFrame({
+            "result": [
+                custom_types.FlatTopicList(
+                    topics=[custom_types.FlatTopic(name="Topic 1")]
+                )
+            ]
+        }),
+        pd.DataFrame(),
+        0.0,
+        1.0,
+    )
+    self.model.generate_content.return_value = {
+        "text": '{"topics": [{"name": "Topic 1"}]}',
+        "error": None,
+    }
+
+    await topic_modeling_util.generate_topics_with_chunking(
+        self.model,
+        "instructions",
+        ["statement"],
+        custom_types.FlatTopicList,
+        chunks=[["statement"]],
+        max_concurrent_calls=5,
+    )
+
+    self.assertEqual(
+        self.model.process_prompts_concurrently.call_args.kwargs[
+            "max_concurrent_calls"
+        ],
+        5,
+    )
+
   async def test_generate_opinions_with_chunking_single_chunk(self):
     # Setup
     self.model.generate_content.return_value = {

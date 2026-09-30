@@ -127,6 +127,49 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
         len(set(all_quote_ids)), len(all_quote_ids)
     )  # Check for uniqueness
 
+  def _make_single_statement_and_mock_model(self):
+    """Builds one statement and a mock model returning a quote for it.
+
+    Returns:
+        A tuple of (statements, mock_model).
+    """
+    topic = custom_types.FlatTopic(name="Topic A")
+    statements = [
+        custom_types.Statement(
+            id="statement1", text="A statement.", topics=[topic]
+        )
+    ]
+    mock_results_df = pd.DataFrame([{
+        "result": {"text": "A quote.", "error": None},
+        "statement_id": "statement1",
+        "topic": topic,
+    }])
+    mock_model = MagicMock()
+    mock_model.process_prompts_concurrently = AsyncMock(
+        return_value=(mock_results_df, pd.DataFrame(), 0.0, 1.0)
+    )
+    return statements, mock_model
+
+  async def test_extract_quotes_forwards_max_concurrent_calls(self):
+    statements, mock_model = self._make_single_statement_and_mock_model()
+
+    await quote_extraction_lib.extract_quotes_from_text(
+        statements=statements, model=mock_model, max_concurrent_calls=5
+    )
+
+    _, kwargs = mock_model.process_prompts_concurrently.call_args
+    self.assertEqual(kwargs.get("max_concurrent_calls"), 5)
+
+  async def test_extract_quotes_defaults_max_concurrent_calls_to_none(self):
+    statements, mock_model = self._make_single_statement_and_mock_model()
+
+    await quote_extraction_lib.extract_quotes_from_text(
+        statements=statements, model=mock_model
+    )
+
+    _, kwargs = mock_model.process_prompts_concurrently.call_args
+    self.assertIsNone(kwargs.get("max_concurrent_calls"))
+
   def test_join_response_text(self):
     self.assertEqual(
         quote_extraction_lib.join_response_text("<response>Hello.</response>"),

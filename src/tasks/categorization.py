@@ -78,6 +78,8 @@ async def categorize_topics(
       current_topics: An optional list of predefined topics to use.
       additional_context: Optional text to provide additional context to the
         model.
+      max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+        If None, the model's default is used.
 
   Returns:
       A tuple containing the list of statements with topics assigned and the
@@ -96,7 +98,10 @@ async def categorize_topics(
   if not effective_topics:
     logging.debug("Learning initial top-level topics.")
     learned_initial_topics = await learn_topics(
-        input_statements, model, additional_context=additional_context
+        input_statements,
+        model,
+        additional_context=additional_context,
+        max_concurrent_calls=max_concurrent_calls,
     )
     if not learned_initial_topics:
       raise ValueError(
@@ -117,6 +122,7 @@ async def categorize_topics(
       model,
       effective_topics,
       additional_context,
+      max_concurrent_calls=max_concurrent_calls,
   )
 
   # Transfer the topics from the LLM statements back to the input statements.
@@ -143,6 +149,8 @@ async def learn_global_opinions(
       model: The language model to use for learning opinions.
       additional_context: Optional text to provide additional context to the
         model.
+      max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+        If None, the model's default is used.
 
   Returns:
       A dictionary containing the learned opinions for each topic.

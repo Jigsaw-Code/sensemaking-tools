@@ -22,6 +22,34 @@ from src.tasks import categorization
 
 class CategorizationTest(unittest.TestCase):
 
+  @patch.object(
+      categorization, "_process_topic_categorization", new_callable=AsyncMock
+  )
+  @patch.object(categorization, "learn_topics", new_callable=AsyncMock)
+  def test_categorize_topics_forwards_max_concurrent_calls(
+      self, mock_learn_topics, mock_process_topic_categorization
+  ):
+    """Test both topic learning and Step 1 categorization get the limit."""
+    mock_learn_topics.return_value = [custom_types.FlatTopic(name="Topic A")]
+    mock_process_topic_categorization.return_value = []
+    statements = [custom_types.Statement(id="s1", text="text")]
+
+    asyncio.run(
+        categorization.categorize_topics(
+            statements=statements, model=MagicMock(), max_concurrent_calls=5
+        )
+    )
+
+    self.assertEqual(
+        mock_learn_topics.call_args.kwargs["max_concurrent_calls"], 5
+    )
+    self.assertEqual(
+        mock_process_topic_categorization.call_args.kwargs[
+            "max_concurrent_calls"
+        ],
+        5,
+    )
+
   def test_categorize_opinions_uses_quote_ids(self):
     import pandas as pd
     # Setup

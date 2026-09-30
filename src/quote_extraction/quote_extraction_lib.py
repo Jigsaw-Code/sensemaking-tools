@@ -54,6 +54,7 @@ async def extract_quotes_from_text(
     model: GenaiModel,
     additional_context: Optional[str] = None,
     output_dir: Optional[str] = None,
+    max_concurrent_calls: Optional[int] = None,
 ) -> List[Statement]:
   """For each statement and its assigned topics, extracts a representative quote.
 
@@ -62,6 +63,8 @@ async def extract_quotes_from_text(
       model: The GenaiModel to use for extraction.
       additional_context: Optional context for the LLM prompt.
       output_dir: The directory to use for checkpointing.
+      max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+        If None, the model's default is used.
 
   Returns:
       The list of statements, updated with extracted quotes.
@@ -85,7 +88,10 @@ async def extract_quotes_from_text(
   # Run all quote extraction requests using realtime API.
   statements_map_for_quote_update = {s.id: s for s in statements}
   await _get_quotes_realtime(
-      model, statements_map_for_quote_update, prompts_with_metadata
+      model,
+      statements_map_for_quote_update,
+      prompts_with_metadata,
+      max_concurrent_calls=max_concurrent_calls,
   )
 
   checkpoint_utils.save_checkpoint(
@@ -100,8 +106,18 @@ async def _get_quotes_realtime(
     model: GenaiModel,
     statements_map_for_quote_update: dict[str, Statement],
     prompts_with_metadata: List[dict],
+    max_concurrent_calls: Optional[int] = None,
 ):
-  """Calls model for each prompt, and processes quote response."""
+  """Calls model for each prompt, and processes quote response.
+
+  Args:
+      model: The GenaiModel to use for extraction.
+      statements_map_for_quote_update: Map of statement ID to Statement, which
+        is updated in place with extracted quotes.
+      prompts_with_metadata: The prompts and associated metadata to process.
+      max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+        If None, the model's default is used.
+  """
   logging.info(
       "Extracting quotes for"
       f" {len(prompts_with_metadata)} statement-topic pairs using concurrent"
@@ -116,6 +132,7 @@ async def _get_quotes_realtime(
   response_df, _, _, _ = await model.process_prompts_concurrently(
       prompts_with_metadata,
       response_parser=_parser,
+      max_concurrent_calls=max_concurrent_calls,
   )
 
   # Add each quote to the statement object

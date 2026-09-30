@@ -77,6 +77,8 @@ class Sensemaker:
         run_autoraters: Whether to run autorater evaluations.
         skip_quote_extraction: Whether to skip quote extraction and use whole
           response as quote.
+        max_concurrent_calls: Optional maximum number of concurrent LLM calls,
+          applied to every LLM stage. If None, the model's default is used.
 
     Returns:
         The statements with topics and opinions assigned.
@@ -150,6 +152,7 @@ class Sensemaker:
                   statements=statements_with_topics,
                   model=self._genai_model,
                   additional_context=additional_context,
+                  max_concurrent_calls=max_concurrent_calls,
               )
           )
 

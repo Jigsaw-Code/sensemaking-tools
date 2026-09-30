@@ -147,6 +147,43 @@ class SensemakerTest(unittest.TestCase):
     # Verify that checkpoints were saved (quotes, learned_opinions, opinions)
     self.assertEqual(mock_checkpoint_utils.save_checkpoint.call_count, 3)
 
+  @patch("src.sensemaker.categorization")
+  @patch("src.sensemaker.quote_extraction_lib")
+  @patch("src.sensemaker.checkpoint_utils")
+  def test_categorize_statements_forwards_max_concurrent_calls(
+      self, mock_checkpoint_utils, mock_quote_lib, mock_categorization
+  ):
+    """Test that max_concurrent_calls is forwarded to every LLM stage."""
+    mock_categorization.categorize_topics = AsyncMock(
+        return_value=(self.sample_statements, self.sample_topics)
+    )
+    mock_quote_lib.extract_quotes_from_text = AsyncMock(
+        return_value=self.sample_statements
+    )
+    mock_categorization.learn_global_opinions = AsyncMock(return_value={})
+    mock_categorization.categorize_opinions = AsyncMock(
+        return_value=self.sample_statements
+    )
+    mock_checkpoint_utils.load_checkpoint.return_value = None
+
+    asyncio.run(
+        self.sensemaker.categorize_statements(
+            statements=self.sample_statements,
+            output_dir="/fake/dir",
+            max_concurrent_calls=7,
+        )
+    )
+
+    for stage in (
+        mock_categorization.categorize_topics,
+        mock_quote_lib.extract_quotes_from_text,
+        mock_categorization.learn_global_opinions,
+        mock_categorization.categorize_opinions,
+    ):
+      with self.subTest(stage=stage._mock_name):
+        stage.assert_called_once()
+        self.assertEqual(stage.call_args.kwargs["max_concurrent_calls"], 7)
+
 
 if __name__ == "__main__":
   unittest.main()
