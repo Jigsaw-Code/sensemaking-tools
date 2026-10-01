@@ -95,6 +95,7 @@
 							{{/executiveSummary}}
 						</section>
 					</article>
+					{{#hasDemographics}}
 					<article>
 						<section id="participant-overview">
 							<header>
@@ -105,6 +106,7 @@
 							<div id="participant-overview-chart" class="demographic-chart"></div>
 						</section>
 					</article>
+					{{/hasDemographics}}
 					<article>
 						<section id="conversation-overview">
 							<header>
@@ -245,9 +247,11 @@
 								<button class="is-active" data-target="drawer-quotes">
 									{{i18n.drawer.participantQuotesTitle}} (<span class="drawer-quote-count"></span>)
 								</button>
+								{{#hasDemographics}}
 								<button data-target="drawer-demographics">
 									{{i18n.drawer.participantDemographics}}
 								</button>
+								{{/hasDemographics}}
 							</div>
 						</div>
 						<div id="drawer-quotes" class="tab is-visible">
@@ -265,9 +269,11 @@
 							<ul class="drawer-quotes"></ul>
 						</div>
 
+						{{#hasDemographics}}
 						<div id="drawer-demographics" class="tab">
 							<div id="drawer-demographics-chart" class="demographic-chart"></div>
 						</div>
+						{{/hasDemographics}}
 						<button class="button-close"><img inline src="svg/x.svg" alt="{{i18n.meta.closeAlt}}"></button>
 					</div>
 				</div>

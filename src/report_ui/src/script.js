@@ -532,6 +532,8 @@ function createParticipantChart() {
   /** @type {Demographic[]} */
   const data = window.PAYLOAD.demographics;
   const id = "participant-overview-chart";
+  // The section is omitted from the template when there is no demographic data.
+  if (!document.getElementById(id)) return;
   createDemographicChart({ id, data });
 }
 
@@ -870,6 +872,8 @@ function updateQuotesDrawer() {
 
 function createQuotesDrawerParticipantChart() {
   const id = "drawer-demographics-chart";
+  // The tab is omitted from the template when there is no demographic data.
+  if (!document.getElementById(id)) return null;
   const unknownOpinionText = i18n.drawer?.unknownOpinion || "Unknown Opinion";
   const match = flatOpinions.find((o) => o.fullID === currentDrawerId);
   const text = match?.text || unknownOpinionText;

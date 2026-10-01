@@ -733,6 +733,9 @@ export function processReportData({
 
   demographics.sort((a, b) => a.label.localeCompare(b.label, i18n.locale));
 
+  // Only show demographic UI when at least one "demo:" column has a value.
+  const hasDemographics = demographics.some((d) => d.values.length > 0);
+
   // 7. Prepare outputs
   const executiveSummary = parseSummary(cleanMarkdown(summary.text || ""));
   const title = stripMarkdownHeader(summary.title);
@@ -764,6 +767,7 @@ export function processReportData({
     propositionsGenerated,
     topics,
     demographics,
+    hasDemographics,
     predicted,
     hasPredicted: predicted.topics.length > 0,
     i18n,
