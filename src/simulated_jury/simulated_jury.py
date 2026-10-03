@@ -27,7 +27,9 @@ import logging
 import os
 import random
 import json
+from src.models import decision
 from src.models import genai_model
+from src.models.systemone import SystemOneClient
 from src import participation
 import pandas as pd
 import re
@@ -367,6 +369,21 @@ async def run_simulated_jury(
       "--- Running simulated jury with %d participants ---", num_participants
   )
   print(f"--- Running simulated jury with {num_participants} participants ---")
+  decision_model = decision.decision_client()
+  if voting_mode == VotingMode.APPROVAL and decision_model is not None:
+    logging.info(
+        "Approval votes will use System One model %s. Ranking stays on the"
+        " generative model.",
+        decision_model.model,
+    )
+    return await _run_approval_with_decision(
+        decision_model,
+        participants_df,
+        statements,
+        approval_scale,
+        topic_name,
+        opinion_name,
+    )
   jobs = []
 
   # Define the schema for the ranking tool
@@ -515,6 +532,44 @@ async def run_simulated_jury(
 
   # The 'result' column now contains dictionaries from the parsers.
   return llm_response_df, stats_summary
+
+
+async def _run_approval_with_decision(
+    client: SystemOneClient,
+    participants_df: pd.DataFrame,
+    statements: list[str],
+    approval_scale: ApprovalScale,
+    topic_name: str,
+    opinion_name: str,
+) -> tuple[pd.DataFrame, dict]:
+  """Predicts approval votes without asking the model to write JSON."""
+  options = ApprovalScale.get_options(approval_scale)
+  rows = []
+  for _, row in participants_df.iterrows():
+    votes = await decision.approval_votes(
+        client,
+        participation.get_prompt_representation(row),
+        statements,
+        options,
+    )
+    rows.append({
+        "participant_rid": row["participant_id"],
+        "data_row": row.to_dict(),
+        "result": {
+            text: label in POSITIVE_APPROVAL_VOTES
+            for text, label in votes.items()
+        },
+        "topic": topic_name,
+        "opinion": opinion_name,
+    })
+  return pd.DataFrame(rows), {
+      "voting_mode": VotingMode.APPROVAL.name,
+      "topic_name": topic_name,
+      "opinion_name": opinion_name,
+      "decision_model": client.model,
+      "n_participants": len(rows),
+      "n_complete_fails": 0,
+  }
 
 
 def build_approval_matrix(

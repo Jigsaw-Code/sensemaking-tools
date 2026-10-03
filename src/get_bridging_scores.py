@@ -29,6 +29,8 @@ import os
 import pandas as pd
 from src import get_perspective_scores_lib
 from src.get_gemini_scores_lib import ContentScorer
+from src.models import decision
+
 AVERAGE_BRIDGING_COLUMN = "AVERAGE_OF_3_BRIDGING"
 BRIDGING_ATTRIBUTES = [
     "CURIOSITY_EXPERIMENTAL",
@@ -37,10 +39,23 @@ BRIDGING_ATTRIBUTES = [
 ]
 
 
-def get_bridging_scores(df: pd.DataFrame, text_column: str, gemini_api_key: str, gcloud_api_key: str, scorer_type: str, model_name: str):
+def get_bridging_scores(
+    df: pd.DataFrame,
+    text_column: str,
+    gemini_api_key: str,
+    gcloud_api_key: str,
+    scorer_type: str,
+    model_name: str,
+):
   """Score df with bridging attributes using specified scorer."""
   if scorer_type == "GEMINI":
-    print(f"Using Gemini ({model_name}) for bridging scoring...")
+    if decision.decision_enabled():
+      print(
+          "Using System One"
+          f" ({os.getenv('DECISION_MODEL')}) for bridging scoring..."
+      )
+    else:
+      print(f"Using Gemini ({model_name}) for bridging scoring...")
     scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=model_name)
     # Prepare batch for Gemini
     texts_with_ids = [
@@ -52,7 +67,7 @@ def get_bridging_scores(df: pd.DataFrame, text_column: str, gemini_api_key: str,
     for res in results:
       rid = res["row_id"]
       scores_by_row_id[rid].update(res["scores"])
-    scores_df = pd.DataFrame.from_dict(scores_by_row_id, orient='index')
+    scores_df = pd.DataFrame.from_dict(scores_by_row_id, orient="index")
     df = df.join(scores_df)
   elif scorer_type == "PERSPECTIVE":
     print("Using Perspective API for bridging scoring...")
@@ -115,12 +130,26 @@ if __name__ == "__main__":
   gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
   gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
 
-  if args.scorer_type == "GEMINI" and not gemini_api_key:
-    print("Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.")
+  if (
+      args.scorer_type == "GEMINI"
+      and not gemini_api_key
+      and not decision.decision_enabled()
+  ):
+    print(
+        "Error: --gemini_api_key or GEMINI_API_KEY environment variable"
+        " missing."
+    )
     exit(1)
+  if decision.decision_enabled():
+    print(f"Scoring with System One model {os.getenv('DECISION_MODEL')}.")
 
   df = get_bridging_scores(
-      df, args.text_column, gemini_api_key, gcloud_api_key, args.scorer_type, args.model_name
+      df,
+      args.text_column,
+      gemini_api_key or "",
+      gcloud_api_key,
+      args.scorer_type,
+      args.model_name,
   )
   df.to_csv(args.output_csv, index=False)
   print(f"Wrote {args.output_csv}")
