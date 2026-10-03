@@ -18,39 +18,57 @@ import pydantic
 from typing import Any
 from src import attribute_prompt_config
 from src import prompts
+from src.models import decision
 from src.models import genai_model
 from src.models import custom_types
+from src.models.decision import AttributeSpec
 
 
 class ContentScorer:
   """Scorer implementation using GenaiModel for efficient content moderation and bridging."""
 
   def __init__(self, gemini_api_key: str, model_name: str):
-    self.temperature = attribute_prompt_config.MODEL_CONFIG.get("temperature", 0.0)
-
-    self.client = genai_model.GenaiModel(
-        model_name=model_name,
-        gemini_api_key=gemini_api_key
+    self.temperature = attribute_prompt_config.MODEL_CONFIG.get(
+        "temperature", 0.0
     )
+    self._decision = decision.decision_client()
+    if self._decision is None:
+      self.client = genai_model.GenaiModel(
+          model_name=model_name,
+          gemini_api_key=gemini_api_key,
+      )
+    else:
+      self.client = None
 
   async def score_async(
-      self,
-      texts_with_ids: list[dict[str, Any]],
-      attributes: list[str]
+      self, texts_with_ids: list[dict[str, Any]], attributes: list[str]
   ) -> list[dict[str, Any]]:
     """Scores attributes independently using concurrent Gemini calls."""
+    if self._decision is not None:
+      return await self._score_with_decision(
+          self._decision, texts_with_ids, attributes
+      )
 
-    def parse_gemini_response(resp: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    def parse_gemini_response(
+        resp: dict[str, Any], job: dict[str, Any]
+    ) -> dict[str, Any]:
       attr = job.get("target_attr")
       response_text = resp.get("text", "{}")
       try:
-        parsed_response = pydantic.TypeAdapter(custom_types.ScoreResponse).validate_json(response_text)
+        parsed_response = pydantic.TypeAdapter(
+            custom_types.ScoreResponse
+        ).validate_json(response_text)
         return {attr: float(parsed_response.score)}
       except pydantic.ValidationError as e:
-        logging.error(f"Failed Pydantic validation for {attr}: {e}. Raw: {response_text}")
+        logging.error(
+            f"Failed Pydantic validation for {attr}: {e}. Raw: {response_text}"
+        )
         return {attr: 0.0}
       except Exception as e:
-        logging.error(f"Failed to parse Gemini response for {attr}: {e}. Raw: {response_text}")
+        logging.error(
+            f"Failed to parse Gemini response for {attr}: {e}. Raw:"
+            f" {response_text}"
+        )
         return {attr: 0.0}
 
     jobs = []
@@ -63,18 +81,24 @@ class ContentScorer:
 
         cat_info = attribute_prompt_config.ATTRIBUTES[attr]
         cal_ex_str = "\n".join([
-            f"- \"{ex['text']}\" (Agreement Probability: {ex['score']}) - Reasoning: {ex['reasoning']}"
+            f"- \"{ex['text']}\" (Agreement Probability: {ex['score']}) -"
+            f" Reasoning: {ex['reasoning']}"
             for ex in cat_info.get("calibrated_examples", [])
         ])
 
-        additional_instr = f"\nAdditional Guidance for {cat_info['label']}:\n{cat_info['additional_instruction']}\n" if "additional_instruction" in cat_info else ""
+        additional_instr = (
+            "\nAdditional Guidance for"
+            f" {cat_info['label']}:\n{cat_info['additional_instruction']}\n"
+            if "additional_instruction" in cat_info
+            else ""
+        )
 
         system_prompt = prompts.scoring_system_prompt_template.format(
             system_instruction=prompts.scoring_system_instruction,
-            label=cat_info['label'],
-            definition=cat_info['definition'],
+            label=cat_info["label"],
+            definition=cat_info["definition"],
             additional_instr=additional_instr,
-            calibrated_examples=cal_ex_str
+            calibrated_examples=cal_ex_str,
         )
 
         jobs.append({
@@ -88,8 +112,7 @@ class ContentScorer:
         })
 
     results_df, _, _, _ = await self.client.process_prompts_concurrently(
-        jobs,
-        parse_gemini_response
+        jobs, parse_gemini_response
     )
 
     if results_df.empty:
@@ -109,10 +132,40 @@ class ContentScorer:
 
     return list(aggregated.values())
 
-  def score(self, texts_with_ids: list[dict[str, Any]], attributes: list[str]) -> list[dict[str, Any]]:
+  async def _score_with_decision(
+      self,
+      client: decision.SystemOneClient,
+      texts_with_ids: list[dict[str, Any]],
+      attributes: list[str],
+  ) -> list[dict[str, Any]]:
+    """Scores each attribute as a System One yes/no probability."""
+    specs = []
+    for attr in attributes:
+      info = attribute_prompt_config.ATTRIBUTES.get(attr)
+      if not info:
+        continue
+      specs.append(
+          AttributeSpec(
+              name=attr,
+              label=info["label"],
+              definition=info["definition"],
+              guidance=info.get("additional_instruction", ""),
+          )
+      )
+    aggregated = []
+    for item in texts_with_ids:
+      scores = await decision.score_attributes(client, item["text"], specs)
+      aggregated.append({"row_id": item["row_id"], "scores": scores})
+    return aggregated
+
+  def score(
+      self, texts_with_ids: list[dict[str, Any]], attributes: list[str]
+  ) -> list[dict[str, Any]]:
     """Synchronous entry point for scoring a batch of texts."""
     try:
       loop = asyncio.get_event_loop()
-      return loop.run_until_complete(self.score_async(texts_with_ids, attributes))
+      return loop.run_until_complete(
+          self.score_async(texts_with_ids, attributes)
+      )
     except RuntimeError:
       return asyncio.run(self.score_async(texts_with_ids, attributes))
