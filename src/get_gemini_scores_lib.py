@@ -21,6 +21,49 @@ from src import prompts
 from src.models import genai_model
 from src.models import custom_types
 
+# Maximum number of missing (row_id, attribute) pairs listed in the warning.
+_MAX_MISSING_TO_LOG = 10
+# Maximum characters of raw model output included in parse error messages.
+_MAX_RAW_CHARS_IN_ERROR = 200
+
+
+def parse_score_response(
+    resp: dict[str, Any], job: dict[str, Any]
+) -> dict[str, float]:
+  """Parses a Gemini scoring response into a score for the job's attribute.
+
+  Malformed responses raise instead of returning a default score. The
+  GenaiModel worker treats a raising parser as a failed attempt and retries
+  the call; if every attempt fails, the job is reported as an error and no
+  score is recorded for it, rather than a fabricated 0.0.
+
+  Args:
+    resp: Response dict from GenaiModel.call_gemini. The model output is
+      expected under the "text" key as JSON matching ScoreResponse.
+    job: The job dict, with the attribute being scored under "target_attr".
+
+  Returns:
+    A dict mapping the job's attribute to its parsed score.
+
+  Raises:
+    KeyError: If job has no "target_attr".
+    ValueError: If the response text is missing or does not match
+      ScoreResponse.
+  """
+  attr = job["target_attr"]
+  response_text = resp.get("text") or ""
+  try:
+    parsed_response = pydantic.TypeAdapter(
+        custom_types.ScoreResponse
+    ).validate_json(response_text)
+  except pydantic.ValidationError as e:
+    # The full raw response is already kept in GenaiModel's failed_tries.
+    raise ValueError(
+        f"Invalid score response for {attr}: {e}. Raw (truncated):"
+        f" {response_text[:_MAX_RAW_CHARS_IN_ERROR]!r}"
+    ) from e
+  return {attr: float(parsed_response.score)}
+
 
 class ContentScorer:
   """Scorer implementation using GenaiModel for efficient content moderation and bridging."""
@@ -38,20 +81,24 @@ class ContentScorer:
       texts_with_ids: list[dict[str, Any]],
       attributes: list[str]
   ) -> list[dict[str, Any]]:
-    """Scores attributes independently using concurrent Gemini calls."""
+    """Scores attributes independently using concurrent Gemini calls.
 
-    def parse_gemini_response(resp: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
-      attr = job.get("target_attr")
-      response_text = resp.get("text", "{}")
-      try:
-        parsed_response = pydantic.TypeAdapter(custom_types.ScoreResponse).validate_json(response_text)
-        return {attr: float(parsed_response.score)}
-      except pydantic.ValidationError as e:
-        logging.error(f"Failed Pydantic validation for {attr}: {e}. Raw: {response_text}")
-        return {attr: 0.0}
-      except Exception as e:
-        logging.error(f"Failed to parse Gemini response for {attr}: {e}. Raw: {response_text}")
-        return {attr: 0.0}
+    Each (text, attribute) pair is scored by a separate Gemini call. Calls
+    whose response cannot be parsed are retried by GenaiModel.
+
+    Args:
+      texts_with_ids: Dicts with the "text" to score and a caller-chosen
+        "row_id" used to key the results.
+      attributes: Attribute names to score. Names not present in
+        attribute_prompt_config.ATTRIBUTES are skipped.
+
+    Returns:
+      A list of {"row_id": ..., "scores": {attribute: score}} dicts. Callers
+      must expect missing data: an attribute that could not be scored after
+      all retries is omitted from "scores" (it is never defaulted to 0.0), and
+      a row_id with no results at all may be absent from the list. A warning
+      summarizing missing pairs is logged.
+    """
 
     jobs = []
     for item in texts_with_ids:
@@ -89,11 +136,8 @@ class ContentScorer:
 
     results_df, _, _, _ = await self.client.process_prompts_concurrently(
         jobs,
-        parse_gemini_response
+        parse_score_response
     )
-
-    if results_df.empty:
-      return []
 
     # Aggregate results by row_id
     aggregated = {}
@@ -107,10 +151,36 @@ class ContentScorer:
       if attr in result_dict:
         aggregated[rid]["scores"][attr] = result_dict[attr]
 
+    # The wrapper's own error log only identifies an internal job index, so
+    # summarize which (row_id, attribute) pairs ended up without a score.
+    missing = []
+    for job in jobs:
+      row_id = job["row_id"]
+      attr = job["target_attr"]
+      if attr not in aggregated.get(row_id, {}).get("scores", {}):
+        missing.append((row_id, attr))
+    if missing:
+      logging.warning(
+          "No score obtained for %d of %d (row_id, attribute) pair(s) after"
+          " all retries; these will be missing from the results. First %d: %s",
+          len(missing),
+          len(jobs),
+          min(len(missing), _MAX_MISSING_TO_LOG),
+          missing[:_MAX_MISSING_TO_LOG],
+      )
+
     return list(aggregated.values())
 
   def score(self, texts_with_ids: list[dict[str, Any]], attributes: list[str]) -> list[dict[str, Any]]:
-    """Synchronous entry point for scoring a batch of texts."""
+    """Synchronous entry point for scoring a batch of texts.
+
+    Args:
+      texts_with_ids: See score_async.
+      attributes: See score_async.
+
+    Returns:
+      See score_async.
+    """
     try:
       loop = asyncio.get_event_loop()
       return loop.run_until_complete(self.score_async(texts_with_ids, attributes))
