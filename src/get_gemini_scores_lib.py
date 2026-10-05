@@ -47,8 +47,8 @@ def parse_score_response(
 
   Raises:
     KeyError: If job has no "target_attr".
-    ValueError: If the response text is missing or does not match
-      ScoreResponse.
+    ValueError: If the response text is missing, does not match
+      ScoreResponse, or the score is not a finite number in [0.0, 1.0].
   """
   attr = job["target_attr"]
   response_text = resp.get("text") or ""
@@ -62,7 +62,14 @@ def parse_score_response(
         f"Invalid score response for {attr}: {e}. Raw (truncated):"
         f" {response_text[:_MAX_RAW_CHARS_IN_ERROR]!r}"
     ) from e
-  return {attr: float(parsed_response.score)}
+  score = parsed_response.score
+  # Scores are probabilities. This also rejects NaN (all comparisons with NaN
+  # are False) and infinities.
+  if not 0.0 <= score <= 1.0:
+    raise ValueError(
+        f"Score for {attr} must be a probability in [0.0, 1.0], got {score!r}."
+    )
+  return {attr: score}
 
 
 class ContentScorer:

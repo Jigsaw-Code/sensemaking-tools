@@ -83,6 +83,37 @@ class ParseScoreResponseTest(unittest.TestCase):
     self.assertNotIn(long_text, str(ctx.exception))
     self.assertLess(len(str(ctx.exception)), 2000)
 
+  def test_boundary_scores_accepted(self):
+    """Checks scores at and within [0.0, 1.0] are accepted."""
+    cases = {
+        '{"score": 0}': 0.0,
+        '{"score": 0.0}': 0.0,
+        '{"score": 1}': 1.0,
+        '{"score": 1.0}': 1.0,
+        '{"score": "0.7"}': 0.7,
+    }
+    for text, expected in cases.items():
+      with self.subTest(text):
+        result = get_gemini_scores_lib.parse_score_response(
+            _response(text), _JOB
+        )
+        self.assertEqual(result, {_ATTR: expected})
+
+  def test_out_of_range_or_non_finite_scores_raise(self):
+    """Checks scores that are not probabilities raise so they are retried."""
+    bad_texts = [
+        '{"score": 1.5}',
+        '{"score": -0.2}',
+        '{"score": 85}',
+        '{"score": NaN}',
+        '{"score": Infinity}',
+        '{"score": -Infinity}',
+    ]
+    for text in bad_texts:
+      with self.subTest(text):
+        with self.assertRaises(ValueError):
+          get_gemini_scores_lib.parse_score_response(_response(text), _JOB)
+
 
 # Prevents GenaiModel from constructing a real google.genai client.
 @mock.patch("google.genai.Client")
@@ -138,6 +169,18 @@ class ContentScorerRetryTest(unittest.TestCase):
 
     self.assertEqual(scorer.client.call_gemini.await_count, 2)
     self.assertEqual(results, [{"row_id": 0, "scores": {_ATTR: 0.6}}])
+
+  def test_out_of_range_score_is_retried(self, mock_client):
+    """Checks a percentage-style score is retried rather than recorded."""
+    del mock_client  # Unused.
+    scorer = self._make_scorer(
+        [_response('{"score": 85}'), _response('{"score": 0.85}')]
+    )
+
+    results = scorer.score([{"text": "hello", "row_id": 0}], [_ATTR])
+
+    self.assertEqual(scorer.client.call_gemini.await_count, 2)
+    self.assertEqual(results, [{"row_id": 0, "scores": {_ATTR: 0.85}}])
 
   def test_exhausted_retries_produce_no_score(self, mock_client):
     """Checks repeated malformed responses yield no score, not 0.0."""
