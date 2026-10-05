@@ -25,6 +25,12 @@ from src.models import custom_types
 _MAX_MISSING_TO_LOG = 10
 # Maximum characters of raw model output included in parse error messages.
 _MAX_RAW_CHARS_IN_ERROR = 200
+# Default maximum attempts per scoring call, lower than GenaiModel's default
+# (genai_model.MAX_LLM_RETRIES). Every failed attempt that returned a response
+# is a billed call, and a systematic problem (e.g. the model answering on the
+# wrong scale) would otherwise cost every (text, attribute) pair the full
+# wrapper default. A few attempts are enough for transient malformed output.
+DEFAULT_SCORING_MAX_LLM_RETRIES = 5
 
 
 def parse_score_response(
@@ -75,12 +81,29 @@ def parse_score_response(
 class ContentScorer:
   """Scorer implementation using GenaiModel for efficient content moderation and bridging."""
 
-  def __init__(self, gemini_api_key: str, model_name: str):
+  def __init__(
+      self,
+      gemini_api_key: str,
+      model_name: str,
+      max_llm_retries: int = DEFAULT_SCORING_MAX_LLM_RETRIES,
+  ):
+    """Initializes the scorer.
+
+    Args:
+      gemini_api_key: API key for Gemini.
+      model_name: Gemini model name.
+      max_llm_retries: Maximum attempts per (text, attribute) call that
+        returns an error or an unusable response, after which no score is
+        recorded. Each such attempt is a billed call. Quota (429) and
+        unavailability (503) errors pause and retry without consuming
+        attempts, so they are not limited by this.
+    """
     self.temperature = attribute_prompt_config.MODEL_CONFIG.get("temperature", 0.0)
 
     self.client = genai_model.GenaiModel(
         model_name=model_name,
-        gemini_api_key=gemini_api_key
+        gemini_api_key=gemini_api_key,
+        max_llm_retries=max_llm_retries,
     )
 
   async def score_async(

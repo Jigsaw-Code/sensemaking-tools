@@ -18,6 +18,8 @@ from typing import Any
 import unittest
 from unittest import mock
 
+from google.api_core import exceptions as google_exceptions
+
 from src import attribute_prompt_config
 from src import get_gemini_scores_lib
 from src.models import genai_model
@@ -139,7 +141,7 @@ class ContentScorerRetryTest(unittest.TestCase):
     self.addCleanup(sleep_patcher.stop)
 
   def _make_scorer(
-      self, responses: Any, max_llm_retries: int = 3
+      self, responses: Any, max_llm_retries: int
   ) -> get_gemini_scores_lib.ContentScorer:
     """Builds a ContentScorer whose Gemini calls return `responses`.
 
@@ -152,9 +154,10 @@ class ContentScorerRetryTest(unittest.TestCase):
       The configured ContentScorer.
     """
     scorer = get_gemini_scores_lib.ContentScorer(
-        gemini_api_key="test_key", model_name="test_model"
+        gemini_api_key="test_key",
+        model_name="test_model",
+        max_llm_retries=max_llm_retries,
     )
-    scorer.client.max_llm_retries = max_llm_retries
     scorer.client.call_gemini = mock.AsyncMock(side_effect=responses)
     return scorer
 
@@ -162,7 +165,8 @@ class ContentScorerRetryTest(unittest.TestCase):
     """Checks a malformed response triggers a retry that can succeed."""
     del mock_client  # Unused.
     scorer = self._make_scorer(
-        [_response("not json"), _response('{"score": 0.6}')]
+        [_response("not json"), _response('{"score": 0.6}')],
+        max_llm_retries=3,
     )
 
     results = scorer.score([{"text": "hello", "row_id": 0}], [_ATTR])
@@ -174,7 +178,8 @@ class ContentScorerRetryTest(unittest.TestCase):
     """Checks a percentage-style score is retried rather than recorded."""
     del mock_client  # Unused.
     scorer = self._make_scorer(
-        [_response('{"score": 85}'), _response('{"score": 0.85}')]
+        [_response('{"score": 85}'), _response('{"score": 0.85}')],
+        max_llm_retries=3,
     )
 
     results = scorer.score([{"text": "hello", "row_id": 0}], [_ATTR])
@@ -191,6 +196,50 @@ class ContentScorerRetryTest(unittest.TestCase):
 
     self.assertEqual(scorer.client.call_gemini.await_count, 3)
     self.assertEqual(results, [{"row_id": 0, "scores": {}}])
+
+  def test_default_limit_caps_billed_attempts(self, mock_client):
+    """Checks a persistently bad response stops at the scoring default."""
+    del mock_client  # Unused.
+    default = get_gemini_scores_lib.DEFAULT_SCORING_MAX_LLM_RETRIES
+    self.assertLess(default, genai_model.MAX_LLM_RETRIES)
+    # Built directly, not via _make_scorer, so max_llm_retries is omitted and
+    # ContentScorer's own default applies.
+    scorer = get_gemini_scores_lib.ContentScorer(
+        gemini_api_key="test_key", model_name="test_model"
+    )
+    scorer.client.call_gemini = mock.AsyncMock(
+        side_effect=lambda **kwargs: _response('{"score": 85}')
+    )
+
+    results = scorer.score([{"text": "hello", "row_id": 0}], [_ATTR])
+
+    self.assertEqual(scorer.client.call_gemini.await_count, default)
+    self.assertEqual(results, [{"row_id": 0, "scores": {}}])
+
+  def test_explicit_limit_is_honored(self, mock_client):
+    """Checks callers can override the scoring attempt limit."""
+    del mock_client  # Unused.
+    scorer = self._make_scorer(
+        lambda **kwargs: _response("not json"), max_llm_retries=2
+    )
+
+    scorer.score([{"text": "hello", "row_id": 0}], [_ATTR])
+
+    self.assertEqual(scorer.client.call_gemini.await_count, 2)
+
+  def test_service_unavailable_does_not_consume_attempts(self, mock_client):
+    """Checks 503s pause and retry without counting against the limit."""
+    del mock_client  # Unused.
+    unavailable = google_exceptions.ServiceUnavailable("overloaded")
+    scorer = self._make_scorer(
+        [unavailable, unavailable, unavailable, _response('{"score": 0.3}')],
+        max_llm_retries=1,
+    )
+
+    results = scorer.score([{"text": "hello", "row_id": 0}], [_ATTR])
+
+    self.assertEqual(scorer.client.call_gemini.await_count, 4)
+    self.assertEqual(results, [{"row_id": 0, "scores": {_ATTR: 0.3}}])
 
   def test_partial_failure_keeps_successful_attribute(self, mock_client):
     """Checks one attribute failing does not affect another's score."""
@@ -224,7 +273,9 @@ class ContentScorerRetryTest(unittest.TestCase):
   def test_no_warning_when_all_scores_obtained(self, mock_client):
     """Checks the missing-score warning is not logged on full success."""
     del mock_client  # Unused.
-    scorer = self._make_scorer([_response('{"score": 0.2}')])
+    scorer = self._make_scorer(
+        [_response('{"score": 0.2}')], max_llm_retries=3
+    )
 
     with mock.patch.object(
         get_gemini_scores_lib.logging, "warning"
@@ -237,7 +288,7 @@ class ContentScorerRetryTest(unittest.TestCase):
     """Checks API-level errors (e.g. safety) keep their existing retries."""
     del mock_client  # Unused.
     scorer = self._make_scorer(
-        [{"error": "SAFETY"}, _response('{"score": 0.4}')]
+        [{"error": "SAFETY"}, _response('{"score": 0.4}')], max_llm_retries=3
     )
 
     with mock.patch.object(
