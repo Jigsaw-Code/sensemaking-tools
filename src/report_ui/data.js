@@ -301,6 +301,8 @@ export function processReportData({
   }
 
   const overviewChart = config.overview_chart || "toggle";
+  const excludedTopics = new Set(config.excluded_topics || []);
+  const excludedOpinions = new Set(config.excluded_opinions || []);
   const options = {
     logo: config.logo || "",
     overviewChart,
@@ -454,44 +456,51 @@ export function processReportData({
    * @returns {Object[]} Structured topic objects.
    */
   function groupOpinions(opinionsList) {
-    // 1. Group by high-level Topic
-    const byTopic = groupBy(opinionsList, "topic");
+    // 1. Group by high-level Topic, dropping excluded topics
+    const byTopic = groupBy(opinionsList, "topic").filter(
+      ([topicText]) => !excludedTopics.has(topicText),
+    );
 
-    const o = byTopic.map(([topicText, topicOpinions]) => {
-      // 2. Find matching AI summary (stripping markdown headers)
-      const topicMatch = summary.sub_contents.find(
-        (t) => stripMarkdownHeader(t.title) === topicText,
-      );
+    const o = byTopic
+      .map(([topicText, topicOpinions]) => {
+        // 2. Find matching AI summary (stripping markdown headers)
+        const topicMatch = summary.sub_contents.find(
+          (t) => stripMarkdownHeader(t.title) === topicText,
+        );
 
-      const topicId = generateId(topicText, true);
+        const topicId = generateId(topicText, true);
 
-      // 3. Group by specific Opinion within the Topic
-      const byOpinion = groupBy(topicOpinions, "opinion").map(
-        ([_, values]) => ({
-          opinionID: generateId(values[0].opinion),
-          // fullID is crucial: it links the UI chart to the specific quotes list
-          fullID: `${topicId}-${generateId(values[0].opinion)}`,
-          text: values[0].opinion,
-          count: values.length,
-          quotes: sortAndExtractQuotes(values),
-        }),
-      );
+        // 3. Drop excluded opinions, then group by specific Opinion within the Topic
+        const keptOpinions = topicOpinions.filter(
+          (row) => !excludedOpinions.has(row.opinion),
+        );
+        const byOpinion = groupBy(keptOpinions, "opinion").map(
+          ([_, values]) => ({
+            opinionID: generateId(values[0].opinion),
+            // fullID is crucial: it links the UI chart to the specific quotes list
+            fullID: `${topicId}-${generateId(values[0].opinion)}`,
+            text: values[0].opinion,
+            count: values.length,
+            quotes: sortAndExtractQuotes(values),
+          }),
+        );
 
-      // 4. Sort opinions: "Other" always last, otherwise by count descending
-      byOpinion.sort((a, b) => {
-        if (a.text === "Other") return 1;
-        if (b.text === "Other") return -1;
-        return b.count - a.count;
-      });
+        // 4. Sort opinions: "Other" always last, otherwise by count descending
+        byOpinion.sort((a, b) => {
+          if (a.text === "Other") return 1;
+          if (b.text === "Other") return -1;
+          return b.count - a.count;
+        });
 
-      return {
-        topicID: topicId,
-        summary: cleanMarkdown(topicMatch?.text),
-        text: topicText,
-        count: topicOpinions.length,
-        opinions: byOpinion,
-      };
-    });
+        return {
+          topicID: topicId,
+          summary: cleanMarkdown(topicMatch?.text),
+          text: topicText,
+          count: keptOpinions.length,
+          opinions: byOpinion,
+        };
+      })
+      .filter((topic) => topic.opinions.length > 0);
 
     return o;
   }
@@ -653,7 +662,7 @@ export function processReportData({
   const predicted = processPredicted(predictedRaw);
 
   // 3. Calculate high-level counts
-  const topicsIdentified = summary.sub_contents.length;
+  const topicsIdentified = opinionsGrouped.length;
   const topicsIdentifiedFormatted = formatNumber(topicsIdentified);
   const opinionsIdentified = opinionsGrouped
     .map((t) => t.opinions.length)

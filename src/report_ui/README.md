@@ -38,6 +38,8 @@ In config.json, optionally add these properties
 | `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
 | `topic_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes for overview chart. |
 | `demographic_colors` | `array` | `"#4886f7", "#4071d5", "#385db3", "#2f4a93", "#273874", "#1e2656",` | Array of six color codes for partipant chart. |
+| `excluded_topics` | `array` | `[]` | Topic names (exact match to CSV `topic` column) to hide from the report. |
+| `excluded_opinions` | `array` | `[]` | Opinion names (exact match to CSV `opinion` column) to hide from the report. |
 
 ### 3. Generate the Report
 No dependecies are required to generate the report. Open your terminal/command prompt in the project folder and run:
