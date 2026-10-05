@@ -37,36 +37,95 @@ BRIDGING_ATTRIBUTES = [
 ]
 
 
-def get_bridging_scores(df: pd.DataFrame, text_column: str, gemini_api_key: str, gcloud_api_key: str, scorer_type: str, model_name: str):
-  """Score df with bridging attributes using specified scorer."""
+def get_bridging_scores(
+    df: pd.DataFrame,
+    text_column: str,
+    gemini_api_key: str,
+    gcloud_api_key: str,
+    scorer_type: str,
+    model_name: str,
+) -> pd.DataFrame:
+  """Score df with bridging attributes using specified scorer.
+
+  Bridging scores depend only on the text being scored, so each unique text
+  is scored once and the scores are copied to every row containing that text.
+  This avoids redundant API calls when the same text appears in many rows
+  (e.g. categorization output, which has one row per quote/topic/opinion).
+
+  Any bridging score columns already present in df are replaced entirely
+  (with a warning) so that old and new scores are never mixed.
+
+  Args:
+    df: DataFrame containing the texts to score.
+    text_column: Name of the column in df containing the texts.
+    gemini_api_key: API key for Gemini, used when scorer_type is "GEMINI".
+    gcloud_api_key: API key for Perspective, used when scorer_type is
+      "PERSPECTIVE".
+    scorer_type: Backend to use, either "GEMINI" or "PERSPECTIVE".
+    model_name: Gemini model name, used when scorer_type is "GEMINI".
+
+  Returns:
+    A copy of df with one column per bridging attribute plus an
+    AVERAGE_BRIDGING_COLUMN. Rows for which the scorer returned no score get
+    NaN.
+
+  Raises:
+    ValueError: If scorer_type is not recognized.
+  """
+  score_columns = BRIDGING_ATTRIBUTES + [AVERAGE_BRIDGING_COLUMN]
+  existing_columns = [col for col in score_columns if col in df.columns]
+  if existing_columns:
+    print(
+        f"Warning: Existing bridging score columns {existing_columns} found "
+        "in input. They will be replaced with newly computed scores."
+    )
+
+  texts = df[text_column].astype(str)
+  unique_texts = pd.Series(texts.unique())
+  print(
+      f"Scoring {len(unique_texts)} unique texts across {len(df)} rows "
+      f"({len(df) - len(unique_texts)} duplicate rows will reuse scores)."
+  )
+
   if scorer_type == "GEMINI":
     print(f"Using Gemini ({model_name}) for bridging scoring...")
     scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=model_name)
-    # Prepare batch for Gemini
+    # Prepare batch for Gemini, keyed by position in unique_texts.
     texts_with_ids = [
-        {"text": str(text), "row_id": idx}
-        for idx, text in df[text_column].items()
+        {"text": text, "row_id": idx}
+        for idx, text in unique_texts.items()
     ]
     results = scorer.score(texts_with_ids, BRIDGING_ATTRIBUTES)
     scores_by_row_id = collections.defaultdict(dict)
     for res in results:
       rid = res["row_id"]
       scores_by_row_id[rid].update(res["scores"])
-    scores_df = pd.DataFrame.from_dict(scores_by_row_id, orient='index')
-    df = df.join(scores_df)
+    unique_scores_df = pd.DataFrame.from_dict(scores_by_row_id, orient="index")
   elif scorer_type == "PERSPECTIVE":
     print("Using Perspective API for bridging scoring...")
     client = get_perspective_scores_lib.init_client(gcloud_api_key)
     scores_list = [
         get_perspective_scores_lib.score_text(
-            client, str(text), BRIDGING_ATTRIBUTES
+            client, text, BRIDGING_ATTRIBUTES
         )
-        for text in df[text_column]
+        for text in unique_texts
     ]
-    scores_df = pd.DataFrame(scores_list, index=df.index)
-    df = df.join(scores_df)
+    unique_scores_df = pd.DataFrame(scores_list, index=unique_texts.index)
   else:
     raise ValueError(f"Unknown scorer_type: {scorer_type}")
+
+  # Always produce exactly the bridging attribute columns, in a fixed order.
+  # Texts or attributes with no results (e.g. failed API calls) get NaN.
+  unique_scores_df = unique_scores_df.reindex(
+      index=unique_texts.index, columns=BRIDGING_ATTRIBUTES
+  )
+  # Key scores by text, then expand back out to one row per original row.
+  unique_scores_df.index = unique_texts.to_numpy()
+  row_scores_df = unique_scores_df.reindex(texts.to_numpy())
+
+  df = df.copy()
+  # Assign positionally so a non-unique df index is handled correctly.
+  df[BRIDGING_ATTRIBUTES] = row_scores_df.to_numpy()
   # Create an average column, used for ranking.
   df[AVERAGE_BRIDGING_COLUMN] = df[BRIDGING_ATTRIBUTES].mean(axis=1)
   return df
