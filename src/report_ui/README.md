@@ -32,8 +32,8 @@ In config.json, optionally add these properties
 | `number_of_top_opinions` | `number` | `10` | The number of items to show in the opinions overview chart. |
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
 | `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
-| `chart_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes for overview chart. |
-| `demographic_colors` | `array` | `["#4886f7", "#4071d5", "#385db3", "#2f4a93", "#273874", "#1e2656"]` | Array of six color codes for participant chart. |
+| `chart_colors` | `array` | `["#DA3D2E", "#F2A50C", "#80CD57", "#00885F", "#11C2CE", "#1233A6", "#8A2FE4", "#F388D2"]` | Array of color codes for overview chart. |
+| `demographic_colors` | `string` or `array` | `"#4886f7"` | Colors for the participant chart, lightest to darkest. Either a single hex color (e.g. `"#00885F"`), from which a six-step light-to-dark palette is generated, or an explicit array of six color codes. |
 
 ### 3. Generate the Report
 No dependecies are required to generate the report. Open your terminal/command prompt in the project folder and run:

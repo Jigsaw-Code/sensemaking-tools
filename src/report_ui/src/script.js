@@ -246,7 +246,7 @@ function createDemographicChart({ id, data }) {
           return `calc(${ratio * 100}% - ${shrinkPixels}px)`;
         })
         .attr("rx", borderRadius)
-        .attr(
+        .style(
           "fill",
           (d, i) => DEMOGRAPHIC_PALETTE[i % DEMOGRAPHIC_PALETTE.length],
         );

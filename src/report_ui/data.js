@@ -11,6 +11,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { resolveDemographicColors } from "./palette.js";
+
 const demographics_prefix = "demo:";
 /**
  * @typedef {Object} RawOpinion
@@ -350,22 +352,16 @@ export function processReportData({
       20,
     ), // between 2 and 20 top opinions
     topicColors: config.chart_colors || [
-      "#AFB42B",
-      "#F4511E",
-      "#3949AB",
-      "#E52592",
-      "#00897B",
-      "#EFB22F",
-      "#aaa",
+      "#DA3D2E",
+      "#F2A50C",
+      "#80CD57",
+      "#00885F",
+      "#11C2CE",
+      "#1233A6",
+      "#8A2FE4",
+      "#F388D2",
     ],
-    demographicColors: config.demographic_colors || [
-      "#4886f7",
-      "#4071d5",
-      "#385db3",
-      "#2f4a93",
-      "#273874",
-      "#1e2656",
-    ],
+    demographicColors: resolveDemographicColors(config.demographic_colors),
   };
 
   /**
