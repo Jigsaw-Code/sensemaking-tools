@@ -9,10 +9,6 @@ If you are just here to generate a report from new data, follow these steps.
 ### Prerequisites
 *   **Node.js**: Ensure you have [Node.js](https://nodejs.org/) installed on your machine.
 
-### Setup
-* Download a [zip](https://github.com/polygraph-cool/jigsaw-sensemaking-generator/archive/refs/heads/main.zip) or
-* Use this repo as [a template](https://github.com/new?owner=polygraph-cool&template_name=jigsaw-sensemaking-generator&template_owner=polygraph-cool) *also via button in top right*
-
 ### Prepare your data
 Navigate to the `input/` folder. You must place the following files there, replacing any existing ones:
 
@@ -36,8 +32,8 @@ In config.json, optionally add these properties
 | `number_of_top_opinions` | `number` | `10` | The number of items to show in the opinions overview chart. |
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
 | `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
-| `topic_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes for overview chart. |
-| `demographic_colors` | `array` | `"#4886f7", "#4071d5", "#385db3", "#2f4a93", "#273874", "#1e2656",` | Array of six color codes for partipant chart. |
+| `chart_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes for overview chart. |
+| `demographic_colors` | `array` | `["#4886f7", "#4071d5", "#385db3", "#2f4a93", "#273874", "#1e2656"]` | Array of six color codes for participant chart. |
 
 ### 3. Generate the Report
 No dependecies are required to generate the report. Open your terminal/command prompt in the project folder and run:
