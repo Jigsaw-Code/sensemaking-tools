@@ -158,6 +158,14 @@ python3 -m src.get_bridging_scores \
   --gemini_api_key "$GEMINI_API_KEY"
 ```
 
+To save quota, the script only scores what it needs to:
+
+* Rows that already have all three bridging scores are reused (for example, when re-running on a previous output). Rows with any score missing are scored in full. Pass `--force_rerun` to rescore every row.
+* Duplicate quotes are scored once.
+* Empty quotes are never scored. Optionally, pass `--min_text_length <N>` to also skip quotes shorter than `N` characters (default `0`, off).
+
+Skipped rows have empty scores and a reason in the `BRIDGING_SKIP_REASON` column (`empty_text`, `too_short`, or `scoring_failed`).
+
 #### 4\. Discussion Summarization
 
 Automatically generate topic-level summaries along with a summary of top-level take aways from the conversation.
