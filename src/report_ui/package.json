@@ -13,7 +13,8 @@
     "inline": "node build.js inline",
     "build": "node build.js",
     "github": "node build.js github",
-    "preview": "node build.js preview"
+    "preview": "node build.js preview",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",

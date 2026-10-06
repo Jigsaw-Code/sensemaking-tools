@@ -29,6 +29,8 @@ import os
 import pandas as pd
 from src import get_perspective_scores_lib
 from src.get_gemini_scores_lib import ContentScorer
+# Read by src/report_ui/data.js (BRIDGING_COLUMN) to order quotes; keep the
+# two in sync if this is renamed.
 AVERAGE_BRIDGING_COLUMN = "AVERAGE_OF_3_BRIDGING"
 BRIDGING_ATTRIBUTES = [
     "CURIOSITY_EXPERIMENTAL",

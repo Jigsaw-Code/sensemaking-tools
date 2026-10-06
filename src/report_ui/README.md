@@ -13,8 +13,8 @@ If you are just here to generate a report from new data, follow these steps.
 Navigate to the `input/` folder. You must place the following files there, replacing any existing ones:
 
 1.  **`opinions.csv`**: The raw data containing participant quotes.
-    *   *Required Columns:* `topic`, `opinion`, `representative_text` (the quote), `participant_id` (participant ID).
-    *   *Optional:* `AVERAGE_OF_2_BRIDGING` (used for sorting quotes by importance).
+    *   *Required Columns:* `topic`, `opinion`, `quote`, `participant_id` (participant ID), as written by `categorization_runner.py`.
+    *   *Optional:* `AVERAGE_OF_3_BRIDGING`, as written by `get_bridging_scores.py` (used for sorting quotes by importance).
 2.  **`summary.json`**: The AI-generated summary of the conversation.
     *   *Structure:* Must contain a `title`, `text` (executive summary), and `sub_contents` (array of topic objects with `title` and `text`).
 3.  **`config.json`**: [Basic configuration](#configurationcustomization) and custimazation options (e.g., logo path).
@@ -85,7 +85,7 @@ Using the wrong output flag for the mode fails with a clear error (`inline` forb
 ### `opinions.csv` Format
 The logic relies on specific headers. Ensure your CSV looks like this:
 
-| topic | opinion | representative_text | participant_id |
+| topic | opinion | quote | participant_id |
 
 **Demographic Support:** You can add demographic data by including additional columns with the prefix `demo:`. For example, a column named `demo:Age` or `demo:Location`. The tool will automatically use these to build demographic breakdowns and filters. You'll need to merge this data with your opinions.csv file before running the build process.
 
