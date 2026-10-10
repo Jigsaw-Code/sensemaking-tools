@@ -37,6 +37,7 @@ from typing import Any, Callable
 from google.cloud import dlp_v2
 from src.evals.eval_metrics import INPUT_EVAL_METRICS
 from src.get_gemini_scores_lib import ContentScorer
+from src.models import decision
 from src.get_perspective_scores_lib import init_client
 from src.get_perspective_scores_lib import score_text
 from src.qualtrics.process_qualtrics_output import DataType
@@ -286,18 +287,29 @@ def main() -> None:
   gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
   gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
 
-  if args.scorer_type == "GEMINI" and not gemini_api_key:
+  if (
+      args.scorer_type == "GEMINI"
+      and not gemini_api_key
+      and not decision.decision_enabled()
+  ):
     print(
-        "Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.",
+        "Error: --scorer_type GEMINI needs --gemini_api_key or the"
+        " GEMINI_API_KEY environment variable, or"
+        " DECISION_ENDPOINT_TYPE=systemone to score with a local System One"
+        " model.",
         file=sys.stderr,
     )
     sys.exit(1)
 
-  if (args.scorer_type == "PERSPECTIVE" or args.data_type) and not gcloud_api_key:
+  if (
+      args.scorer_type == "PERSPECTIVE" or args.data_type
+  ) and not gcloud_api_key:
     # DLP always runs, so we might need gcloud_api_key anyway if it's used for DLP.
     pass
 
-  dlp_client = dlp_v2.DlpServiceClient(client_options={"api_key": gcloud_api_key})
+  dlp_client = dlp_v2.DlpServiceClient(
+      client_options={"api_key": gcloud_api_key}
+  )
 
   if args.data_type == DataType.ROUND_1:
     text_splitter = split_round_1_text
@@ -355,8 +367,18 @@ def main() -> None:
   attributes_to_score = ["TOXICITY", "SEVERE_TOXICITY", "PROFANITY"]
 
   if args.scorer_type == "GEMINI":
-    print(f"Using Gemini ({args.model_name}) for moderation scoring...")
-    scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=args.model_name)
+    decision_model = decision.decision_client()
+    if decision_model is not None:
+      print(
+          f"Using System One ({decision_model.model}) for moderation"
+          " scoring..."
+      )
+    else:
+      print(f"Using Gemini ({args.model_name}) for moderation scoring...")
+    scorer = ContentScorer(
+        gemini_api_key=gemini_api_key or "",
+        model_name=args.model_name,
+    )
 
     # Batch Scoring with Gemini
     scoring_tasks = []

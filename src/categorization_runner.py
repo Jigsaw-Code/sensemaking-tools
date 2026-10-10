@@ -38,6 +38,7 @@ import re
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Literal, Optional, Union, cast
+from src.models import decision
 from src.models import model_factory
 from src import runner_utils, sensemaker
 from src.models import custom_types
@@ -432,6 +433,14 @@ async def main() -> Optional[str]:
       max_llm_retries=args.max_llm_retries,
       stats_log_file=stats_log_file,
   )
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    logging.info(
+        "Judgment stages will use System One model %s. Topic and opinion"
+        " names, quotes, summaries, and propositions stay on %s.",
+        decision_model.model,
+        args.model_name,
+    )
 
   sensemaker_instance = sensemaker.Sensemaker(
       genai_model=genai_llm,

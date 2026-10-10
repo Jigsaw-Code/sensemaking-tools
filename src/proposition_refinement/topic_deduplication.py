@@ -8,6 +8,7 @@ chooses the top N propositions from the remaining non-duplicate set for each top
 import pandas as pd
 import json
 import re
+from src.models import decision
 from src.models.genai_model import GenaiModel
 from . import deduplication
 
@@ -69,6 +70,11 @@ async def _generate_topic_equivalence_sets(world_model_df, model):
   if not propositions_map:
     return []
 
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    print('--- Cross-topic equivalence sets via System One ---')
+    return await decision.equivalence_sets(decision_model, propositions_map)
+
   prompt = _generate_topic_equivalence_prompt(propositions_map)
 
   response, _, _, _ = await model.process_prompts_concurrently(
@@ -82,11 +88,40 @@ async def _generate_topic_equivalence_sets(world_model_df, model):
   return []
 
 
+async def _winning_topic_with_decision(client, prop_set, world_model_df):
+  """Chooses the topic home from the candidates already in the set."""
+  topics = []
+  lines = []
+  for prop_id in prop_set:
+    topic_idx, prop_idx = map(int, prop_id.split(':'))
+    topic_name = world_model_df.iloc[topic_idx]['topic']
+    if topic_name not in topics:
+      topics.append(topic_name)
+    prop_text = world_model_df.iloc[topic_idx]['propositions'].iloc[prop_idx][
+        'proposition'
+    ]
+    lines.append(f'{prop_id}: {prop_text}')
+  if not topics:
+    return None
+  return await decision.choose_one(
+      client,
+      'Equivalent propositions:\n' + '\n'.join(lines),
+      [(topic, topic) for topic in topics],
+      'Which topic is the most relevant home for this core idea?',
+  )
+
+
 async def _resolve_winning_topic(prop_set, world_model_df, model):
   """
   For a given set of equivalent propositions, asks an LLM to determine which
   topic is the most relevant home for the core idea.
   """
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    return await _winning_topic_with_decision(
+        decision_model, prop_set, world_model_df
+    )
+
   prompt = (
       'You are an expert in thematic analysis. Below is a set of propositions'
       ' that have been identified as having effectively equivalent meaning.'

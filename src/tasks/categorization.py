@@ -29,7 +29,9 @@ from more_itertools import batched
 from src.tasks.topic_modeling_util import parse_response
 from pydantic import TypeAdapter, ValidationError
 from src import prompts
+from src.models import decision
 from src.models import genai_model
+from src.models import systemone
 from src.sensemaker_utils import execute_concurrently, get_prompt
 from src import runner_utils
 from src.models.custom_types import (
@@ -395,6 +397,21 @@ async def categorize_opinions(
   """
 
   logging.info("Starting Global Opinion Categorization Phase...")
+
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    logging.info(
+        "Categorizing opinions with System One model %s.",
+        decision_model.model,
+    )
+    return await _categorize_opinions_with_decision(
+        statements_with_topics_and_quotes,
+        topics_to_process,
+        topic_to_opinions_map,
+        additional_context,
+        run_autoraters,
+        decision_model,
+    )
 
   # Pre-compute valid input statements map for O(1) lookups and O(1) in-place updates
   input_statements_map = {
@@ -987,6 +1004,113 @@ def _prepare_categorization_prompts(
   return prompt_jobs
 
 
+def _decision_state(
+    text: str, additional_context: str | None, label: str
+) -> str:
+  """Prefixes optional survey context onto the text being judged."""
+  if not additional_context:
+    return text
+  return f"{additional_context}\n\n{label}:\n{text}"
+
+
+async def _assign_topics_with_decision(
+    client: systemone.SystemOneClient,
+    statements: list[Statement],
+    target_topics: list[Topic],
+    additional_context: str | None,
+) -> list[StatementRecord]:
+  """Assigns topics with one yes/no question per topic."""
+  labels = [topic.name for topic in target_topics]
+  records = []
+  for statement in statements:
+    chosen = await decision.assign_labels(
+        client,
+        _decision_state(statement.text, additional_context, "Statement"),
+        labels,
+        kind="topic",
+    )
+    records.append(
+        StatementRecord(
+            id=statement.id,
+            topics=[FlatTopic(name=name) for name in chosen],
+        )
+    )
+  return records
+
+
+async def _categorize_opinions_with_decision(
+    statements_with_topics_and_quotes: list[Statement],
+    topics_to_process: list[Topic],
+    topic_to_opinions_map: dict[str, Any],
+    additional_context: str | None,
+    run_autoraters: bool,
+    client: systemone.SystemOneClient,
+) -> Iterable[Statement]:
+  """Assigns opinions per quote. A failing autorater becomes Other once.
+
+  System One answers are deterministic, so repeating the same judgment cannot
+  change the verdict. A score below 4 is finalized as Other immediately.
+  """
+  input_statements_map = {
+      statement.id: statement.model_copy(deep=True)
+      for statement in statements_with_topics_and_quotes
+  }
+  for topic in topics_to_process:
+    learned = topic_to_opinions_map.get(topic.name)
+    if not learned or not learned.subtopics:
+      logging.warning(
+          "No opinions learned for topic '%s'. Skipping.", topic.name
+      )
+      continue
+    opinion_names = [opinion.name for opinion in learned.subtopics]
+    records: list[QuoteOpinionRecord] = []
+    for statement in input_statements_map.values():
+      for quote in statement.quotes or []:
+        if quote.topic.name != topic.name:
+          continue
+        chosen = await decision.assign_labels(
+            client,
+            _decision_state(quote.text, additional_context, "Quote"),
+            opinion_names,
+            kind="opinion",
+        )
+        if run_autoraters:
+          level = await decision.rubric_level(
+              client,
+              (
+                  f"Topic: {topic.name}\n"
+                  f"Quote: {quote.text}\n"
+                  f"Assigned opinions: {', '.join(chosen)}\n"
+                  f"Available opinions: {', '.join(opinion_names)}"
+              ),
+              instructions=(
+                  "Does this opinion assignment perform well on correctness"
+                  " and minimality? Choose 4 only when every assigned opinion"
+                  " is a correct match and the set is minimal."
+              ),
+          )
+          if level < 4:
+            logging.info(
+                "Opinion assignment for %s/%s scored %s; using Other.",
+                statement.id,
+                quote.id,
+                level,
+            )
+            chosen = ["Other"]
+        records.append(
+            QuoteOpinionRecord(
+                id=statement.id,
+                quote_id=quote.id,
+                topics=[FlatTopic(name=name) for name in chosen],
+            )
+        )
+    if records:
+      _merge_opinions_into_statements_inplace(
+          input_statements_map, records, topic
+      )
+  return input_statements_map.values()
+
+
 async def _process_topic_categorization(
     statements_to_categorize: list[Statement],
     model: genai_model.GenaiModel,
@@ -1010,6 +1134,18 @@ async def _process_topic_categorization(
   Returns:
       A list of StatementRecord objects with the results from the model.
   """
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    logging.info(
+        "Assigning topics with System One model %s.", decision_model.model
+    )
+    return await _assign_topics_with_decision(
+        decision_model,
+        statements_to_categorize,
+        target_topics,
+        additional_context,
+    )
+
   topics_json_str = json.dumps([{"name": t.name} for t in target_topics])
   instructions = prompts.get_topic_categorization_prompt(topics_json_str)
 
