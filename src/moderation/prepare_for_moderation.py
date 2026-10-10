@@ -293,8 +293,10 @@ def main() -> None:
       and not decision.decision_enabled()
   ):
     print(
-        "Error: --gemini_api_key or GEMINI_API_KEY environment variable"
-        " missing.",
+        "Error: --scorer_type GEMINI needs --gemini_api_key or the"
+        " GEMINI_API_KEY environment variable, or"
+        " DECISION_ENDPOINT_TYPE=systemone to score with a local System One"
+        " model.",
         file=sys.stderr,
     )
     sys.exit(1)
