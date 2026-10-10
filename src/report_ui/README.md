@@ -9,16 +9,12 @@ If you are just here to generate a report from new data, follow these steps.
 ### Prerequisites
 *   **Node.js**: Ensure you have [Node.js](https://nodejs.org/) installed on your machine.
 
-### Setup
-* Download a [zip](https://github.com/polygraph-cool/jigsaw-sensemaking-generator/archive/refs/heads/main.zip) or
-* Use this repo as [a template](https://github.com/new?owner=polygraph-cool&template_name=jigsaw-sensemaking-generator&template_owner=polygraph-cool) *also via button in top right*
-
 ### Prepare your data
 Navigate to the `input/` folder. You must place the following files there, replacing any existing ones:
 
 1.  **`opinions.csv`**: The raw data containing participant quotes.
-    *   *Required Columns:* `topic`, `opinion`, `representative_text` (the quote), `participant_id` (participant ID).
-    *   *Optional:* `AVERAGE_OF_2_BRIDGING` (used for sorting quotes by importance).
+    *   *Required Columns:* `topic`, `opinion`, `quote`, `participant_id` (participant ID), as written by `categorization_runner.py`.
+    *   *Optional:* `AVERAGE_OF_3_BRIDGING`, as written by `get_bridging_scores.py` (used for sorting quotes by importance).
 2.  **`summary.json`**: The AI-generated summary of the conversation.
     *   *Structure:* Must contain a `title`, `text` (executive summary), and `sub_contents` (array of topic objects with `title` and `text`).
 3.  **`config.json`**: [Basic configuration](#configurationcustomization) and custimazation options (e.g., logo path).
@@ -36,8 +32,8 @@ In config.json, optionally add these properties
 | `number_of_top_opinions` | `number` | `10` | The number of items to show in the opinions overview chart. |
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
 | `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
-| `topic_colors` | `array` | `["#AFB42B", "#F4511E", "#3949AB", "#E52592", "#00897B", "#EFB22F", "#aaa"]` | Array of color codes for overview chart. |
-| `demographic_colors` | `array` | `"#4886f7", "#4071d5", "#385db3", "#2f4a93", "#273874", "#1e2656",` | Array of six color codes for partipant chart. |
+| `chart_colors` | `array` | `["#DA3D2E", "#F2A50C", "#80CD57", "#00885F", "#11C2CE", "#1233A6", "#8A2FE4", "#F388D2"]` | Array of color codes for overview chart. |
+| `demographic_colors` | `string` or `array` | `"#4886f7"` | Colors for the participant chart, lightest to darkest. Either a single hex color (e.g. `"#00885F"`), from which a six-step light-to-dark palette is generated, or an explicit array of six color codes. |
 
 ### 3. Generate the Report
 No dependecies are required to generate the report. Open your terminal/command prompt in the project folder and run:
@@ -89,7 +85,7 @@ Using the wrong output flag for the mode fails with a clear error (`inline` forb
 ### `opinions.csv` Format
 The logic relies on specific headers. Ensure your CSV looks like this:
 
-| topic | opinion | representative_text | participant_id |
+| topic | opinion | quote | participant_id |
 
 **Demographic Support:** You can add demographic data by including additional columns with the prefix `demo:`. For example, a column named `demo:Age` or `demo:Location`. The tool will automatically use these to build demographic breakdowns and filters. You'll need to merge this data with your opinions.csv file before running the build process.
 

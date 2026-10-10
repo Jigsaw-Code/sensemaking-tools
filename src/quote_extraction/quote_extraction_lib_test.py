@@ -189,6 +189,28 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
         quote_extraction_lib.join_response_text("This text has no response tags."),
         "This text has no response tags.",
     )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text(""),
+        "",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text(None),
+        "",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("<response>  Hello  </response>"),
+        "Hello.",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text(
+            "<response>Hello</response> <response>   </response>"
+        ),
+        "Hello.",
+    )
+    self.assertEqual(
+        quote_extraction_lib.join_response_text("<response>   </response>"),
+        "<response>   </response>",
+    )
 
 
 if __name__ == "__main__":

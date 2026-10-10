@@ -11,6 +11,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { resolveDemographicColors } from "./palette.js";
+
 const demographics_prefix = "demo:";
 /**
  * @typedef {Object} RawOpinion
@@ -18,8 +20,36 @@ const demographics_prefix = "demo:";
  * @property {string} opinion - The specific opinion text.
  * @property {string} quote - The actual quote text.
  * @property {string} participant_id - Representative ID (Participant ID).
- * @property {string|number} [AVERAGE_OF_2_BRIDGING] - Used for sorting.
+ * @property {string|number} [AVERAGE_OF_3_BRIDGING] - Used for sorting.
  */
+
+/**
+ * Bridging average column. Must match AVERAGE_BRIDGING_COLUMN in
+ * src/get_bridging_scores.py.
+ * @type {string}
+ */
+export const BRIDGING_COLUMN = "AVERAGE_OF_3_BRIDGING";
+
+/**
+ * Returns whether any row has the bridging average column.
+ * @param {RawOpinion[]} rows
+ * @returns {boolean}
+ */
+export function hasBridgingColumn(rows) {
+  return rows.some((row) => BRIDGING_COLUMN in row);
+}
+
+/**
+ * Returns a row's bridging average as a number.
+ * Missing, empty, or non-numeric values (e.g. rows whose scoring failed)
+ * yield 0.
+ * @param {RawOpinion} row
+ * @returns {number}
+ */
+export function getBridgingScore(row) {
+  const num = Number(row[BRIDGING_COLUMN]);
+  return Number.isFinite(num) ? num : 0;
+}
 
 /**
  * Parses `--flag value` and `--flag=value` tokens from argv (after the command).
@@ -243,6 +273,13 @@ export function processReportData({
     index,
   }));
 
+  if (opinions.length > 0 && !hasBridgingColumn(opinions)) {
+    console.warn(
+      `Warning: no ${BRIDGING_COLUMN} column found in the opinions data; ` +
+        "quotes will not be ordered by bridging score.",
+    );
+  }
+
   const config = configPath
     ? JSON.parse(fs.readFileSync(configPath, "utf-8"))
     : {};
@@ -315,22 +352,16 @@ export function processReportData({
       20,
     ), // between 2 and 20 top opinions
     topicColors: config.chart_colors || [
-      "#AFB42B",
-      "#F4511E",
-      "#3949AB",
-      "#E52592",
-      "#00897B",
-      "#EFB22F",
-      "#aaa",
+      "#DA3D2E",
+      "#F2A50C",
+      "#80CD57",
+      "#00885F",
+      "#11C2CE",
+      "#1233A6",
+      "#8A2FE4",
+      "#F388D2",
     ],
-    demographicColors: config.demographic_colors || [
-      "#4886f7",
-      "#4071d5",
-      "#385db3",
-      "#2f4a93",
-      "#273874",
-      "#1e2656",
-    ],
+    demographicColors: resolveDemographicColors(config.demographic_colors),
   };
 
   /**
@@ -433,9 +464,7 @@ export function processReportData({
             index: v.index,
             text: v.quote,
             participant_id: v.participant_id,
-            avg_bridging: v.AVERAGE_OF_2_BRIDGING
-              ? +v.AVERAGE_OF_2_BRIDGING
-              : 0,
+            avg_bridging: getBridgingScore(v),
             ...demos,
           };
         })

@@ -174,6 +174,14 @@ python3 -m src.get_bridging_scores \
   --gemini_api_key "$GEMINI_API_KEY"
 ```
 
+To save quota, the script only scores what it needs to:
+
+* Rows that already have all three bridging scores are reused (for example, when re-running on a previous output). Rows with any score missing are scored in full. Pass `--force_rerun` to rescore every row.
+* Duplicate quotes are scored once.
+* Empty quotes are never scored. Optionally, pass `--min_text_length <N>` to also skip quotes shorter than `N` characters (default `0`, off).
+
+Skipped rows have empty scores and a reason in the `BRIDGING_SKIP_REASON` column (`empty_text`, `too_short`, or `scoring_failed`).
+
 #### 4\. Discussion Summarization
 
 Automatically generate topic-level summaries along with a summary of top-level take aways from the conversation.
@@ -285,7 +293,7 @@ You can edit `src/report_ui/input/config.json` to customize the report. Key opti
 * `overview_chart`: Set the display mode for the main chart (`"toggle"`, `"topics"`, or `"opinions"`).
 * `number_of_sample_quotes`: Control how many quote previews to display for each opinion.
 * `chart_colors`: Provide an array of hex color codes to customize the chart palette.
-* `demographic_colors`: Provide an array of hex color codes to customize the participant chart palette.
+* `demographic_colors`: Provide a single hex color code (to generate a six-step light-to-dark palette) or an array of color codes to customize the participant chart palette.
 * `excludedTopics`: Add topic names to this array to hide them from the report.
 * `excludedOpinions`: Add opinion names to this array to hide them from the report.
 * *For a full list of configuration options, check the `README.md` file in `src/report_ui/`.*

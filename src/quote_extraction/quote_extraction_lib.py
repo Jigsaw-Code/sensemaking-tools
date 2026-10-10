@@ -201,6 +201,10 @@ def skip_quote_extraction(statements: List[Statement]) -> List[Statement]:
   logging.info("Skipping quote extraction, using entire response as quote.")
   for statement in statements:
     response_text = join_response_text(statement.text)
+    logging.debug(
+        f"Skipped quote extraction for {statement.id}. Extracted text:"
+        f" '{response_text}'"
+    )
     if statement.topics:
       if statement.quotes is None:
         statement.quotes = []
@@ -222,10 +226,18 @@ def skip_quote_extraction(statements: List[Statement]) -> List[Statement]:
 
 def join_response_text(survey_text):
   """Extract each response and make sure it ends with proper punctation."""
-  responses = re.findall(r'<response>(.*?)</response>', survey_text, re.DOTALL)
+  if not survey_text:
+    return ""
+  responses = re.findall(r"<response>(.*?)</response>", survey_text, re.DOTALL)
   if not responses:
     return survey_text
-  for i in range(len(responses)):
-    if responses[i][-1] not in {'.', '?', '!'}:
-      responses[i] += '.'
-  return " ".join(responses)
+
+  processed_responses = []
+  for r in responses:
+    r = r.strip()
+    if r:
+      if not r.endswith(('.', '?', '!')):
+        r += "."
+      processed_responses.append(r)
+
+  return " ".join(processed_responses) if processed_responses else survey_text
