@@ -431,7 +431,7 @@ async def _choose_pack(
   except IndexError as exc:
     raise systemone.SystemOneError(
         systemone.FailureKind.PARSE,
-        f"choice {answer.choice!r} is outside the option list.",
+        f"choice {choice!r} is outside the option list.",
     ) from exc
 
 

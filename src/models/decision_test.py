@@ -333,6 +333,29 @@ class DecisionTests(unittest.TestCase):
     )
     self.assertEqual(answers["winner"].choice, "a")
 
+  def test_out_of_range_choice_is_a_parse_error(self):
+    def transport(url: str, body: bytes) -> bytes:
+      return json.dumps({
+          "model": "clef",
+          "answers": {
+              "winner": {
+                  "type": "choice",
+                  "choice": "k9",
+                  "probabilities": {"k9": 1.0},
+                  "confidence": 1.0,
+              }
+          },
+      }).encode("utf-8")
+
+    client = systemone.SystemOneClient(model="clef", transport=transport)
+    with self.assertRaises(systemone.SystemOneError) as caught:
+      asyncio.run(
+          decision.choose_one(
+              client, "Pick one.", [("a", "A"), ("b", "B")], "Which wins?"
+          )
+      )
+    self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
+
   def test_missing_decision_model_is_a_config_error(self):
     with self.assertRaises(systemone.SystemOneError) as caught:
       decision.client_from_env()
