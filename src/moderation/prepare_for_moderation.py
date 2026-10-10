@@ -365,10 +365,11 @@ def main() -> None:
   attributes_to_score = ["TOXICITY", "SEVERE_TOXICITY", "PROFANITY"]
 
   if args.scorer_type == "GEMINI":
-    if decision.decision_enabled():
+    decision_model = decision.decision_client()
+    if decision_model is not None:
       print(
-          "Using System One"
-          f" ({os.getenv('DECISION_MODEL')}) for moderation scoring..."
+          f"Using System One ({decision_model.model}) for moderation"
+          " scoring..."
       )
     else:
       print(f"Using Gemini ({args.model_name}) for moderation scoring...")

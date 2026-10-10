@@ -433,11 +433,12 @@ async def main() -> Optional[str]:
       max_llm_retries=args.max_llm_retries,
       stats_log_file=stats_log_file,
   )
-  if decision.decision_enabled():
+  decision_model = decision.decision_client()
+  if decision_model is not None:
     logging.info(
         "Judgment stages will use System One model %s. Topic and opinion"
         " names, quotes, summaries, and propositions stay on %s.",
-        os.getenv("DECISION_MODEL"),
+        decision_model.model,
         args.model_name,
     )
 

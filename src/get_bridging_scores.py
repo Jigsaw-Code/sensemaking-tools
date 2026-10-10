@@ -70,10 +70,10 @@ def _score_texts(
   """
   texts = texts.reset_index(drop=True)
   if scorer_type == "GEMINI":
-    if decision.decision_enabled():
+    decision_model = decision.decision_client()
+    if decision_model is not None:
       print(
-          "Using System One"
-          f" ({os.getenv('DECISION_MODEL')}) for bridging scoring..."
+          f"Using System One ({decision_model.model}) for bridging scoring..."
       )
     else:
       print(f"Using Gemini ({model_name}) for bridging scoring...")
@@ -296,8 +296,6 @@ if __name__ == "__main__":
         " missing."
     )
     exit(1)
-  if decision.decision_enabled():
-    print(f"Scoring with System One model {os.getenv('DECISION_MODEL')}.")
 
   df = get_bridging_scores(
       df,

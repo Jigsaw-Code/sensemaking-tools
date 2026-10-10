@@ -356,10 +356,34 @@ class DecisionTests(unittest.TestCase):
       )
     self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
 
-  def test_missing_decision_model_is_a_config_error(self):
-    with self.assertRaises(systemone.SystemOneError) as caught:
-      decision.client_from_env()
-    self.assertEqual(caught.exception.kind, systemone.FailureKind.CONFIG)
+  def test_ollama_base_url_matches_the_ollama_cli(self):
+    cases = {
+        "0.0.0.0": "http://0.0.0.0:11434",
+        "localhost:8080": "http://localhost:8080",
+        " 127.0.0.1 ": "http://127.0.0.1:11434",
+        "[::1]": "http://[::1]:11434",
+        "http://gpu-box:11434/": "http://gpu-box:11434",
+        "https://ollama.example.com": "https://ollama.example.com",
+    }
+    for host, expected in cases.items():
+      with self.subTest(host=host):
+        self.assertEqual(systemone.ollama_base_url(host), expected)
+
+  def test_invalid_ollama_host_is_a_config_error(self):
+    for host in ("", "http://", "host:port"):
+      with self.subTest(host=host):
+        with self.assertRaises(systemone.SystemOneError) as caught:
+          systemone.ollama_base_url(host)
+        self.assertEqual(caught.exception.kind, systemone.FailureKind.CONFIG)
+
+  def test_installed_client_enables_the_decision_path(self):
+    client, _ = _client()
+    with decision.use_decision_client(client):
+      self.assertTrue(decision.decision_enabled())
+      self.assertIs(decision.decision_client(), client)
+    with decision.use_decision_client(None):
+      self.assertFalse(decision.decision_enabled())
+      self.assertIsNone(decision.decision_client())
 
 
 if __name__ == "__main__":

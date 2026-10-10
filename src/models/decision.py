@@ -24,12 +24,10 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import itertools
-import os
 from typing import Final, Iterator, assert_never
 
+from src.models import model_factory
 from src.models import systemone
-
-ENDPOINT_TYPE: Final = "systemone"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -67,27 +65,28 @@ class AttributeSpec:
 
 
 def decision_enabled() -> bool:
-  """Returns whether judgment stages should call System One."""
-  match _override:
-    case _NoOverride():
-      return os.getenv("DECISION_ENDPOINT_TYPE") == ENDPOINT_TYPE
-    case None:
-      return False
-    case systemone.SystemOneClient():
-      return True
-    case unreachable:
-      assert_never(unreachable)
+  """Returns whether judgment stages should call System One.
+
+  Raises:
+    SystemOneError: If the decision path is enabled but misconfigured.
+  """
+  return decision_client() is not None
 
 
 def decision_client() -> systemone.SystemOneClient | None:
-  """Returns the configured client, or None when the decision path is off."""
+  """Returns the configured client, or None when the decision path is off.
+
+  The client comes from model_factory.get_decision_model() and is reused for
+  the rest of the process, unless use_decision_client() installed another.
+
+  Raises:
+    SystemOneError: If the decision path is enabled but misconfigured.
+  """
   global _cached
   match _override:
     case _NoOverride():
-      if os.getenv("DECISION_ENDPOINT_TYPE") != ENDPOINT_TYPE:
-        return None
       if _cached is None:
-        _cached = client_from_env()
+        _cached = model_factory.get_decision_model()
       return _cached
     case None:
       return None
@@ -95,29 +94,6 @@ def decision_client() -> systemone.SystemOneClient | None:
       return installed
     case unreachable:
       assert_never(unreachable)
-
-
-def client_from_env() -> systemone.SystemOneClient:
-  """Builds a client from DECISION_MODEL and OLLAMA_HOST."""
-  model = os.getenv("DECISION_MODEL")
-  if not model:
-    raise systemone.SystemOneError(
-        systemone.FailureKind.CONFIG,
-        "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
-        " 'systemone'.",
-    )
-  host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-  raw_limit = os.getenv("DECISION_MAX_CONCURRENT", "1")
-  try:
-    limit = int(raw_limit)
-  except ValueError as exc:
-    raise systemone.SystemOneError(
-        systemone.FailureKind.CONFIG,
-        f"DECISION_MAX_CONCURRENT must be an integer, got {raw_limit!r}.",
-    ) from exc
-  return systemone.SystemOneClient(
-      model=model, base_url=host, max_concurrent=limit
-  )
 
 
 @contextlib.contextmanager
@@ -132,24 +108,6 @@ def use_decision_client(
     yield client
   finally:
     _override = previous
-
-
-def threshold() -> float:
-  """Returns the probability cutoff for labels and equivalence."""
-  raw = os.getenv("DECISION_THRESHOLD", "0.5")
-  try:
-    value = float(raw)
-  except ValueError as exc:
-    raise systemone.SystemOneError(
-        systemone.FailureKind.CONFIG,
-        f"DECISION_THRESHOLD must be a float, got {raw!r}.",
-    ) from exc
-  if not 0.0 <= value <= 1.0:
-    raise systemone.SystemOneError(
-        systemone.FailureKind.CONFIG,
-        f"DECISION_THRESHOLD must be between 0 and 1, got {value}.",
-    )
-  return value
 
 
 async def assign_labels(
@@ -169,7 +127,7 @@ async def assign_labels(
   ordered = list(dict.fromkeys(labels))
   if not ordered:
     return []
-  cutoff = threshold() if cutoff is None else cutoff
+  cutoff = model_factory.get_decision_threshold() if cutoff is None else cutoff
   questions = {
       f"q{index}": systemone.NoulQuestion(
           instructions=f"Does this text belong under the {kind} '{label}'?",
@@ -226,7 +184,7 @@ async def equivalence_sets(
   ids = list(items)
   if len(ids) < 2:
     return []
-  cutoff = threshold() if cutoff is None else cutoff
+  cutoff = model_factory.get_decision_threshold() if cutoff is None else cutoff
   questions: dict[str, systemone.NoulQuestion] = {}
   pair_by_key: dict[str, tuple[str, str]] = {}
   for index, (left, right) in enumerate(itertools.combinations(ids, 2)):

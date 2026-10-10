@@ -25,6 +25,7 @@ import dataclasses
 import enum
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Annotated, Callable, Final, Literal, assert_never
 
@@ -36,6 +37,9 @@ MAX_BODY_BYTES: Final = 64 * 1024
 # Leave headroom under the server's 64 KiB text limit while packing.
 PACK_BODY_BYTES: Final = 60 * 1024
 DEFAULT_TIMEOUT_SECONDS: Final = 600
+# Where the Ollama CLI connects when OLLAMA_HOST is unset.
+OLLAMA_DEFAULT_PORT: Final = 11434
+OLLAMA_DEFAULT_BASE_URL: Final = f"http://127.0.0.1:{OLLAMA_DEFAULT_PORT}"
 
 
 class FailureKind(enum.Enum):
@@ -265,13 +269,51 @@ def _urllib_transport(url: str, body: bytes) -> bytes:
     raise SystemOneError(FailureKind.HTTP, str(exc.reason)) from exc
 
 
+def ollama_base_url(host: str) -> str:
+  """Turns an OLLAMA_HOST value into a base URL, as the Ollama CLI does.
+
+  OLLAMA_HOST is shared with the Ollama server, so it is often a bare
+  ``host`` or ``host:port`` such as ``0.0.0.0:11434``. Without a scheme, the
+  CLI assumes http and, without a port, 11434. With an explicit scheme the
+  scheme's own default port applies.
+
+  Args:
+    host: The OLLAMA_HOST value.
+
+  Returns:
+    A base URL without a trailing slash, for SystemOneClient.
+
+  Raises:
+    SystemOneError: If host is blank or not a valid host.
+  """
+  host = _require_text(host, "OLLAMA_HOST").strip()
+  if "://" in host:
+    url = host
+  else:
+    url = f"http://{host}"
+  try:
+    parts = urllib.parse.urlsplit(url)
+    port = parts.port
+  except ValueError as exc:
+    raise SystemOneError(
+        FailureKind.CONFIG, f"OLLAMA_HOST {host!r} is not a valid host."
+    ) from exc
+  if not parts.hostname:
+    raise SystemOneError(
+        FailureKind.CONFIG, f"OLLAMA_HOST {host!r} is not a valid host."
+    )
+  if "://" not in host and port is None:
+    parts = parts._replace(netloc=f"{parts.netloc}:{OLLAMA_DEFAULT_PORT}")
+  return parts.geturl().rstrip("/")
+
+
 class SystemOneClient:
   """Calls one local System One model."""
 
   def __init__(
       self,
       model: str,
-      base_url: str = "http://127.0.0.1:11434",
+      base_url: str = OLLAMA_DEFAULT_BASE_URL,
       transport: Transport | None = None,
       max_concurrent: int = 1,
       keep_alive: str = "30m",
