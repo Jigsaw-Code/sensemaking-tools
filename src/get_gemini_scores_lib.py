@@ -21,6 +21,7 @@ from src import prompts
 from src.models import decision
 from src.models import genai_model
 from src.models import custom_types
+from src.models import systemone
 
 # Maximum number of missing (row_id, attribute) pairs listed in the warning.
 _MAX_MISSING_TO_LOG = 10
@@ -212,7 +213,7 @@ class ContentScorer:
 
   async def _score_with_decision(
       self,
-      client: decision.SystemOneClient,
+      client: systemone.SystemOneClient,
       texts_with_ids: list[dict[str, Any]],
       attributes: list[str],
   ) -> list[dict[str, Any]]:
