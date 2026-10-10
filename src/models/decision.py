@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import itertools
 import os
 from typing import Final, Iterator, assert_never
 
@@ -226,14 +227,9 @@ async def equivalence_sets(
   if len(ids) < 2:
     return []
   cutoff = threshold() if cutoff is None else cutoff
-  pairs = [
-      (left, right)
-      for index, left in enumerate(ids)
-      for right in ids[index + 1 :]
-  ]
   questions: dict[str, systemone.NoulQuestion] = {}
   pair_by_key: dict[str, tuple[str, str]] = {}
-  for index, (left, right) in enumerate(pairs):
+  for index, (left, right) in enumerate(itertools.combinations(ids, 2)):
     key = f"p{index}"
     pair_by_key[key] = (left, right)
     questions[key] = systemone.NoulQuestion(
