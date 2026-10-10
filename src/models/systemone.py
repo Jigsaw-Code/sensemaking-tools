@@ -21,14 +21,14 @@ Clef does not implement chat or completion. Judgments go to
 from __future__ import annotations
 
 import asyncio  # noqa: ANYIO_OK
+import dataclasses
 import enum
 import json
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 from typing import Annotated, Callable, Final, Literal, assert_never
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+import pydantic
 
 MAX_QUESTIONS: Final = 64
 MAX_CHOICE_OPTIONS: Final = 26
@@ -47,7 +47,7 @@ class FailureKind(enum.Enum):
   CONFIG = "config"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class SystemOneError(Exception):
   """A decision request failed before a usable answer was available."""
 
@@ -61,7 +61,7 @@ class SystemOneError(Exception):
     return f"{self.status}: {self.message}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class ChoiceQuestion:
   """Pick one of 2-26 named options."""
 
@@ -69,7 +69,7 @@ class ChoiceQuestion:
   criteria: dict[str, str]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class NoulQuestion:
   """Probability that a yes/no condition holds."""
 
@@ -78,7 +78,7 @@ class NoulQuestion:
   false: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class ScoreQuestion:
   """Probability-weighted position on an ordered rubric."""
 
@@ -89,8 +89,8 @@ class ScoreQuestion:
 Question = ChoiceQuestion | NoulQuestion | ScoreQuestion
 
 
-class _ChoiceAnswer(BaseModel):
-  model_config = ConfigDict(frozen=True, extra="ignore")
+class _ChoiceAnswer(pydantic.BaseModel):
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   type: Literal["choice"]
   choice: str
@@ -98,15 +98,15 @@ class _ChoiceAnswer(BaseModel):
   confidence: float
 
 
-class _NoulAnswer(BaseModel):
-  model_config = ConfigDict(frozen=True, extra="ignore")
+class _NoulAnswer(pydantic.BaseModel):
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   type: Literal["noul"]
   noul: float
 
 
-class _ScoreAnswer(BaseModel):
-  model_config = ConfigDict(frozen=True, extra="ignore")
+class _ScoreAnswer(pydantic.BaseModel):
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   type: Literal["score"]
   score: float
@@ -114,28 +114,28 @@ class _ScoreAnswer(BaseModel):
   confidence: float
 
 
-class ChoiceAnswer(BaseModel):
+class ChoiceAnswer(pydantic.BaseModel):
   """A parsed choice answer."""
 
-  model_config = ConfigDict(frozen=True)
+  model_config = pydantic.ConfigDict(frozen=True)
 
   choice: str
   probabilities: dict[str, float]
   confidence: float
 
 
-class NoulAnswer(BaseModel):
+class NoulAnswer(pydantic.BaseModel):
   """A parsed yes/no probability."""
 
-  model_config = ConfigDict(frozen=True)
+  model_config = pydantic.ConfigDict(frozen=True)
 
   noul: float
 
 
-class ScoreAnswer(BaseModel):
+class ScoreAnswer(pydantic.BaseModel):
   """A parsed ordered-rubric score."""
 
-  model_config = ConfigDict(frozen=True)
+  model_config = pydantic.ConfigDict(frozen=True)
 
   score: float
   probabilities: dict[str, float]
@@ -146,19 +146,19 @@ Answer = ChoiceAnswer | NoulAnswer | ScoreAnswer
 
 _RawAnswer = Annotated[
     _ChoiceAnswer | _NoulAnswer | _ScoreAnswer,
-    Field(discriminator="type"),
+    pydantic.Field(discriminator="type"),
 ]
 
 
-class _Usage(BaseModel):
-  model_config = ConfigDict(frozen=True, extra="ignore")
+class _Usage(pydantic.BaseModel):
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   input_tokens: int = 0
   output_tokens: int = 0
 
 
-class _Response(BaseModel):
-  model_config = ConfigDict(frozen=True, extra="ignore")
+class _Response(pydantic.BaseModel):
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   model: str
   answers: dict[str, _RawAnswer]
@@ -427,7 +427,7 @@ def _parse_response(raw: bytes) -> dict[str, Answer]:
     raise SystemOneError(FailureKind.HTTP, str(message))
   try:
     parsed = _Response.model_validate(payload)
-  except ValidationError as exc:
+  except pydantic.ValidationError as exc:
     raise SystemOneError(
         FailureKind.PARSE, "response did not match System One."
     ) from exc

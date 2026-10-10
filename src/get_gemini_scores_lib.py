@@ -21,7 +21,6 @@ from src import prompts
 from src.models import decision
 from src.models import genai_model
 from src.models import custom_types
-from src.models.decision import AttributeSpec
 
 # Maximum number of missing (row_id, attribute) pairs listed in the warning.
 _MAX_MISSING_TO_LOG = 10
@@ -224,7 +223,7 @@ class ContentScorer:
       if not info:
         continue
       specs.append(
-          AttributeSpec(
+          decision.AttributeSpec(
               name=attr,
               label=info["label"],
               definition=info["definition"],

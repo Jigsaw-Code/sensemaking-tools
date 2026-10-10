@@ -31,7 +31,7 @@ from pydantic import TypeAdapter, ValidationError
 from src import prompts
 from src.models import decision
 from src.models import genai_model
-from src.models.systemone import SystemOneClient
+from src.models import systemone
 from src.sensemaker_utils import execute_concurrently, get_prompt
 from src import runner_utils
 from src.models.custom_types import (
@@ -1014,7 +1014,7 @@ def _decision_state(
 
 
 async def _assign_topics_with_decision(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     statements: list[Statement],
     target_topics: list[Topic],
     additional_context: str | None,
@@ -1044,7 +1044,7 @@ async def _categorize_opinions_with_decision(
     topic_to_opinions_map: dict[str, Any],
     additional_context: str | None,
     run_autoraters: bool,
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
 ) -> Iterable[Statement]:
   """Assigns opinions per quote. A failing autorater becomes Other once.
 

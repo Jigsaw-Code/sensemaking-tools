@@ -21,34 +21,24 @@ approval votes, dedup, and autorater verdicts.
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import os
-from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Final, Iterator, assert_never
 
-from src.models.systemone import (
-    Answer,
-    ChoiceAnswer,
-    ChoiceQuestion,
-    FailureKind,
-    NoulAnswer,
-    NoulQuestion,
-    ScoreAnswer,
-    SystemOneClient,
-    SystemOneError,
-)
+from src.models import systemone
 
 ENDPOINT_TYPE: Final = "systemone"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class _NoOverride:
   """Sentinel: no test client is installed."""
 
 
 _NO_OVERRIDE = _NoOverride()
-_override: SystemOneClient | None | _NoOverride = _NO_OVERRIDE
-_cached: SystemOneClient | None = None
+_override: systemone.SystemOneClient | None | _NoOverride = _NO_OVERRIDE
+_cached: systemone.SystemOneClient | None = None
 
 RUBRIC: Final[dict[str, str]] = {
     "4": "The response performs well on all criteria.",
@@ -65,7 +55,7 @@ _EQUIVALENCE_STATE: Final = (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class AttributeSpec:
   """One moderation or bridging attribute to score as a probability."""
 
@@ -82,13 +72,13 @@ def decision_enabled() -> bool:
       return os.getenv("DECISION_ENDPOINT_TYPE") == ENDPOINT_TYPE
     case None:
       return False
-    case SystemOneClient():
+    case systemone.SystemOneClient():
       return True
     case unreachable:
       assert_never(unreachable)
 
 
-def decision_client() -> SystemOneClient | None:
+def decision_client() -> systemone.SystemOneClient | None:
   """Returns the configured client, or None when the decision path is off."""
   global _cached
   match _override:
@@ -100,18 +90,18 @@ def decision_client() -> SystemOneClient | None:
       return _cached
     case None:
       return None
-    case SystemOneClient() as installed:
+    case systemone.SystemOneClient() as installed:
       return installed
     case unreachable:
       assert_never(unreachable)
 
 
-def client_from_env() -> SystemOneClient:
+def client_from_env() -> systemone.SystemOneClient:
   """Builds a client from DECISION_MODEL and OLLAMA_HOST."""
   model = os.getenv("DECISION_MODEL")
   if not model:
-    raise SystemOneError(
-        FailureKind.CONFIG,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
         "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
         " 'systemone'.",
     )
@@ -120,17 +110,19 @@ def client_from_env() -> SystemOneClient:
   try:
     limit = int(raw_limit)
   except ValueError as exc:
-    raise SystemOneError(
-        FailureKind.CONFIG,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
         f"DECISION_MAX_CONCURRENT must be an integer, got {raw_limit!r}.",
     ) from exc
-  return SystemOneClient(model=model, base_url=host, max_concurrent=limit)
+  return systemone.SystemOneClient(
+      model=model, base_url=host, max_concurrent=limit
+  )
 
 
-@contextmanager
+@contextlib.contextmanager
 def use_decision_client(
-    client: SystemOneClient | None,
-) -> Iterator[SystemOneClient | None]:
+    client: systemone.SystemOneClient | None,
+) -> Iterator[systemone.SystemOneClient | None]:
   """Installs a client for the duration of a test or a nested call."""
   global _override
   previous = _override
@@ -147,20 +139,20 @@ def threshold() -> float:
   try:
     value = float(raw)
   except ValueError as exc:
-    raise SystemOneError(
-        FailureKind.CONFIG,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
         f"DECISION_THRESHOLD must be a float, got {raw!r}.",
     ) from exc
   if not 0.0 <= value <= 1.0:
-    raise SystemOneError(
-        FailureKind.CONFIG,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
         f"DECISION_THRESHOLD must be between 0 and 1, got {value}.",
     )
   return value
 
 
 async def assign_labels(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     text: str,
     labels: list[str],
     *,
@@ -178,7 +170,7 @@ async def assign_labels(
     return []
   cutoff = threshold() if cutoff is None else cutoff
   questions = {
-      f"q{index}": NoulQuestion(
+      f"q{index}": systemone.NoulQuestion(
           instructions=f"Does this text belong under the {kind} '{label}'?",
           true=f"The text contains a claim that belongs under '{label}'.",
           false=f"The text does not belong under '{label}'.",
@@ -194,7 +186,7 @@ async def assign_labels(
 
 
 async def score_attributes(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     text: str,
     attributes: list[AttributeSpec],
 ) -> dict[str, float]:
@@ -206,7 +198,7 @@ async def score_attributes(
     true = attribute.definition
     if attribute.guidance:
       true = f"{attribute.definition} {attribute.guidance}"
-    questions[f"a{index}"] = NoulQuestion(
+    questions[f"a{index}"] = systemone.NoulQuestion(
         instructions=(
             f"Does this text exhibit {attribute.label}? {attribute.definition}"
         ),
@@ -221,7 +213,7 @@ async def score_attributes(
 
 
 async def equivalence_sets(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     items: dict[str, str],
     cutoff: float | None = None,
 ) -> list[list[str]]:
@@ -239,12 +231,12 @@ async def equivalence_sets(
       for index, left in enumerate(ids)
       for right in ids[index + 1 :]
   ]
-  questions: dict[str, NoulQuestion] = {}
+  questions: dict[str, systemone.NoulQuestion] = {}
   pair_by_key: dict[str, tuple[str, str]] = {}
   for index, (left, right) in enumerate(pairs):
     key = f"p{index}"
     pair_by_key[key] = (left, right)
-    questions[key] = NoulQuestion(
+    questions[key] = systemone.NoulQuestion(
         instructions=(
             "Are these two propositions effectively equivalent in meaning"
             " for a survey participant?\n"
@@ -267,7 +259,7 @@ async def equivalence_sets(
 
 
 async def choose_one(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     state: str,
     options: list[tuple[str, str]],
     instructions: str,
@@ -278,7 +270,9 @@ async def choose_one(
   tournament. Option ids may contain spaces; wire keys do not.
   """
   if not options:
-    raise SystemOneError(FailureKind.CONFIG, "choose_one requires an option.")
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG, "choose_one requires an option."
+    )
   if len(options) == 1:
     return options[0][0]
   if len(options) <= 26:
@@ -295,15 +289,15 @@ async def choose_one(
 
 
 async def approval_votes(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     participant: str,
     statements: list[str],
     options: list[str],
 ) -> dict[str, str]:
   """Predicts one scale label per statement for a participant."""
   if len(options) < 2:
-    raise SystemOneError(
-        FailureKind.CONFIG,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
         "approval votes need at least two scale options.",
     )
   questions = {}
@@ -311,7 +305,7 @@ async def approval_votes(
   for index, statement in enumerate(statements):
     key = f"s{index}"
     statement_by_key[key] = statement
-    questions[key] = ChoiceQuestion(
+    questions[key] = systemone.ChoiceQuestion(
         instructions=(
             "How would this participant vote on the following statement?\n"
             f"{statement}"
@@ -328,12 +322,12 @@ async def approval_votes(
 
 
 async def rubric_level(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     state: str,
     instructions: str | None = None,
 ) -> int:
   """Picks the 0-4 autorater level. Clef does not write the explanation."""
-  question = ChoiceQuestion(
+  question = systemone.ChoiceQuestion(
       instructions=instructions
       or (
           "Which rubric level best describes the evaluation target in the"
@@ -347,8 +341,8 @@ async def rubric_level(
   try:
     return int(choice)
   except ValueError as exc:
-    raise SystemOneError(
-        FailureKind.PARSE,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.PARSE,
         f"rubric choice {choice!r} is not a level.",
     ) from exc
 
@@ -371,38 +365,40 @@ def _select_labels(
   ]
 
 
-def _choice_key(answer: Answer, name: str) -> str:
+def _choice_key(answer: systemone.Answer, name: str) -> str:
   match answer:
-    case ChoiceAnswer(choice=choice):
+    case systemone.ChoiceAnswer(choice=choice):
       return choice
-    case NoulAnswer() | ScoreAnswer():
-      raise SystemOneError(
-          FailureKind.PARSE,
+    case systemone.NoulAnswer() | systemone.ScoreAnswer():
+      raise systemone.SystemOneError(
+          systemone.FailureKind.PARSE,
           f"question {name} did not return a choice.",
       )
     case unreachable:
       assert_never(unreachable)
 
 
-def _choice_label(answer: Answer, options: list[str], name: str) -> str:
+def _choice_label(
+    answer: systemone.Answer, options: list[str], name: str
+) -> str:
   choice = _choice_key(answer, name)
   try:
     opt_index = int(choice.removeprefix("o"))
     return options[opt_index]
   except (ValueError, IndexError) as exc:
-    raise SystemOneError(
-        FailureKind.PARSE,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.PARSE,
         f"approval choice {choice!r} is not a scale option.",
     ) from exc
 
 
-def _noul(answer: Answer, name: str) -> float:
+def _noul(answer: systemone.Answer, name: str) -> float:
   match answer:
-    case NoulAnswer(noul=noul):
+    case systemone.NoulAnswer(noul=noul):
       return noul
-    case ChoiceAnswer() | ScoreAnswer():
-      raise SystemOneError(
-          FailureKind.PARSE,
+    case systemone.ChoiceAnswer() | systemone.ScoreAnswer():
+      raise systemone.SystemOneError(
+          systemone.FailureKind.PARSE,
           f"question {name} did not return a noul answer.",
       )
     case unreachable:
@@ -410,7 +406,7 @@ def _noul(answer: Answer, name: str) -> float:
 
 
 async def _choose_pack(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     state: str,
     options: list[tuple[str, str]],
     instructions: str,
@@ -420,21 +416,25 @@ async def _choose_pack(
   }
   answers = await client.ask(
       state,
-      {"winner": ChoiceQuestion(instructions=instructions, criteria=criteria)},
+      {
+          "winner": systemone.ChoiceQuestion(
+              instructions=instructions, criteria=criteria
+          )
+      },
   )
   choice = _choice_key(answers["winner"], "winner")
   try:
     index = int(choice.removeprefix("k"))
   except ValueError as exc:
-    raise SystemOneError(
-        FailureKind.PARSE,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.PARSE,
         f"choice {choice!r} is not an option key.",
     ) from exc
   try:
     return options[index][0]
   except IndexError as exc:
-    raise SystemOneError(
-        FailureKind.PARSE,
+    raise systemone.SystemOneError(
+        systemone.FailureKind.PARSE,
         f"choice {answer.choice!r} is outside the option list.",
     ) from exc
 

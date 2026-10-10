@@ -29,7 +29,7 @@ import random
 import json
 from src.models import decision
 from src.models import genai_model
-from src.models.systemone import SystemOneClient
+from src.models import systemone
 from src import participation
 import pandas as pd
 import re
@@ -535,7 +535,7 @@ async def run_simulated_jury(
 
 
 async def _run_approval_with_decision(
-    client: SystemOneClient,
+    client: systemone.SystemOneClient,
     participants_df: pd.DataFrame,
     statements: list[str],
     approval_scale: ApprovalScale,

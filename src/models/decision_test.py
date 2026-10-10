@@ -22,20 +22,10 @@ import pandas as pd
 
 from src.get_gemini_scores_lib import ContentScorer
 from src.models import decision
-from src.models.custom_types import FlatTopic, NestedTopic, Quote, Statement
-from src.models.decision import AttributeSpec
-from src.models.systemone import (
-    ChoiceQuestion,
-    FailureKind,
-    NoulQuestion,
-    SystemOneClient,
-    SystemOneError,
-)
+from src.models import custom_types
+from src.models import systemone
 from src.simulated_jury import simulated_jury
-from src.tasks.categorization import (
-    _categorize_opinions_with_decision,
-    _process_topic_categorization,
-)
+from src.tasks import categorization
 
 
 def _answers_for(payload: dict) -> dict:
@@ -105,10 +95,12 @@ class RecordingTransport:
     return json.dumps(encoded).encode("utf-8")
 
 
-def _client() -> tuple[SystemOneClient, RecordingTransport]:
+def _client() -> tuple[systemone.SystemOneClient, RecordingTransport]:
   transport = RecordingTransport()
   return (
-      SystemOneClient(model="clef", transport=transport, max_concurrent=1),
+      systemone.SystemOneClient(
+          model="clef", transport=transport, max_concurrent=1
+      ),
       transport,
   )
 
@@ -182,7 +174,7 @@ class DecisionTests(unittest.TestCase):
   def test_packs_questions_past_the_64_limit(self):
     client, transport = _client()
     questions = {
-        f"q{index}": NoulQuestion(
+        f"q{index}": systemone.NoulQuestion(
             instructions=f"Is this item {index}?",
             true="Yes",
             false="No",
@@ -200,15 +192,19 @@ class DecisionTests(unittest.TestCase):
     def transport(url: str, body: bytes) -> bytes:
       return b'{"error": "clef does not support chat"}'
 
-    client = SystemOneClient(model="clef", transport=transport)
-    with self.assertRaises(SystemOneError) as caught:
+    client = systemone.SystemOneClient(model="clef", transport=transport)
+    with self.assertRaises(systemone.SystemOneError) as caught:
       asyncio.run(
           client.ask(
               "state",
-              {"q": NoulQuestion(instructions="Yes?", true="Yes", false="No")},
+              {
+                  "q": systemone.NoulQuestion(
+                      instructions="Yes?", true="Yes", false="No"
+                  )
+              },
           )
       )
-    self.assertEqual(caught.exception.kind, FailureKind.HTTP)
+    self.assertEqual(caught.exception.kind, systemone.FailureKind.HTTP)
 
   def test_scores_attribute_as_probability(self):
     client, _ = _client()
@@ -218,7 +214,7 @@ class DecisionTests(unittest.TestCase):
             client,
             "You are an idiot.",
             [
-                AttributeSpec(
+                decision.AttributeSpec(
                     name="TOXICITY",
                     label="Toxicity",
                     definition="A rude comment.",
@@ -231,13 +227,16 @@ class DecisionTests(unittest.TestCase):
 
   def test_topic_assignment_does_not_call_the_generative_model(self):
     client, transport = _client()
-    statement = Statement(id="s1", text="Please add bus lanes.")
+    statement = custom_types.Statement(id="s1", text="Please add bus lanes.")
     with decision.use_decision_client(client):
       records = asyncio.run(
-          _process_topic_categorization(
+          categorization._process_topic_categorization(
               [statement],
               model=object(),
-              target_topics=[FlatTopic(name="Buses"), FlatTopic(name="Other")],
+              target_topics=[
+                  custom_types.FlatTopic(name="Buses"),
+                  custom_types.FlatTopic(name="Other"),
+              ],
           )
       )
 
@@ -247,29 +246,32 @@ class DecisionTests(unittest.TestCase):
 
   def test_failing_opinion_autorater_becomes_other(self):
     client, _ = _client()
-    statement = Statement(
+    statement = custom_types.Statement(
         id="s1",
         text="Please add bus lanes.",
         quotes=[
-            Quote(
+            custom_types.Quote(
                 id="q1",
                 text="Please add bus lanes.",
-                topic=FlatTopic(name="Transit"),
+                topic=custom_types.FlatTopic(name="Transit"),
             )
         ],
     )
     learned = {
-        "Transit": NestedTopic(
+        "Transit": custom_types.NestedTopic(
             name="Transit",
-            subtopics=[FlatTopic(name="More buses"), FlatTopic(name="Other")],
+            subtopics=[
+                custom_types.FlatTopic(name="More buses"),
+                custom_types.FlatTopic(name="Other"),
+            ],
         )
     }
     with decision.use_decision_client(client):
       updated = list(
           asyncio.run(
-              _categorize_opinions_with_decision(
+              categorization._categorize_opinions_with_decision(
                   [statement],
-                  [FlatTopic(name="Transit")],
+                  [custom_types.FlatTopic(name="Transit")],
                   learned,
                   None,
                   True,
@@ -322,7 +324,7 @@ class DecisionTests(unittest.TestCase):
         client.ask(
             "state",
             {
-                "winner": ChoiceQuestion(
+                "winner": systemone.ChoiceQuestion(
                     instructions="Pick.",
                     criteria={"a": "WIN", "b": "lose"},
                 )
@@ -332,9 +334,9 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(answers["winner"].choice, "a")
 
   def test_missing_decision_model_is_a_config_error(self):
-    with self.assertRaises(SystemOneError) as caught:
+    with self.assertRaises(systemone.SystemOneError) as caught:
       decision.client_from_env()
-    self.assertEqual(caught.exception.kind, FailureKind.CONFIG)
+    self.assertEqual(caught.exception.kind, systemone.FailureKind.CONFIG)
 
 
 if __name__ == "__main__":
