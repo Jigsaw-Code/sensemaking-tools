@@ -144,10 +144,13 @@ Judgment stages that move: topic assignment, opinion assignment, moderation and 
 ```shell
 export DECISION_ENDPOINT_TYPE="systemone"
 export DECISION_MODEL="clef"
-export OLLAMA_HOST="http://127.0.0.1:11434"   # optional
-export DECISION_THRESHOLD="0.5"               # optional label and equivalence cutoff
-export DECISION_MAX_CONCURRENT="1"            # optional; a local runner has one slot
 ```
+
+Optional settings, which only need to be set to change the default:
+
+* `OLLAMA_HOST`: the Ollama server, read the same way as the Ollama CLI (for example `gpu-box` or `gpu-box:11434`). Unset means the local server.
+* `DECISION_THRESHOLD`: probability cutoff for labels and equivalence, between 0 and 1 (default `0.5`).
+* `DECISION_MAX_CONCURRENT`: requests in flight (default `1`, because a local runner has one slot).
 
 Assignment asks one yes/no question per label. More than 64 labels are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts return a 0-4 level and no written explanation; a level below 4 is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
 
