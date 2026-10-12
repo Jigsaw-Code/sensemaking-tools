@@ -50,6 +50,17 @@ class WorldModelUtilTest(unittest.TestCase):
     self.assertEqual(saved_df["reasoning"].tolist(), ["reason 1", "reason 2"])
     self.assertEqual(saved_df["topic_score"].tolist(), [4.0, 3.0])
 
+  def test_read_csv_to_dataframe_preserves_none(self):
+    """Tests that literal 'None' strings are preserved while empty cells are NaN."""
+    file_path = os.path.join(self.output_dir, "input.csv")
+    with open(file_path, "w", encoding="utf-8") as f:
+      f.write("participant_id,quote,optional_col\n1,None,\n2,N/A,val\n")
+
+    df = world_model_util.read_csv_to_dataframe(file_path)
+    self.assertEqual(df["quote"].tolist(), ["None", "N/A"])
+    self.assertTrue(pd.isna(df.loc[0, "optional_col"]))
+    self.assertEqual(df.loc[1, "optional_col"], "val")
+
 
 if __name__ == "__main__":
   unittest.main()

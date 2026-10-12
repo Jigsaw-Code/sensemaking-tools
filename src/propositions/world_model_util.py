@@ -14,7 +14,7 @@ def read_csv_to_dataframe(file_path: str) -> pd.DataFrame:
   if not os.path.exists(file_path):
     raise FileNotFoundError(f"Input file not found: {file_path}")
 
-  return pd.read_csv(file_path)
+  return pd.read_csv(file_path, keep_default_na=False, na_values=[""])
 
 
 def save_dataframe_to_pickle(df: pd.DataFrame, file_path: str):
