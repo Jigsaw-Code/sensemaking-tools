@@ -415,6 +415,46 @@ class SkipTextsTest(unittest.TestCase):
     self.assertTrue((result[gbs.BRIDGING_ATTRIBUTES].iloc[1] == 0.9).all())
     self.assertFalse(self.mock_scorer.score.called)
 
+  def test_main_preserves_literal_none_quote_in_csv(self):
+    """Checks CLI scores literal 'None' strings rather than treating as NaN."""
+    import os
+    import runpy
+    import sys
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+      input_csv = os.path.join(temp_dir, "input.csv")
+      output_csv = os.path.join(temp_dir, "output.csv")
+      with open(input_csv, "w", encoding="utf-8") as f:
+        f.write("participant_id,quote\np1,None\np2,\n")
+
+      test_args = [
+          "get_bridging_scores.py",
+          "--input_csv",
+          input_csv,
+          "--output_csv",
+          output_csv,
+          "--gemini_api_key",
+          "fake_key",
+      ]
+      with (
+          patch(
+              "src.get_gemini_scores_lib.ContentScorer",
+              return_value=self.mock_scorer,
+          ),
+          patch.object(sys, "argv", test_args),
+          contextlib.redirect_stdout(io.StringIO()),
+      ):
+        runpy.run_module("src.get_bridging_scores", run_name="__main__")
+
+      out_df = pd.read_csv(output_csv, keep_default_na=False, na_values=[""])
+      self.assertEqual(out_df.loc[0, "quote"], "None")
+      self.assertAlmostEqual(out_df.loc[0, gbs.AVERAGE_BRIDGING_COLUMN], 0.5)
+      self.assertTrue(pd.isna(out_df.loc[1, gbs.AVERAGE_BRIDGING_COLUMN]))
+      self.assertEqual(
+          out_df.loc[1, gbs.SKIP_REASON_COLUMN], gbs.SKIP_REASON_EMPTY
+      )
+
 
 if __name__ == "__main__":
   unittest.main()
