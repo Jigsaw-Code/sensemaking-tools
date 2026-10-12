@@ -420,6 +420,8 @@ def process_csv(
         input_path,
         usecols=lambda c: c in cols_to_use,
         skiprows=[1, 2],
+        keep_default_na=False,
+        na_values=[""],
     )
     logging.info(f"Successfully read {len(df)} rows from {input_path}.")
   except Exception as e:

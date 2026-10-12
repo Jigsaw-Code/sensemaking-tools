@@ -408,6 +408,54 @@ class ProcessQualtricsOutputTest(unittest.TestCase):
     self.assertEqual(df.iloc[0]["ranking_1_a_c"], "Rank Comment A1")
     self.assertEqual(df.iloc[0]["ranking_1_q_c"], "Rank Comment Q1")
 
+  def test_process_csv_round_1_preserves_none_response(self):
+    header = [
+        "Finished",
+        "Status",
+        "Q1",
+        "Q1FU",
+        "Q1FU_Text",
+        "rid",
+        "Duration (in seconds)",
+    ]
+    meta_row1 = ["Finished", "Status", "Q1 text", "empty", "empty", "rid", "Duration"]
+    meta_row2 = ["" for _ in meta_row1]
+    data_row1 = [
+        "True",
+        "IP Address",
+        "None",
+        "Q1 follow up text",
+        "N/A",
+        "resp1",
+        "123",
+    ]
+    process_qualtrics_output.configure_round_1(["Q1"], ["Q1FU"], ["Q1FU_Text"])
+
+    with open(self.input_csv_path, "w", newline="") as f:
+      writer = csv.writer(f)
+      writer.writerow(header)
+      writer.writerow(meta_row1)
+      writer.writerow(meta_row2)
+      writer.writerow(data_row1)
+
+    process_qualtrics_output.process_csv(
+        self.input_csv_path,
+        self.output_csv_path,
+        process_qualtrics_output.DataType.ROUND_1,
+    )
+
+    df = pd.read_csv(
+        self.output_csv_path, keep_default_na=False, na_values=[""]
+    )
+    self.assertIn(
+        "<response>None</response>",
+        df.iloc[0][process_qualtrics_output.SURVEY_TEXT],
+    )
+    self.assertIn(
+        "<response>N/A</response>",
+        df.iloc[0][process_qualtrics_output.SURVEY_TEXT],
+    )
+
 
 if __name__ == "__main__":
   unittest.main()
