@@ -99,6 +99,64 @@ class CategorizationRunnerTest(unittest.TestCase):
   @mock.patch(
       'os.path.expanduser',
       return_value=io.StringIO(
+          'participant_id,survey_text\n'
+          '1,None\n'
+          '2,"None"\n'
+          '3,N/A\n'
+          "4,I'm not aware of any active campaigns"
+      ),
+  )
+  @mock.patch('os.path.exists', return_value=True)
+  def test_read_csv_preserves_literal_na_strings(
+      self, mock_expanduser, mock_exists
+  ):
+    # pylint: disable=protected-access
+    rows = categorization_runner._read_csv_to_dicts('dummy_path')
+    mock_exists.assert_called()
+    mock_expanduser.assert_called()
+    self.assertEqual(
+        rows,
+        [
+            {'participant_id': '1', 'survey_text': 'None'},
+            {'participant_id': '2', 'survey_text': 'None'},
+            {'participant_id': '3', 'survey_text': 'N/A'},
+            {
+                'participant_id': '4',
+                'survey_text': "I'm not aware of any active campaigns",
+            },
+        ],
+    )
+    statements = categorization_runner._convert_csv_rows_to_statements(rows)
+    self.assertEqual(
+        statements,
+        [
+            custom_types.Statement(id='1', text='None'),
+            custom_types.Statement(id='2', text='None'),
+            custom_types.Statement(id='3', text='N/A'),
+            custom_types.Statement(
+                id='4', text="I'm not aware of any active campaigns"
+            ),
+        ],
+    )
+
+  @mock.patch(
+      'os.path.expanduser',
+      return_value=io.StringIO('participant_id,survey_text\n1,\n'),
+  )
+  @mock.patch('os.path.exists', return_value=True)
+  def test_read_csv_empty_survey_text_raises_value_error(
+      self, _mock_expanduser, _mock_exists
+  ):
+    # pylint: disable=protected-access
+    rows = categorization_runner._read_csv_to_dicts('dummy_path')
+    with self.assertRaisesRegex(
+        ValueError, r"Row 1 \(ID: 1\) is missing 'survey_text'"
+    ):
+      categorization_runner._convert_csv_rows_to_statements(rows)
+
+  @mock.patch(
+      'os.path.expanduser',
+      return_value=io.StringIO(
           "participant_id,survey_text\n"
           "1,Este es un texto en español para probar.\n"
           "2,这是一个测试中文的文本。"

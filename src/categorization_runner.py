@@ -54,7 +54,7 @@ def _filter_csv_columns(
 ):
   """Filters a CSV file to keep only specified columns."""
   try:
-    df = pd.read_csv(input_file, dtype=str)
+    df = pd.read_csv(input_file, dtype=str, keep_default_na=False)
 
     # Find which of the desired columns are present in the input file
     present_columns = [col for col in columns_to_keep if col in df.columns]
@@ -87,7 +87,7 @@ def _read_csv_to_dicts(input_file_path: str) -> List[Dict[str, str]]:
   if not os.path.exists(file_path):
     raise FileNotFoundError(f"Input file not found: {file_path}")
 
-  df = pd.read_csv(file_path, dtype=str)
+  df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
   # Convert all header names to lowercase
   df.columns = [h.lower() for h in df.columns]
   return df.to_dict("records")
@@ -233,7 +233,7 @@ def _get_topics_from_arg(
 
 def _get_topics_and_opinions_from_csv(csv_path: str):
   return_topics = []
-  df = pd.read_csv(csv_path)
+  df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
   for topic_str, group_df in df.groupby("topic"):
     new_topic = custom_types.NestedTopic(name=topic_str)
     for opinion_str in group_df["opinion"].unique():
