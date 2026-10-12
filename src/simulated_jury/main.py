@@ -151,8 +151,12 @@ def main():
 
   # --- Load Data ---
   try:
-    participants_df = pd.read_csv(args.participants_csv)
-    statements_df = pd.read_csv(args.statements_csv)
+    participants_df = pd.read_csv(
+        args.participants_csv, keep_default_na=False, na_values=[""]
+    )
+    statements_df = pd.read_csv(
+        args.statements_csv, keep_default_na=False, na_values=[""]
+    )
   except FileNotFoundError as e:
     logging.fatal("Error: %s not found.", e.filename)
 
