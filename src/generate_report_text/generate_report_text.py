@@ -236,7 +236,9 @@ async def main():
   )
 
   # Load data and additional context
-  categorized_quotes_df = pd.read_csv(args.input_csv)
+  categorized_quotes_df = pd.read_csv(
+      args.input_csv, dtype=str, keep_default_na=False
+  )
   additional_context = runner_utils.get_additional_context(args)
 
   # Drop Other from both topics and opinions

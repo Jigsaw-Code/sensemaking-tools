@@ -13,9 +13,12 @@
 # limitations under the License.
 
 import asyncio
-import pandas as pd
+import os
+import sys
+import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+import pandas as pd
 
 from src.generate_report_text import generate_report_text
 
@@ -31,13 +34,15 @@ class GenerateReportTextTest(unittest.TestCase):
       for i, p in enumerate(prompts):
         response = {
             'job_id': i,
-            'topic': p['topic'],
+            'topic': p.get('topic', ''),
         }
         if 'opinion' in p:
           response['opinion'] = p['opinion']
           response['result'] = f"{p['topic']}-{p['opinion']} summary"
-        else:
+        elif 'topic' in p:
           response['result'] = f"{p['topic']} summary"
+        else:
+          response['result'] = 'overview summary'
         responses.append(response)
       return (pd.DataFrame(responses), pd.DataFrame(), 0.0, 1.0)
 
@@ -156,6 +161,33 @@ class GenerateReportTextTest(unittest.TestCase):
             'result': ['t1 summary', 't2 summary'],
         }),
     )
+
+  @patch('src.models.genai_model.GenaiModel')
+  def test_main_handles_none_quote_in_csv(self, mock_genai_model_cls):
+    mock_process_prompts = MagicMock()
+    mock_model = self.get_mock_model(mock_process_prompts)
+    mock_genai_model_cls.return_value = mock_model
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+      input_csv = os.path.join(temp_dir, 'input.csv')
+      with open(input_csv, 'w', encoding='utf-8') as f:
+        f.write('participant_id,topic,opinion,quote\n1,t1,o1,None\n')
+
+      test_args = [
+          'generate_report_text.py',
+          '--input_csv',
+          input_csv,
+          '--output_dir',
+          temp_dir,
+          '--gemini_api_key',
+          'fake_key',
+      ]
+      with patch.object(sys, 'argv', test_args):
+        asyncio.run(generate_report_text.main())
+
+      self.assertTrue(
+          os.path.exists(os.path.join(temp_dir, 'report_data.json'))
+      )
 
 
 if __name__ == '__main__':
