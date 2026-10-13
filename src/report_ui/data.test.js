@@ -301,3 +301,25 @@ describe("processReportData title", () => {
     assert.equal(result.dataStatic.title, "");
   });
 });
+
+describe("processReportData numeric config options", () => {
+  it("preserves low_sample_warning_threshold when set to 0", () => {
+    const { result } = runReport(
+      [row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.5" })],
+      {
+        config: { low_sample_warning_threshold: 0 },
+      },
+    );
+
+    assert.equal(result.dataStatic.lowSampleThreshold, 0);
+    assert.equal(JSON.parse(result.dataStatic.payload).options.lowSampleThreshold, 0);
+  });
+
+  it("defaults low_sample_warning_threshold to 30 when unset", () => {
+    const { result } = runReport([
+      row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.5" }),
+    ]);
+
+    assert.equal(result.dataStatic.lowSampleThreshold, 30);
+  });
+});

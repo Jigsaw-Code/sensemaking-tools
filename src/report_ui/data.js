@@ -348,13 +348,13 @@ export function processReportData({
     logo: config.logo || "",
     overviewChart,
     hasToggle: overviewChart === "toggle",
-    lowSampleThreshold: config.low_sample_warning_threshold || 30,
+    lowSampleThreshold: config.low_sample_warning_threshold ?? 30,
     sampleQuoteCount: Math.min(
-      Math.max(config.number_of_sample_quotes || 4, 2),
+      Math.max(config.number_of_sample_quotes ?? 4, 2),
       10,
     ), // between 2 and 10 sample quotes per opinion
     topOpinionCount: Math.min(
-      Math.max(config.number_of_top_opinions || 10, 2),
+      Math.max(config.number_of_top_opinions ?? 10, 2),
       20,
     ), // between 2 and 20 top opinions
     topicColors: config.chart_colors || [
@@ -697,7 +697,6 @@ export function processReportData({
   const byParticipant = groupBy(opinions, "participant_id");
   const totalParticipants = formatNumber(byParticipant.length);
   const totalParticipantsFormatted = formatNumber(byParticipant.length);
-  const propositionsGenerated = 0; // Placeholder / Todo
 
   // 2. Perform transformations
   const opinionsGrouped = groupOpinions(opinions);
@@ -816,7 +815,6 @@ export function processReportData({
     topicsIdentifiedBadge,
     opinionsIdentified,
     opinionsIdentifiedFormatted,
-    propositionsGenerated,
     topics,
     demographics,
     hasDemographics,

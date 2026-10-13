@@ -131,7 +131,7 @@ const OVERVIEW_CHART_TYPE = window.PAYLOAD.options.overviewChart || "toggle";
  * Quote threshold for warning
  * @constant {number}
  */
-let lowSampleThreshold = window.PAYLOAD.options.lowSampleThreshold || 30;
+let lowSampleThreshold = window.PAYLOAD.options.lowSampleThreshold ?? 30;
 
 /**
  * Global modal opinion ID
