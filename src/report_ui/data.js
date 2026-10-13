@@ -666,18 +666,28 @@ export function processReportData({
   function processPredicted(raw) {
     const data = Array.isArray(raw) ? raw[0] : raw;
     if (!data || !data.sub_contents) return { text: "", topics: [] };
-    return {
-      text: data.text,
-      topics: data.sub_contents.map((s) => ({
+    const topics = data.sub_contents
+      .filter((s) => !excludedTopics.has(stripMarkdownHeader(s.title)))
+      .map((s) => ({
         topicID: generateId(s.title || "", true),
         title: stripMarkdownHeader(s.title),
         text: s.text,
-        statements: (s.statements || []).map((stmt) => ({
-          text: stmt.text,
-          predictedAgreement: formatPercent(stmt.predicted_agreement),
-          hasPredictedAgreement: stmt.predicted_agreement != null,
-        })),
-      })),
+        statements: (s.statements || [])
+          .filter(
+            (stmt) =>
+              !excludedOpinions.has(stmt.opinion) &&
+              !excludedOpinions.has(stmt.text),
+          )
+          .map((stmt) => ({
+            text: stmt.text,
+            predictedAgreement: formatPercent(stmt.predicted_agreement),
+            hasPredictedAgreement: stmt.predicted_agreement != null,
+          })),
+      }))
+      .filter((t) => t.statements.length > 0);
+    return {
+      text: data.text,
+      topics,
     };
   }
 
