@@ -287,24 +287,7 @@ You can edit `src/report_ui/input/config.json` to customize the report. Key opti
 You can enhance your report by configuring two additional features before building:
 
 1. **Demographic Support:** You can add demographic dimensions to your data by ensuring the relevant columns in your `opinions.csv` are prefixed with `demo:`. For example, `demo:Age` or `demo:Location`. The tool will automatically use these to build a demographic breakdown chart and quote filters.
-2. **Predicted Agreement (Propositions):** Because you generated propositions in step 5, you can feature them in a dedicated "Predicted Agreement" tab. Create a `predicted.json` file in `src/report_ui/input/` structured exactly like this:
-```json
-{
-  "text": "Introductory text for the predicted agreement tab.",
-  "sub_contents": [
-    {
-      "title": "## Topic Name",
-      "text": "Optional context for this topic.",
-      "statements": [
-        {
-          "text": "The text of the proposition/statement",
-          "predicted_agreement": 85
-        }
-      ]
-    }
-  ]
-}
-```
+2. **Predicted Agreement (Propositions):** Because you generated propositions in step 5, you can feature them in a dedicated "Predicted Agreement" tab. Copy your `selected_propositions.csv` file to `src/report_ui/input/propositions.csv` (it requires columns for `topic`, `proposition`, and `approval_rate`).
 
 ##### **View and Build the Report**:
 

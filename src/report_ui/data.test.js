@@ -73,11 +73,7 @@ function runReport(opinionsRaw, opts = {}) {
     configPath = path.join(workDir, "config.json");
     fs.writeFileSync(configPath, JSON.stringify(opts.config));
   }
-  let predictedPath = null;
-  if (opts.predicted) {
-    predictedPath = path.join(workDir, "predicted.json");
-    fs.writeFileSync(predictedPath, JSON.stringify(opts.predicted));
-  }
+  const propositionsRaw = opts.propositions || [];
   const warnings = [];
   const originalWarn = console.warn;
   const originalLog = console.log;
@@ -86,9 +82,9 @@ function runReport(opinionsRaw, opts = {}) {
   try {
     const result = processReportData({
       opinionsRaw,
+      propositionsRaw,
       summaryPath,
       configPath,
-      predictedPath,
       inputDir: workDir,
       packageRoot,
       workDir,
@@ -181,29 +177,32 @@ describe("processReportData excluded_topics and excluded_opinions", () => {
           excluded_topics: ["Drop Topic"],
           excluded_opinions: ["Drop Opinion", "Excluded By Opinion Field"],
         },
-        predicted: {
-          text: "Predicted intro.",
-          sub_contents: [
-            {
-              title: "## Keep Topic",
-              text: "Context",
-              statements: [
-                { text: "Keep Opinion", predicted_agreement: 80 },
-                { text: "Drop Opinion", predicted_agreement: 50 },
-                {
-                  text: "Statement with excluded opinion",
-                  opinion: "Excluded By Opinion Field",
-                  predicted_agreement: 60,
-                },
-              ],
-            },
-            {
-              title: "## Drop Topic",
-              text: "Context",
-              statements: [{ text: "Keep Opinion", predicted_agreement: 90 }],
-            },
-          ],
-        },
+        propositions: [
+          {
+            topic: "Keep Topic",
+            proposition: "Keep Opinion",
+            opinion: "Keep Opinion",
+            approval_rate: "0.80",
+          },
+          {
+            topic: "Keep Topic",
+            proposition: "Drop Opinion",
+            opinion: "Drop Opinion",
+            approval_rate: "0.50",
+          },
+          {
+            topic: "Keep Topic",
+            proposition: "Statement with excluded opinion",
+            opinion: "Excluded By Opinion Field",
+            approval_rate: "0.60",
+          },
+          {
+            topic: "Drop Topic",
+            proposition: "Keep Opinion",
+            opinion: "Keep Opinion",
+            approval_rate: "0.90",
+          },
+        ],
       },
     );
 
@@ -218,6 +217,7 @@ describe("processReportData excluded_topics and excluded_opinions", () => {
     assert.equal(result.dataStatic.topics[0].topicCount, 1);
     assert.equal(result.dataStatic.topicsIdentified, 1);
     assert.equal(result.dataStatic.opinionsIdentified, 1);
+    assert.equal(result.dataStatic.totalParticipants, "1");
 
     assert.equal(result.dataStatic.hasPredicted, true);
     assert.deepEqual(
@@ -228,6 +228,12 @@ describe("processReportData excluded_topics and excluded_opinions", () => {
       result.dataStatic.predicted.topics[0].statements.map((s) => s.text),
       ["Keep Opinion"],
     );
+    assert.deepEqual(
+      result.dataStatic.predicted.topics[0].statements.map(
+        (s) => s.predictedAgreement,
+      ),
+      ["80%"],
+    );
   });
 
   it("drops predicted topics whose statements are all excluded and updates hasPredicted", () => {
@@ -237,16 +243,14 @@ describe("processReportData excluded_topics and excluded_opinions", () => {
         config: {
           excluded_opinions: ["Only Statement"],
         },
-        predicted: {
-          text: "Predicted intro.",
-          sub_contents: [
-            {
-              title: "## Topic",
-              text: "Context",
-              statements: [{ text: "Only Statement", predicted_agreement: 75 }],
-            },
-          ],
-        },
+        propositions: [
+          {
+            topic: "Topic",
+            proposition: "Only Statement",
+            opinion: "Only Statement",
+            approval_rate: "0.75",
+          },
+        ],
       },
     );
 

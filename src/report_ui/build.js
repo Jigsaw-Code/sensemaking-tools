@@ -10,7 +10,7 @@
  * @module BuildScript
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,9 +104,9 @@ const cp = (src, dest) => {
  *   staticOutDir: string,
  *   inlineOutFile: string,
  *   opinionsCsv: string,
+ *   propositionsCsv: string,
  *   summaryPath: string|null,
  *   configPath: string|null,
- *   predictedPath: string|null,
  *   useLegacyDataJs: boolean,
  * }}
  */
@@ -116,9 +116,9 @@ let ctx = {
   staticOutDir: path.join(packageRoot, "output", "static"),
   inlineOutFile: path.join(packageRoot, "output", "inline", "index.html"),
   opinionsCsv: path.join(packageRoot, "input", "opinions.csv"),
+  propositionsCsv: path.join(packageRoot, "input", "propositions.csv"),
   summaryPath: null,
   configPath: null,
-  predictedPath: null,
   useLegacyDataJs: true,
 };
 
@@ -141,11 +141,34 @@ function resetDefaultCtx() {
     staticOutDir: path.join(packageRoot, "output", "static"),
     inlineOutFile: path.join(packageRoot, "output", "inline", "index.html"),
     opinionsCsv: path.join(packageRoot, "input", "opinions.csv"),
+    propositionsCsv: path.join(packageRoot, "input", "propositions.csv"),
     summaryPath: null,
     configPath: null,
-    predictedPath: null,
     useLegacyDataJs: true,
   };
+}
+
+/**
+ * Converts a CSV file to a JSON file using `csvtojson` via `spawnSync`.
+ * Avoids shell interpolation of file paths.
+ *
+ * @param {string} csvPath - Source CSV file path.
+ * @param {string} jsonPath - Destination JSON file path.
+ */
+function convertCsvToJson(csvPath, jsonPath) {
+  const fd = fs.openSync(jsonPath, "w");
+  try {
+    const result = spawnSync("npx", ["-y", "-q", "csvtojson", csvPath], {
+      stdio: ["ignore", fd, "inherit"],
+      cwd: packageRoot,
+    });
+    if (result.error || result.status !== 0) {
+      console.error(`Error converting CSV: ${csvPath}`);
+      process.exit(1);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**
@@ -187,18 +210,11 @@ const tasks = {
   data: () => {
     console.log("...converting opinions csv to json and processing data");
     const opinionsJson = path.join(ctx.workDir, "opinions.json");
-    const fileDescriptor = fs.openSync(opinionsJson, "w");
+    convertCsvToJson(ctx.opinionsCsv, opinionsJson);
 
-    try {
-      execSync(`npx -y -q csvtojson "${ctx.opinionsCsv}"`, {
-        stdio: ["ignore", fileDescriptor, "inherit"],
-        cwd: packageRoot,
-      });
-    } catch (e) {
-      console.error("Error converting CSV");
-      process.exit(1);
-    } finally {
-      fs.closeSync(fileDescriptor);
+    const propositionsJson = path.join(ctx.workDir, "propositions.json");
+    if (ctx.propositionsCsv && fs.existsSync(ctx.propositionsCsv)) {
+      convertCsvToJson(ctx.propositionsCsv, propositionsJson);
     }
 
     if (ctx.useLegacyDataJs) {
@@ -207,6 +223,9 @@ const tasks = {
     }
 
     const opinionsRaw = JSON.parse(fs.readFileSync(opinionsJson, "utf-8"));
+    const propositionsRaw = fs.existsSync(propositionsJson)
+      ? JSON.parse(fs.readFileSync(propositionsJson, "utf-8"))
+      : [];
     const summaryPath =
       ctx.summaryPath || path.join(ctx.inputDir, "summary.json");
     const configPath =
@@ -214,17 +233,12 @@ const tasks = {
       (fs.existsSync(path.join(ctx.inputDir, "config.json"))
         ? path.join(ctx.inputDir, "config.json")
         : null);
-    const predictedPath =
-      ctx.predictedPath ||
-      (fs.existsSync(path.join(ctx.inputDir, "predicted.json"))
-        ? path.join(ctx.inputDir, "predicted.json")
-        : null);
 
     processReportData({
       opinionsRaw,
+      propositionsRaw,
       summaryPath,
       configPath,
-      predictedPath,
       inputDir: ctx.inputDir,
       packageRoot,
       workDir: ctx.workDir,
@@ -456,10 +470,10 @@ function stageExplicitInputs(options, workDir) {
     );
   }
 
-  if (options.predictedPath) {
+  if (options.propositionsPath) {
     fs.copyFileSync(
-      options.predictedPath,
-      path.join(stagedInput, "predicted.json"),
+      options.propositionsPath,
+      path.join(stagedInput, "propositions.csv"),
     );
   }
 
@@ -550,9 +564,9 @@ export async function runBuild(argv = process.argv, cwd = process.cwd()) {
         ? options.output
         : path.join(packageRoot, "output", "inline", "index.html"),
     opinionsCsv: path.join(workDir, "staged-input", "opinions.csv"),
+    propositionsCsv: path.join(workDir, "staged-input", "propositions.csv"),
     summaryPath: null,
     configPath: null,
-    predictedPath: null,
     useLegacyDataJs: false,
   };
 
@@ -567,12 +581,12 @@ export async function runBuild(argv = process.argv, cwd = process.cwd()) {
   const stagedInput = stageExplicitInputs(options, workDir);
   ctx.inputDir = stagedInput;
   ctx.opinionsCsv = path.join(stagedInput, "opinions.csv");
+  ctx.propositionsCsv = fs.existsSync(path.join(stagedInput, "propositions.csv"))
+    ? path.join(stagedInput, "propositions.csv")
+    : null;
   ctx.summaryPath = path.join(stagedInput, "summary.json");
   ctx.configPath = fs.existsSync(path.join(stagedInput, "config.json"))
     ? path.join(stagedInput, "config.json")
-    : null;
-  ctx.predictedPath = fs.existsSync(path.join(stagedInput, "predicted.json"))
-    ? path.join(stagedInput, "predicted.json")
     : null;
 
   tasks.data();

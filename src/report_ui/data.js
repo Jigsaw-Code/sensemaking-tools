@@ -157,16 +157,27 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
     flags.get("summary") || path.join(inputDir, "summary.json"),
   );
 
-  const predictedExplicit = flags.has("predicted");
+  const propositionsFlag = flags.get("propositions");
+  const predictedFlag = flags.get("predicted");
+  if (propositionsFlag && predictedFlag) {
+    const propositionsResolved = path.resolve(cwd, propositionsFlag);
+    const predictedResolved = path.resolve(cwd, predictedFlag);
+    if (propositionsResolved !== predictedResolved) {
+      throw new Error(
+        "--propositions and --predicted both set to different paths; use only one.",
+      );
+    }
+  }
+  const propositionsExplicit = Boolean(propositionsFlag || predictedFlag);
   const configExplicit = flags.has("config");
 
-  let predictedPath = null;
-  if (predictedExplicit) {
-    predictedPath = path.resolve(cwd, flags.get("predicted"));
+  let propositionsPath = null;
+  if (propositionsExplicit) {
+    propositionsPath = path.resolve(cwd, propositionsFlag || predictedFlag);
   } else {
-    const defaultPredicted = path.join(inputDir, "predicted.json");
-    if (fs.existsSync(defaultPredicted)) {
-      predictedPath = defaultPredicted;
+    const defaultPropositions = path.join(inputDir, "propositions.csv");
+    if (fs.existsSync(defaultPropositions)) {
+      propositionsPath = defaultPropositions;
     }
   }
 
@@ -185,7 +196,7 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
       opinionsFlag ||
       bridgingFlag ||
       flags.has("summary") ||
-      predictedExplicit ||
+      propositionsExplicit ||
       configExplicit,
   );
   const hasExplicitOutputPaths = hasOutput || hasOutputDir;
@@ -197,8 +208,8 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
     if (!fs.existsSync(summaryPath)) {
       throw new Error(`Summary JSON not found: ${summaryPath}`);
     }
-    if (predictedExplicit && !fs.existsSync(predictedPath)) {
-      throw new Error(`Predicted JSON not found: ${predictedPath}`);
+    if (propositionsExplicit && !fs.existsSync(propositionsPath)) {
+      throw new Error(`Propositions CSV not found: ${propositionsPath}`);
     }
     if (configExplicit && !fs.existsSync(configPath)) {
       throw new Error(`Config JSON not found: ${configPath}`);
@@ -213,9 +224,9 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
     outputDir,
     opinionsPath,
     summaryPath,
-    predictedPath,
+    propositionsPath,
     configPath,
-    predictedExplicit,
+    propositionsExplicit,
     configExplicit,
     hasExplicitInputPaths,
     hasExplicitOutputPaths,
@@ -251,9 +262,9 @@ function deepMerge(target, source) {
  *
  * @param {Object} params
  * @param {RawOpinion[]} params.opinionsRaw
+ * @param {Object[]} [params.propositionsRaw]
  * @param {string} params.summaryPath
  * @param {string|null} [params.configPath]
- * @param {string|null} [params.predictedPath]
  * @param {string} params.inputDir - Dir for translations / relative logo paths.
  * @param {string} params.packageRoot - Package root (for default-translations).
  * @param {string} params.workDir - Directory to write quotes + data JSON files.
@@ -261,9 +272,9 @@ function deepMerge(target, source) {
  */
 export function processReportData({
   opinionsRaw,
+  propositionsRaw = [],
   summaryPath,
   configPath = null,
-  predictedPath = null,
   inputDir,
   packageRoot,
   workDir,
@@ -285,11 +296,6 @@ export function processReportData({
     : {};
 
   const summary = JSON.parse(fs.readFileSync(summaryPath, "utf-8"));
-
-  const predictedRaw =
-    predictedPath && fs.existsSync(predictedPath)
-      ? JSON.parse(fs.readFileSync(predictedPath, "utf-8"))
-      : [];
 
   const defaultI18n = JSON.parse(
     fs.readFileSync(
@@ -396,6 +402,21 @@ export function processReportData({
   }
 
   /**
+   * Filters out rows matching excluded topics or excluded opinions/propositions.
+   * @param {Object[]} rows
+   * @returns {Object[]}
+   */
+  function filterExcludedRows(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(
+      (row) =>
+        !excludedTopics.has(stripMarkdownHeader(row.topic)) &&
+        !excludedOpinions.has(row.opinion) &&
+        !excludedOpinions.has(row.proposition),
+    );
+  }
+
+  /**
    * Sums an array of numbers.
    * @param {number[]} arr
    * @returns {number}
@@ -489,10 +510,8 @@ export function processReportData({
    * @returns {Object[]} Structured topic objects.
    */
   function groupOpinions(opinionsList) {
-    // 1. Group by high-level Topic, dropping excluded topics
-    const byTopic = groupBy(opinionsList, "topic").filter(
-      ([topicText]) => !excludedTopics.has(topicText),
-    );
+    // 1. Group by high-level Topic
+    const byTopic = groupBy(opinionsList, "topic");
 
     const o = byTopic
       .map(([topicText, topicOpinions]) => {
@@ -503,11 +522,8 @@ export function processReportData({
 
         const topicId = generateId(topicText, true);
 
-        // 3. Drop excluded opinions, then group by specific Opinion within the Topic
-        const keptOpinions = topicOpinions.filter(
-          (row) => !excludedOpinions.has(row.opinion),
-        );
-        const byOpinion = groupBy(keptOpinions, "opinion").map(
+        // 3. Group by specific Opinion within the Topic
+        const byOpinion = groupBy(topicOpinions, "opinion").map(
           ([_, values]) => ({
             opinionID: generateId(values[0].opinion),
             // fullID is crucial: it links the UI chart to the specific quotes list
@@ -529,7 +545,7 @@ export function processReportData({
           topicID: topicId,
           summary: cleanMarkdown(topicMatch?.text),
           text: topicText,
-          count: keptOpinions.length,
+          count: topicOpinions.length,
           opinions: byOpinion,
         };
       })
@@ -659,49 +675,52 @@ export function processReportData({
   }
 
   /**
-   * Cleans and shapes raw predicted data for the mustache template.
-   * @param {Object|Object[]} raw - Predicted topic objects from predicted.json.
+   * Cleans and shapes raw propositions CSV rows for the mustache template.
+   * @param {Object[]} raw - Proposition rows from propositions.csv.
    * @returns {Object} Cleaned predicted topic objects.
    */
   function processPredicted(raw) {
-    const data = Array.isArray(raw) ? raw[0] : raw;
-    if (!data || !data.sub_contents) return { text: "", topics: [] };
-    const topics = data.sub_contents
-      .filter((s) => !excludedTopics.has(stripMarkdownHeader(s.title)))
-      .map((s) => ({
-        topicID: generateId(s.title || "", true),
-        title: stripMarkdownHeader(s.title),
-        text: s.text,
-        statements: (s.statements || [])
-          .filter(
-            (stmt) =>
-              !excludedOpinions.has(stmt.opinion) &&
-              !excludedOpinions.has(stmt.text),
-          )
-          .map((stmt) => ({
-            text: stmt.text,
-            predictedAgreement: formatPercent(stmt.predicted_agreement),
-            hasPredictedAgreement: stmt.predicted_agreement != null,
-          })),
-      }))
+    if (!Array.isArray(raw) || raw.length === 0) return { topics: [] };
+    const byTopic = groupBy(raw, "topic");
+    const topics = byTopic
+      .filter(([topic]) => topic)
+      .map(([topic, rows]) => {
+        const title = stripMarkdownHeader(topic);
+        const statements = rows
+          .filter((row) => row.proposition)
+          .map((row) => ({
+            text: row.proposition,
+            predictedAgreement: formatPercent(row.approval_rate),
+            hasPredictedAgreement:
+              row.approval_rate != null && row.approval_rate !== "",
+          }));
+        return {
+          topicID: generateId(title || "", true),
+          title,
+          statements,
+        };
+      })
       .filter((t) => t.statements.length > 0);
     return {
-      text: data.text,
       topics,
     };
   }
 
   // --- Main Execution ---
 
+  // 0. Pre-filter excluded topics and opinions
+  const filteredOpinions = filterExcludedRows(opinions);
+  const filteredPropositions = filterExcludedRows(propositionsRaw);
+
   // 1. Calculate aggregate statistics
-  const byParticipant = groupBy(opinions, "participant_id");
+  const byParticipant = groupBy(filteredOpinions, "participant_id");
   const totalParticipants = formatNumber(byParticipant.length);
   const totalParticipantsFormatted = formatNumber(byParticipant.length);
 
   // 2. Perform transformations
-  const opinionsGrouped = groupOpinions(opinions);
+  const opinionsGrouped = groupOpinions(filteredOpinions);
   const quotes = flattenQuotes(opinionsGrouped);
-  const predicted = processPredicted(predictedRaw);
+  const predicted = processPredicted(filteredPropositions);
 
   // 3. Calculate high-level counts
   const topicsIdentified = opinionsGrouped.length;
@@ -877,12 +896,15 @@ if (isMain) {
   const opinionsRaw = JSON.parse(
     fs.readFileSync("./temp/opinions.json", "utf-8"),
   );
-  const predictedDefault = "./input/predicted.json";
+  const propositionsDefault = "./temp/propositions.json";
+  const propositionsRaw = fs.existsSync(propositionsDefault)
+    ? JSON.parse(fs.readFileSync(propositionsDefault, "utf-8"))
+    : [];
   processReportData({
     opinionsRaw,
+    propositionsRaw,
     summaryPath: "./input/summary.json",
     configPath: "./input/config.json",
-    predictedPath: fs.existsSync(predictedDefault) ? predictedDefault : null,
     inputDir: "./input",
     packageRoot: ".",
     workDir: "./temp",

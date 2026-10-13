@@ -47,6 +47,7 @@
   },
   "predicted": {
     "title": "Predicted Agreement",
+    "description": "Predicted agreement is an AI-generated estimate of what proportion of participants are likely to support a given statement based on their earlier responses. This metric highlights shared sentiments across participants to identify potential areas of consensus.",
     "statementColumn": "Statement",
     "agreementColumn": "Predicted Agreement"
   },
