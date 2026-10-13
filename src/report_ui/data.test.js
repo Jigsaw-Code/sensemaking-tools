@@ -254,3 +254,50 @@ describe("processReportData excluded_topics and excluded_opinions", () => {
     assert.equal(result.dataStatic.hasPredicted, false);
   });
 });
+
+describe("processReportData title", () => {
+  it("uses config.title when provided, overriding summary.title", () => {
+    const { result } = runReport(
+      [row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.5" })],
+      {
+        summary: {
+          title: "# Summary Title",
+          text: "Summary.",
+          sub_contents: [{ title: "Topic", text: "Topic summary." }],
+        },
+        config: { title: "# Config Title" },
+      },
+    );
+
+    assert.equal(result.dataStatic.title, "Config Title");
+  });
+
+  it("falls back to summary.title when config.title is not set", () => {
+    const { result } = runReport(
+      [row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.5" })],
+      {
+        summary: {
+          title: "# Summary Title",
+          text: "Summary.",
+          sub_contents: [{ title: "Topic", text: "Topic summary." }],
+        },
+      },
+    );
+
+    assert.equal(result.dataStatic.title, "Summary Title");
+  });
+
+  it("defaults to empty string when neither config.title nor summary.title is set", () => {
+    const { result } = runReport(
+      [row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.5" })],
+      {
+        summary: {
+          text: "Summary.",
+          sub_contents: [{ title: "Topic", text: "Topic summary." }],
+        },
+      },
+    );
+
+    assert.equal(result.dataStatic.title, "");
+  });
+});

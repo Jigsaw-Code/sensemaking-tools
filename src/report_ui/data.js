@@ -790,7 +790,7 @@ export function processReportData({
 
   // 7. Prepare outputs
   const executiveSummary = parseSummary(cleanMarkdown(summary.text || ""));
-  const title = stripMarkdownHeader(summary.title);
+  const title = stripMarkdownHeader(config.title || summary.title);
 
   // Dynamic sentence interpolation
   const conversationOverviewLead = (

@@ -26,6 +26,7 @@ In config.json, optionally add these properties
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
+| `title` | `string` | `""` | Report title shown in the header and page title (overrides `title` in `summary.json`). |
 | `logo` | `string` | `""` | Header image file. options: `"logo.png"` or `"logo.svg"`. |
 | `translations` | `string` | `""` | Optional filename in `input/` for UI translations (e.g., `"translations.json"` or `"es-ES.json"`). Defaults to `input/translations.json` if present. |
 | `overview_chart` | `string` | `"toggle"` | Overview chart display mode. Options: `"toggle"`, `"topics"`, or `"opinions"`. |
