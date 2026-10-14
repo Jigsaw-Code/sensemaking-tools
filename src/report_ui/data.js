@@ -364,14 +364,14 @@ export function processReportData({
       20,
     ), // between 2 and 20 top opinions
     topicColors: config.chart_colors || [
-      "#DA3D2E",
-      "#F2A50C",
-      "#80CD57",
-      "#00885F",
-      "#11C2CE",
-      "#1233A6",
-      "#8A2FE4",
-      "#F388D2",
+      "#0072B2",
+      "#009E73",
+      "#D55E00",
+      "#CC79A7",
+      "#56B4E9",
+      "#E69F00",
+      "#2B3E50",
+      "#8C564B",
     ],
     demographicColors: resolveDemographicColors(config.demographic_colors),
   };

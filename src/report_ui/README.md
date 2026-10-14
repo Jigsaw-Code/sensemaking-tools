@@ -33,7 +33,7 @@ In config.json, optionally add these properties
 | `number_of_top_opinions` | `number` | `10` | The number of items to show in the opinions overview chart. |
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
 | `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
-| `chart_colors` | `array` | `["#DA3D2E", "#F2A50C", "#80CD57", "#00885F", "#11C2CE", "#1233A6", "#8A2FE4", "#F388D2"]` | Array of color codes for overview chart. |
+| `chart_colors` | `array` | `["#0072B2", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#E69F00", "#2B3E50", "#8C564B"]` | Array of color codes for overview chart. |
 | `demographic_colors` | `string` or `array` | `"#4886f7"` | Colors for the participant chart, lightest to darkest. Either a single hex color (e.g. `"#00885F"`), from which a six-step light-to-dark palette is generated, or an explicit array of six color codes. |
 | `excluded_topics` | `array` | `[]` | Topic names (exact match to CSV `topic` column) to hide from the report. |
 | `excluded_opinions` | `array` | `[]` | Opinion names (exact match to CSV `opinion` column or `propositions.csv` proposition/opinion) to hide from the report. |
