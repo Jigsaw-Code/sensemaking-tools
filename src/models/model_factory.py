@@ -16,9 +16,13 @@
 
 import os
 import logging
+from src.models import systemone
 from src.models.base_model import BaseModel
 from src.models.genai_model import GenaiModel
 from src.models.openai_compatible_model import OpenAICompatibleModel
+
+DECISION_ENDPOINT_SYSTEMONE = "systemone"
+_DEFAULT_DECISION_THRESHOLD = 0.5
 
 
 def get_model(model_name: str, **kwargs) -> BaseModel:
@@ -65,3 +69,82 @@ def get_model(model_name: str, **kwargs) -> BaseModel:
 
   else:
     raise ValueError(f"Unknown MODEL_ENDPOINT_TYPE: {endpoint_type}")
+
+
+def get_decision_model() -> systemone.SystemOneClient | None:
+  """Creates the System One client for judgment stages, if one is configured.
+
+  Environment Variables:
+      DECISION_ENDPOINT_TYPE: 'systemone' to send judgment stages to a local
+        System One model. Unset keeps them on the generative model.
+      DECISION_MODEL: Ollama model name, e.g. 'clef'. Required when
+        DECISION_ENDPOINT_TYPE is 'systemone'.
+      OLLAMA_HOST: Ollama server, read the same way as the Ollama CLI. Unset
+        means the local server.
+      DECISION_MAX_CONCURRENT: Maximum requests in flight (optional, default
+        1, since a local runner has one slot).
+
+  Returns:
+      A SystemOneClient, or None when DECISION_ENDPOINT_TYPE is unset.
+
+  Raises:
+      SystemOneError: If DECISION_ENDPOINT_TYPE is unknown, DECISION_MODEL is
+        missing, or DECISION_MAX_CONCURRENT is not a positive integer.
+  """
+  endpoint_type = os.getenv("DECISION_ENDPOINT_TYPE")
+  if not endpoint_type:
+    return None
+  if endpoint_type != DECISION_ENDPOINT_SYSTEMONE:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"Unknown DECISION_ENDPOINT_TYPE: {endpoint_type}",
+    )
+  model = os.getenv("DECISION_MODEL")
+  if not model:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
+        f" '{DECISION_ENDPOINT_SYSTEMONE}'.",
+    )
+  kwargs = {}
+  host = os.getenv("OLLAMA_HOST")
+  if host and host.strip():
+    kwargs["base_url"] = systemone.ollama_base_url(host)
+  raw_limit = os.getenv("DECISION_MAX_CONCURRENT")
+  if raw_limit:
+    try:
+      kwargs["max_concurrent"] = int(raw_limit)
+    except ValueError as exc:
+      raise systemone.SystemOneError(
+          systemone.FailureKind.CONFIG,
+          f"DECISION_MAX_CONCURRENT must be an integer, got {raw_limit!r}.",
+      ) from exc
+  logging.info(f"Creating SystemOneClient with model: {model}")
+  return systemone.SystemOneClient(model=model, **kwargs)
+
+
+def get_decision_threshold() -> float:
+  """Returns the probability cutoff for System One labels and equivalence.
+
+  Environment Variables:
+      DECISION_THRESHOLD: Cutoff in [0, 1] (optional, default 0.5).
+
+  Raises:
+      SystemOneError: If DECISION_THRESHOLD is not a float in [0, 1].
+  """
+  raw = os.getenv("DECISION_THRESHOLD")
+  if not raw:
+    return _DEFAULT_DECISION_THRESHOLD
+  try:
+    value = float(raw)
+  except ValueError as exc:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"DECISION_THRESHOLD must be a float, got {raw!r}.",
+    ) from exc
+  if not 0.0 <= value <= 1.0:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"DECISION_THRESHOLD must be between 0 and 1, got {value}.",
+    )
+  return value
