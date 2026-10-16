@@ -73,6 +73,56 @@ bash src/moderation.sh \
   --gcloud_api_key "$GCLOUD_API_KEY"
 ```
 
+##### Working with Mixed-Language Inputs
+
+Sensemaking can create reports from participant responses in multiple languages. There are 2 options for working with multilingual input:
+
+1. Default: Frontier multilingual models like Gemini can natively analyze mixed-language datasets  (for example, English and Spanish responses in the same survey) without pre-translation, discovering shared topics, categorizing opinions, and generating summaries while reading participants' actual words.
+2. Pre-translation: We have provided a tool which translates all participant input into a single language. Using this approach means downstream Sensemaking AI tasks only process a single language, ignoring the language variety present in the original dataset.
+
+Running the pipeline directly on untranslated responses is often preferable because **pre-translating raw survey data out of context can flatten nuance, miss local references, idioms, humor, or sarcasm**, and alter the tone relied upon by downstream classifiers (such as moderation and constructive quality scoring).
+
+However, an optional translation utility (`src.translate_csv`) is provided for scenarios where translation is beneficial:
+
+* **Low-Resource Languages or Smaller Open Models (Pre-Analysis):** If your dataset includes low-resource languages, or if you are running the pipeline with smaller open-weights models that struggle with cross-lingual clustering and multi-step reasoning (such as Simulated Juries), translating `survey_text` into a single target language before Step 2 can improve consistency.
+* **High Token-per-Word Languages:** Because participant responses are passed to the model across many stages of the pipeline (topic discovery, categorization, autoraters, quote extraction, bridging scoring, summarization, and simulated juries), languages or scripts with significantly higher token counts per word can multiply token usage and costs. Translating once upfront into a more token-compact language can reduce overall token consumption.
+* **Translating Extracted Quotes for a Monolingual Audience (Post-Analysis):**  If you would like to translate all quotes in the final report to a single language, you can use the translate_csv.py tool to translate the quote column before generating the Interactive Report in Step 6.
+
+###### How to Use `src.translate_csv`
+
+The script detects the language of each entry and translates only rows that are not already in `--target_language` (default `en_us`). Whenever a column is translated, the original untranslated text is automatically preserved in a new `original_text_<column>` column (for example, `original_text_survey_text` or `original_text_quote`).
+
+**To pre-translate raw survey responses before analysis:**
+
+When run on `survey_text` (the default for `--columns`), the script automatically translates the inner `<response>...</response>` text from Qualtrics exports without altering `<question>` tags or XML structure, as well as plain-text `survey_text` columns from custom CSVs:
+
+```shell
+python3 -m src.translate_csv \
+  --input_csv <OUTPUT_DIR>/processed.csv \
+  --output_csv <OUTPUT_DIR>/processed_translated.csv \
+  --columns "survey_text" \
+  --target_language "en_us" \
+  --gemini_api_key "$GEMINI_API_KEY"
+```
+
+**To translate only extracted quotes at the end of the pipeline (before Step 6):**
+
+```shell
+python3 -m src.translate_csv \
+  --input_csv <OUTPUT_DIR>/bridging_scores.csv \
+  --output_csv <OUTPUT_DIR>/bridging_scores_translated.csv \
+  --columns "quote" \
+  --target_language "en_us" \
+  --gemini_api_key "$GEMINI_API_KEY"
+```
+
+###### Optional Flags
+
+* `--columns`: Comma-separated list of columns to translate (defaults to `survey_text`).
+* `--target_language`: Target language code or name to translate into (defaults to `en_us`).
+* `--model_name`: Model used for language detection and translation (defaults to `gemini-3.8-flash`).
+* `--gemini_api_key`: Gemini API key (if omitted, falls back to the `GEMINI_API_KEY` environment variable).
+
 #### 2\. Topic Discovery and Quote Extraction
 
 Use Gemini to discover discussion topics and extract representative quotes from the dialogue. This script can be run on data from sources other than qualtrics. It only requires an input csv with columns for participant\_id (a unique identifier for each participant) and survey\_text (the text to be analyzed).
