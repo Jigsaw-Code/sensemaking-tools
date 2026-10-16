@@ -186,13 +186,17 @@ Provide your response as a single JSON array of objects, as shown in the example
   )
 
 
-def get_translation_prompt(text: str, target_language: str) -> str:
-  """
-  Generates a prompt for language detection and translate into target language..
+def get_translation_prompt(
+    text: str, target_language: str, context: str | None = None
+) -> str:
+  """Generates a prompt for language detection and translation into target_language.
+
   Uses the Pydantic model to dynamically generate the JSON schema.
 
   Args:
     text: The input text to be analyzed and translated.
+    target_language: The target language code or name (e.g., 'en_us').
+    context: Optional context to aid in translation and disambiguation.
 
   Returns:
     The prompt to be sent to the LLM.
@@ -200,11 +204,16 @@ def get_translation_prompt(text: str, target_language: str) -> str:
   schema_json = json.dumps(
       custom_types.TranslationResponse.model_json_schema(), indent=2
   )
+  context_block = (
+      "\n    Additional context (do not translate the context; only"
+      f" analyze and translate the text below):\n    {context}\n"
+      if context
+      else ""
+  )
   return f"""
     You are a professional translator. Analyze the following text and determine
     if it is in {target_language}.
-    If it is not, translate it into {target_language}.
-
+    If it is not, translate it into {target_language}.{context_block}
     Your response must be a valid JSON object matching this schema:
     {schema_json}
 

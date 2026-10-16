@@ -31,36 +31,41 @@ _TRANSLATION_CACHE: dict[str, dict[str, Any]] = {}
 _RESPONSE_TAG_PATTERN = re.compile(
     r"(<response>)(.*?)(</response>)", flags=re.DOTALL
 )
+_QA_RESPONSE_PATTERN = re.compile(
+    r"(?:<question>(.*?)</question>\s*)?<response>(.*?)</response>",
+    flags=re.DOTALL,
+)
 
 
-def _extract_translatable_strings(value: Any) -> list[str]:
-  """Extracts strings to translate from a cell value.
+def _extract_translatable_items(value: Any) -> list[tuple[str, str | None]]:
+  """Extracts (response_text, question_text) pairs to translate from a cell.
 
   If the cell contains `<response>...</response>` XML tags (such as in Qualtrics
-  `survey_text`), extracts the inner text of each `<response>` tag so questions
-  and XML markup are not sent to the translator. Otherwise, returns the stripped
-  cell string itself.
+  `survey_text`), extracts the inner text of each `<response>` tag along with
+  its preceding `<question>...</question>` tag (if present) for context.
+  Otherwise, returns the stripped cell string with `None` as the question.
 
   Args:
     value: The cell value from a DataFrame column.
 
   Returns:
-    A list of non-empty stripped strings to translate.
+    A list of `(response_text, question_text)` tuples for non-empty responses.
   """
   if not isinstance(value, str):
     return []
 
-  matches = _RESPONSE_TAG_PATTERN.findall(value)
+  matches = _QA_RESPONSE_PATTERN.findall(value)
   if matches:
-    extracted = []
-    for _, inner_text, _ in matches:
-      cleaned = inner_text.strip()
-      if cleaned:
-        extracted.append(cleaned)
+    extracted: list[tuple[str, str | None]] = []
+    for raw_question, raw_response in matches:
+      cleaned_response = raw_response.strip()
+      if cleaned_response:
+        cleaned_question = raw_question.strip() if raw_question else None
+        extracted.append((cleaned_response, cleaned_question or None))
     return extracted
 
   cleaned = value.strip()
-  return [cleaned] if cleaned else []
+  return [(cleaned, None)] if cleaned else []
 
 
 def _apply_mapping_to_value(value: Any, mapping: dict[str, str]) -> Any:
@@ -95,7 +100,10 @@ def _apply_mapping_to_value(value: Any, mapping: dict[str, str]) -> Any:
 
 
 async def translate_text_batch(
-    texts: list[str], model: genai_model.GenaiModel, target_language: str
+    texts: list[str],
+    model: genai_model.GenaiModel,
+    target_language: str,
+    questions_by_text: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
   """Translates a batch of texts using Gemini, utilizing a global cache.
 
@@ -103,6 +111,8 @@ async def translate_text_batch(
     texts: List of text strings to detect and translate.
     model: Initialized GenaiModel instance.
     target_language: Target language code or name (e.g., 'en_us').
+    questions_by_text: Optional mapping from response text to the survey
+      question it answers, used to provide context in the translation prompt.
 
   Returns:
     Dictionary mapping each input text to its parsed TranslationResponse dict.
@@ -112,16 +122,25 @@ async def translate_text_batch(
   if not to_translate:
     return _TRANSLATION_CACHE
 
-  prompt_objs = [
-      {
-          "prompt": prompts.get_translation_prompt(text, target_language),
-          "text_id": text,
-          "stats": {},
-          "response_mime_type": "application/json",
-          "response_schema": custom_types.TranslationResponse,
-      }
-      for text in to_translate
-  ]
+  prompt_objs = []
+  for text in to_translate:
+    question = questions_by_text.get(text) if questions_by_text else None
+    context = (
+        f"Survey question the text is responding to: {question}"
+        if question
+        else None
+    )
+    prompt_objs.append({
+        "prompt": prompts.get_translation_prompt(
+            text,
+            target_language,
+            context=context,
+        ),
+        "text_id": text,
+        "stats": {},
+        "response_mime_type": "application/json",
+        "response_schema": custom_types.TranslationResponse,
+    })
 
   def response_parser(resp, job):
     try:
@@ -175,10 +194,26 @@ async def translate_dataframe(
   original_cols = {col: df[col].copy() for col in active_cols}
 
   unique_to_translate: set[str] = set()
+  questions_by_text: dict[str, str] = {}
   for col in active_cols:
     df[col] = df[col].str.strip()
     for val in df[col].dropna():
-      unique_to_translate.update(_extract_translatable_strings(val))
+      for response_text, question_text in _extract_translatable_items(val):
+        unique_to_translate.add(response_text)
+        if question_text and response_text not in questions_by_text:
+          questions_by_text[response_text] = question_text
+
+  # If individual question columns were passed and survey_text is present,
+  # extract question context from survey_text for any matching responses.
+  if "survey_text" in df.columns and "survey_text" not in active_cols:
+    for val in df["survey_text"].dropna():
+      for response_text, question_text in _extract_translatable_items(val):
+        if (
+            response_text in unique_to_translate
+            and question_text
+            and response_text not in questions_by_text
+        ):
+          questions_by_text[response_text] = question_text
 
   unique_to_translate.discard("")
   if not unique_to_translate:
@@ -188,6 +223,7 @@ async def translate_dataframe(
       list(unique_to_translate),
       model,
       target_language,
+      questions_by_text=questions_by_text,
   )
 
   # Mapping original text to its translation for non-target language entries

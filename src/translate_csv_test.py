@@ -87,11 +87,20 @@ class TranslateCsvTest(unittest.IsolatedAsyncioTestCase):
     )
 
     # Verify only inner <response> strings were sent to the model (not <question>)
+    # and that the corresponding <question> was included as context in the prompt.
     prompt_objs = mock_model.process_prompts_concurrently.call_args[0][0]
-    sent_texts = {job["text_id"] for job in prompt_objs}
+    prompts_by_text = {job["text_id"]: job["prompt"] for job in prompt_objs}
     self.assertEqual(
-        sent_texts,
+        set(prompts_by_text.keys()),
         {"Me gusta mucho", "Because it works", "Already in English"},
+    )
+    self.assertIn(
+        "Survey question the text is responding to: What do you think?",
+        prompts_by_text["Me gusta mucho"],
+    )
+    self.assertIn(
+        "Survey question the text is responding to: Why?",
+        prompts_by_text["Because it works"],
     )
 
     self.assertIn("original_text_survey_text", result_df.columns)
@@ -131,6 +140,12 @@ class TranslateCsvTest(unittest.IsolatedAsyncioTestCase):
 
     result_df = await translate_csv.translate_dataframe(
         df, ["quote"], mock_model, "en_us"
+    )
+
+    prompt_objs = mock_model.process_prompts_concurrently.call_args[0][0]
+    prompts_by_text = {job["text_id"]: job["prompt"] for job in prompt_objs}
+    self.assertNotIn(
+        "Additional context", prompts_by_text["[Bonjour] le monde"]
     )
 
     self.assertEqual(result_df.loc[0, "quote"], "[Hello] world")
