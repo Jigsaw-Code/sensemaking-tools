@@ -291,7 +291,7 @@ function getTopicData() {
 
   const groupDescription = (group) =>
     group.length === 0
-      ? "All Participants"
+      ? i18n.filterModal?.allParticipants || "All Participants"
       : group
           .map(
             (f) => `<div class="topic-group-item">${f.key}: ${f.value}</div>`,
@@ -379,7 +379,11 @@ function createTopicChart() {
     );
 
     const sortedTopicIDs = [...groups[0].topics]
-      .sort((a, b) => d3.descending(a.rawQuoteCount, b.rawQuoteCount))
+      .sort((a, b) => {
+        if (a.isOther) return 1;
+        if (b.isOther) return -1;
+        return d3.descending(a.rawQuoteCount, b.rawQuoteCount);
+      })
       .map((t) => t.topicID);
 
     sortedTopicIDs.forEach((topicID, topicIdx) => {
@@ -406,9 +410,11 @@ function createTopicChart() {
         const topic = topics.find((t) => t.topicID === topicID);
         if (!topic) return;
 
-        const sortedOpinions = [...topic.opinions].sort((a, b) =>
-          d3.descending(a.count, b.count),
-        );
+        const sortedOpinions = [...topic.opinions].sort((a, b) => {
+          if (a.isOther) return 1;
+          if (b.isOther) return -1;
+          return d3.descending(a.count, b.count);
+        });
 
         let currentAccumulator = 0;
         const processedOpinions = sortedOpinions.map((d, i) => {
@@ -575,9 +581,13 @@ function createOpinionChart() {
     return map;
   });
 
-  // Top N opinion IDs ranked by the reference group (group 0)
+  // Top N opinion IDs ranked by the reference group (group 0), keeping "Other" last
   const topOpinionIDs = [...groupOpinionMaps[0].values()]
-    .sort((a, b) => d3.descending(a.count, b.count))
+    .sort((a, b) => {
+      if (a.isOther) return 1;
+      if (b.isOther) return -1;
+      return d3.descending(a.count, b.count);
+    })
     .slice(0, NUM_TOP_OPINIONS)
     .map((o) => o.fullID);
 
@@ -741,9 +751,11 @@ function createDonutChart(topicData, index) {
     const height = containerWidth;
     const radius = Math.min(width, height) / 2;
 
-    const sortedOpinions = [...topicData.opinions].sort(
-      (a, b) => b.count - a.count,
-    );
+    const sortedOpinions = [...topicData.opinions].sort((a, b) => {
+      if (a.isOther) return 1;
+      if (b.isOther) return -1;
+      return b.count - a.count;
+    });
 
     const svg = containerSel
       .append("svg")
@@ -827,7 +839,12 @@ function createDonutCharts() {
 function renderQuotesDrawer({ quotes, text }) {
   const drawerSel = d3.select("#drawer");
   const quoteCount = formatNumber(quotes.length);
-  drawerSel.select(".drawer-quote-count").text(quoteCount);
+  const quotesTabTemplate =
+    i18n.drawer?.participantQuotes ||
+    `${i18n.drawer?.participantQuotesTitle || "Participant Quotes"} ({count})`;
+  drawerSel
+    .select('[data-target="drawer-quotes"]')
+    .text(quotesTabTemplate.replace("{count}", quoteCount));
   drawerSel.select(".drawer-opinion").text(text);
   const quotesList = drawerSel.select(".drawer-quotes");
   quotesList.html("");
@@ -983,6 +1000,7 @@ async function createQuotesDrawer() {
  * Binds click events to ".button-filter-compare" to launch the moda.
  */
 async function createFilterCompare() {
+  if (!document.getElementById("filter-compare")) return;
   const GROUP_LABELS = ["A", "B", "C", "D"];
   const demographics = window.PAYLOAD.demographics;
   const modalSel = d3.select("#filter-compare");
@@ -1138,8 +1156,13 @@ function createShare() {
     const id = d3.select(this).attr("data-id");
     const text = d3.select(this).attr("data-text");
     const url = `${window.location.origin}${window.location.pathname}#${id}`;
+    const shareTitleTemplate =
+      i18n.sections?.shareModalTitle ||
+      `${i18n.sections?.share || "Share"} {title}`;
     shareSel.select(".share-url input").property("value", url);
-    shareSel.select(".share-title span").text(text);
+    shareSel
+      .select(".share-title")
+      .text(shareTitleTemplate.replace("{title}", text));
     shareSel.classed("is-open", true);
   });
 }

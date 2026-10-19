@@ -323,6 +323,11 @@ export function processReportData({
   const i18n = deepMerge(defaultI18n, userI18n);
   i18n.locale = i18n.locale || "en";
   i18n.direction = i18n.direction || "ltr";
+  const otherCategory = i18n.chart?.otherCategory || "Other";
+  const isOtherLabel = (label) =>
+    typeof label === "string" &&
+    (label.toLowerCase() === "other" ||
+      label.localeCompare(otherCategory, undefined, { sensitivity: "base" }) === 0);
 
   const numberFormatter = new Intl.NumberFormat(i18n.locale);
   const percentFormatter = new Intl.NumberFormat(i18n.locale, {
@@ -515,36 +520,46 @@ export function processReportData({
 
     const o = byTopic
       .map(([topicText, topicOpinions]) => {
+        const isOtherTopic = isOtherLabel(topicText);
+        const displayTopicText = isOtherTopic ? otherCategory : topicText;
+
         // 2. Find matching AI summary (stripping markdown headers)
-        const topicMatch = summary.sub_contents.find(
-          (t) => stripMarkdownHeader(t.title) === topicText,
-        );
+        const topicMatch = summary.sub_contents.find((t) => {
+          const stripped = stripMarkdownHeader(t.title);
+          return stripped === topicText || stripped === displayTopicText;
+        });
 
         const topicId = generateId(topicText, true);
 
         // 3. Group by specific Opinion within the Topic
         const byOpinion = groupBy(topicOpinions, "opinion").map(
-          ([_, values]) => ({
-            opinionID: generateId(values[0].opinion),
-            // fullID is crucial: it links the UI chart to the specific quotes list
-            fullID: `${topicId}-${generateId(values[0].opinion)}`,
-            text: values[0].opinion,
-            count: values.length,
-            quotes: sortAndExtractQuotes(values),
-          }),
+          ([_, values]) => {
+            const rawOpinion = values[0].opinion;
+            const isOtherOpinion = isOtherLabel(rawOpinion);
+            return {
+              opinionID: generateId(rawOpinion),
+              // fullID is crucial: it links the UI chart to the specific quotes list
+              fullID: `${topicId}-${generateId(rawOpinion)}`,
+              text: isOtherOpinion ? otherCategory : rawOpinion,
+              isOther: isOtherOpinion,
+              count: values.length,
+              quotes: sortAndExtractQuotes(values),
+            };
+          },
         );
 
         // 4. Sort opinions: "Other" always last, otherwise by count descending
         byOpinion.sort((a, b) => {
-          if (a.text === "Other") return 1;
-          if (b.text === "Other") return -1;
+          if (a.isOther) return 1;
+          if (b.isOther) return -1;
           return b.count - a.count;
         });
 
         return {
           topicID: topicId,
           summary: cleanMarkdown(topicMatch?.text),
-          text: topicText,
+          text: displayTopicText,
+          isOther: isOtherTopic,
           count: topicOpinions.length,
           opinions: byOpinion,
         };
@@ -685,7 +700,9 @@ export function processReportData({
     const topics = byTopic
       .filter(([topic]) => topic)
       .map(([topic, rows]) => {
-        const title = stripMarkdownHeader(topic);
+        const rawTitle = stripMarkdownHeader(topic);
+        const isOtherTopic = isOtherLabel(rawTitle);
+        const title = isOtherTopic ? otherCategory : rawTitle;
         const statements = rows
           .filter((row) => row.proposition)
           .map((row) => ({
@@ -695,7 +712,7 @@ export function processReportData({
               row.approval_rate != null && row.approval_rate !== "",
           }));
         return {
-          topicID: generateId(title || "", true),
+          topicID: generateId(rawTitle || "", true),
           title,
           statements,
         };
@@ -738,6 +755,7 @@ export function processReportData({
     return {
       topicID: topic.topicID,
       text: topic.text,
+      isOther: topic.isOther,
       topicCount: topic.count,
       topicCountFormatted: formatNumber(topic.count),
       opinionCount: topic.opinions.length,
@@ -751,6 +769,7 @@ export function processReportData({
       // Map opinions to frontend structure (only sample quotes included)
       opinions: topic.opinions.map((o) => ({
         text: o.text,
+        isOther: o.isOther,
         count: o.count,
         countFormatted: formatNumber(o.count),
         quotesCountFormatted: (
@@ -765,8 +784,12 @@ export function processReportData({
     };
   });
 
-  // Sort topics by unique quote count (most popular topics first)
-  topics.sort((a, b) => b.quoteCount - a.quoteCount);
+  // Sort topics: "Other" always last, otherwise by unique quote count descending
+  topics.sort((a, b) => {
+    if (a.isOther) return 1;
+    if (b.isOther) return -1;
+    return b.quoteCount - a.quoteCount;
+  });
 
   // Construct participant overview data for chart of demographics
   const uniqueParticipants = byParticipant.map(([, rows]) => rows[0]);
@@ -791,7 +814,6 @@ export function processReportData({
 
     if (values.length > 6) {
       const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
-      const otherCategory = i18n.chart?.otherCategory || "Other";
       values = [
         ...values.slice(0, 5),
         { value: otherCategory, count: otherCount },

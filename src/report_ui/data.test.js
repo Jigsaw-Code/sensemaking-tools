@@ -73,6 +73,12 @@ function runReport(opinionsRaw, opts = {}) {
     configPath = path.join(workDir, "config.json");
     fs.writeFileSync(configPath, JSON.stringify(opts.config));
   }
+  if (opts.translations) {
+    fs.writeFileSync(
+      path.join(workDir, "translations.json"),
+      JSON.stringify(opts.translations),
+    );
+  }
   const propositionsRaw = opts.propositions || [];
   const warnings = [];
   const originalWarn = console.warn;
@@ -325,5 +331,118 @@ describe("processReportData numeric config options", () => {
     ]);
 
     assert.equal(result.dataStatic.lowSampleThreshold, 30);
+  });
+});
+
+describe("index.mustache conditional demographic controls", () => {
+  const template = fs.readFileSync(
+    path.join(packageRoot, "src", "index.mustache"),
+    "utf-8",
+  );
+
+  it("omits Filter & Compare, filter modal, drawer filters, and demographics label when hasDemographics is false", async () => {
+    const Mustache = (await import("mustache")).default;
+    const { result } = runReport(
+      [
+        row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.9" }),
+        row("q2", "p2", { AVERAGE_OF_3_BRIDGING: "0.8" }),
+        row("q3", "p3", { AVERAGE_OF_3_BRIDGING: "0.7" }),
+      ],
+      {
+        config: { number_of_sample_quotes: 2 },
+      },
+    );
+
+    assert.equal(result.dataStatic.hasDemographics, false);
+    const html = Mustache.render(template, result.dataStatic);
+
+    assert.doesNotMatch(html, /class="button-filter-compare"/);
+    assert.doesNotMatch(html, /id="filter-compare"/);
+    assert.doesNotMatch(html, /class="drawer-quotes-filters"/);
+    assert.doesNotMatch(html, /<span>View all quotes and demographics<\/span>/);
+    assert.match(html, /<span>View all quotes<\/span>/);
+  });
+
+  it("renders Filter & Compare, filter modal, drawer filters, and demographics label when hasDemographics is true", async () => {
+    const Mustache = (await import("mustache")).default;
+    const { result } = runReport(
+      [
+        row("q1", "p1", { AVERAGE_OF_3_BRIDGING: "0.9", "demo:Age": "18-29" }),
+        row("q2", "p2", { AVERAGE_OF_3_BRIDGING: "0.8", "demo:Age": "30-44" }),
+        row("q3", "p3", { AVERAGE_OF_3_BRIDGING: "0.7", "demo:Age": "45+" }),
+      ],
+      {
+        config: { number_of_sample_quotes: 2 },
+      },
+    );
+
+    assert.equal(result.dataStatic.hasDemographics, true);
+    const html = Mustache.render(template, result.dataStatic);
+
+    assert.match(html, /class="button-filter-compare"/);
+    assert.match(html, /id="filter-compare"/);
+    assert.match(html, /class="drawer-quotes-filters"/);
+    assert.match(html, /<span>View all quotes and demographics<\/span>/);
+  });
+});
+
+describe("processReportData 'Other' category localization and sorting", () => {
+  it("localizes 'Other' topics and opinions via i18n.chart.otherCategory and sorts them last", () => {
+    const { result } = runReport(
+      [
+        // Give "Other" the most unique participants so it would sort first without special handling
+        row("q1", "p1", { topic: "Other", opinion: "Other", AVERAGE_OF_3_BRIDGING: "0.5" }),
+        row("q2", "p2", { topic: "Other", opinion: "Other", AVERAGE_OF_3_BRIDGING: "0.5" }),
+        row("q3", "p3", { topic: "Other", opinion: "Other", AVERAGE_OF_3_BRIDGING: "0.5" }),
+        row("q4", "p4", { topic: "Economy", opinion: "Other", AVERAGE_OF_3_BRIDGING: "0.5" }),
+        row("q5", "p5", { topic: "Economy", opinion: "Other", AVERAGE_OF_3_BRIDGING: "0.5" }),
+        row("q6", "p6", { topic: "Economy", opinion: "Lower taxes", AVERAGE_OF_3_BRIDGING: "0.5" }),
+        row("q7", "p7", { topic: "Healthcare", opinion: "Expand access", AVERAGE_OF_3_BRIDGING: "0.5" }),
+      ],
+      {
+        summary: {
+          title: "Test",
+          text: "Summary.",
+          sub_contents: [
+            { title: "## Economy", text: "Economy summary." },
+            { title: "## Healthcare", text: "Healthcare summary." },
+            { title: "## Other", text: "Other summary." },
+          ],
+        },
+        translations: {
+          chart: { otherCategory: "Otros" },
+        },
+      },
+    );
+
+    const topics = result.dataStatic.topics;
+    assert.deepEqual(
+      topics.map((t) => t.text),
+      ["Economy", "Healthcare", "Otros"],
+    );
+    assert.deepEqual(
+      topics.map((t) => t.isOther),
+      [false, false, true],
+    );
+    // English slug is preserved for DOM IDs and quote lookup
+    assert.equal(topics[2].topicID, "other");
+    assert.equal(topics[2].summary, "Other summary.");
+
+    // Within "Economy", "Other" has 2 quotes and "Lower taxes" has 1 quote,
+    // but "Other" ("Otros") is sorted last
+    assert.deepEqual(
+      topics[0].opinions.map((o) => o.text),
+      ["Lower taxes", "Otros"],
+    );
+    assert.deepEqual(
+      topics[0].opinions.map((o) => o.isOther),
+      [false, true],
+    );
+    assert.equal(topics[0].opinions[1].fullID, "economy-other");
+
+    // Conversation overview lead uses the top two non-Other topics
+    assert.match(result.dataStatic.conversationOverviewLead, /Economy/);
+    assert.match(result.dataStatic.conversationOverviewLead, /Healthcare/);
+    assert.doesNotMatch(result.dataStatic.conversationOverviewLead, /Otros/);
   });
 });

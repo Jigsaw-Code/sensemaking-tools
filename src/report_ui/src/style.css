@@ -544,6 +544,10 @@ article.topic {
 	margin: 1rem auto;
 }
 
+#conversation-overview .toggle-container:empty {
+	display: none;
+}
+
 #conversation-overview fieldset {
 	border: none;
 	padding: 0;
