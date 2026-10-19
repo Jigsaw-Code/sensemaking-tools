@@ -37,6 +37,7 @@ import argparse
 import asyncio
 import pandas as pd
 
+from src import runner_utils
 from src.models import genai_model
 
 
@@ -77,9 +78,19 @@ async def generate_text_in_parallel(
   return response_df
 
 
-def get_full_prompt(instructions, proposition):
+def get_full_prompt(
+    instructions: str,
+    proposition: str,
+    additional_context: str | None = None,
+) -> str:
+  """Constructs the full simplification prompt for a single proposition."""
+  context_block = (
+      f"\n\n<additionalContext>\n  {additional_context}\n</additionalContext>"
+      if additional_context
+      else ""
+  )
   return (
-      f"{instructions}\n\n"
+      f"{instructions}{context_block}\n\n"
       "Here is the proposition to rewrite:\n"
       f"<proposition>\n{proposition}\n</proposition>\n\n"
       "Provide only the rewritten proposition as your output. "
@@ -94,13 +105,18 @@ async def main(args):
       gemini_api_key=args.gemini_api_key,
   )
 
+  additional_context = runner_utils.get_additional_context(args)
   df = pd.read_csv(args.input_csv)
 
   # For each proposition, run the simplification prompt
   prompt_objs = []
-  for i, row in df.iterrows():
+  for _, row in df.iterrows():
     prompt_objs.append({
-      'prompt': get_full_prompt(args.prompt, row[args.proposition_column])
+        "prompt": get_full_prompt(
+            args.prompt,
+            row[args.proposition_column],
+            additional_context=additional_context,
+        )
     })
   response_df = await generate_text_in_parallel(model, prompt_objs)
 
@@ -150,6 +166,7 @@ def get_args():
       default="proposition",
       help="The name of the proposition column to use. Default: proposition.",
   )
+  runner_utils.add_additional_context_args(parser)
   return parser.parse_args()
 
 

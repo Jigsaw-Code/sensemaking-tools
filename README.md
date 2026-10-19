@@ -63,6 +63,10 @@ bash src/survey_processing.sh \
 
 **The pipeline can be run on data from sources other than Qualtrics. Later steps only require a CSV with columns for participant\_id (a unique identifier for each participant) and survey\_text (the content to be analyzed).**
 
+
+**Working with non-English or multilingual responses?** See [Working with Non-English and Multilingual Data](#working-with-non-english-and-multilingual-data) below for guidance and considerations.
+
+
 **(Optional) Run Moderation and Quality Checks:** Utilities are provided to score the responses for quality and flag rows that may need moderation by a human reviewer. You can get these scores by running:
 
 ```shell
@@ -72,56 +76,6 @@ bash src/moderation.sh \
   --gemini_api_key "$GEMINI_API_KEY" \
   --gcloud_api_key "$GCLOUD_API_KEY"
 ```
-
-##### Working with Mixed-Language Inputs
-
-Sensemaking can create reports from participant responses in multiple languages. There are 2 options for working with multilingual input:
-
-1. Default: Frontier multilingual models like Gemini can natively analyze mixed-language datasets  (for example, English and Spanish responses in the same survey) without pre-translation, discovering shared topics, categorizing opinions, and generating summaries while reading participants' actual words.
-2. Pre-translation: We have provided a tool which translates all participant input into a single language. Using this approach means downstream Sensemaking AI tasks only process a single language, ignoring the language variety present in the original dataset.
-
-Running the pipeline directly on untranslated responses is often preferable because **pre-translating raw survey data out of context can flatten nuance, miss local references, idioms, humor, or sarcasm**, and alter the tone relied upon by downstream classifiers (such as moderation and constructive quality scoring).
-
-However, an optional translation utility (`src.translate_csv`) is provided for scenarios where translation is beneficial:
-
-* **Low-Resource Languages or Smaller Open Models (Pre-Analysis):** If your dataset includes low-resource languages, or if you are running the pipeline with smaller open-weights models that struggle with cross-lingual clustering and multi-step reasoning (such as Simulated Juries), translating `survey_text` into a single target language before Step 2 can improve consistency.
-* **High Token-per-Word Languages:** Because participant responses are passed to the model across many stages of the pipeline (topic discovery, categorization, autoraters, quote extraction, bridging scoring, summarization, and simulated juries), languages or scripts with significantly higher token counts per word can multiply token usage and costs. Translating once upfront into a more token-compact language can reduce overall token consumption.
-* **Translating Extracted Quotes for a Monolingual Audience (Post-Analysis):**  If you would like to translate all quotes in the final report to a single language, you can use the translate_csv.py tool to translate the quote column before generating the Interactive Report in Step 6.
-
-###### How to Use `src.translate_csv`
-
-The script detects the language of each entry and translates only rows that are not already in `--target_language` (default `en_us`). Whenever a column is translated, the original untranslated text is automatically preserved in a new `original_text_<column>` column (for example, `original_text_survey_text` or `original_text_quote`).
-
-**To pre-translate raw survey responses before analysis:**
-
-When run on `survey_text` (the default for `--columns`), the script automatically translates the inner `<response>...</response>` text from Qualtrics exports without altering `<question>` tags or XML structure, as well as plain-text `survey_text` columns from custom CSVs:
-
-```shell
-python3 -m src.translate_csv \
-  --input_csv <OUTPUT_DIR>/processed.csv \
-  --output_csv <OUTPUT_DIR>/processed_translated.csv \
-  --columns "survey_text" \
-  --target_language "en_us" \
-  --gemini_api_key "$GEMINI_API_KEY"
-```
-
-**To translate only extracted quotes at the end of the pipeline (before Step 6):**
-
-```shell
-python3 -m src.translate_csv \
-  --input_csv <OUTPUT_DIR>/bridging_scores.csv \
-  --output_csv <OUTPUT_DIR>/bridging_scores_translated.csv \
-  --columns "quote" \
-  --target_language "en_us" \
-  --gemini_api_key "$GEMINI_API_KEY"
-```
-
-###### Optional Flags
-
-* `--columns`: Comma-separated list of columns to translate (defaults to `survey_text`).
-* `--target_language`: Target language code or name to translate into (defaults to `en_us`).
-* `--model_name`: Model used for language detection and translation (defaults to `gemini-3.8-flash`).
-* `--gemini_api_key`: Gemini API key (if omitted, falls back to the `GEMINI_API_KEY` environment variable).
 
 #### 2\. Topic Discovery and Quote Extraction
 
@@ -352,6 +306,85 @@ cd src/report_ui
 npm install
 npm run dev
 ```
+
+### Working with Non-English and Multilingual Data
+
+All system prompts and few-shot examples in the Sensemaking pipeline are written in English. While the pipeline includes utilities for analyzing non-English or mixed-language conversations and requesting outputs in a specific target language, **multilingual performance can vary significantly depending on both the underlying data, including both the size of the dataset and the languages involved, and the model used**:
+
+* **Model Choice:** Frontier multilingual models (such as Gemini) can often categorize mixed-language inputs and follow target-language output instructions while still adhering to structured JSON schemas. Smaller models or open-weights models connected via the OpenAI-compatible endpoint may struggle with cross-lingual clustering, complex multi-step reasoning (such as Simulated Juries), or maintaining non-English output alongside English instructions.
+* **Language Resource Level:** Even with frontier models, lower-resource languages typically have higher token density, slower processing times, and less reliable instruction-following than high-resource languages.
+* **Validation Recommended:** If you are working with non-English data or non-English output targets, we recommend testing your chosen model on a small sample first to decide whether to run natively on the original text or pre-translate your dataset.
+
+#### 1\. Specifying the Output Language (`--output_language` / `OUTPUT_LANGUAGE`)
+
+By default, when no output language is specified:
+* **Mixed-language datasets** and **lower-resource languages** typically produce **English** outputs (topics, opinions, summaries, and propositions).
+* **Monolingual datasets in high-resource languages** (such as Spanish) often infer the input language for topic and opinion discovery, but can still unpredictably drift back into English.
+
+As a result, explicitly setting a target output language is generally recommended when working with multilingual and non-English data. To explicitly instruct the model to generate all synthesized outputs (topics, opinions, summaries, propositions, and simplified propositions) in a specific language, set `OUTPUT_LANGUAGE` in your environment (or `.env` file) or pass `--output_language` to each runner step:
+
+```shell
+# Option 1: Set once for all pipeline steps
+export OUTPUT_LANGUAGE="Spanish"
+
+# Option 2: Pass --output_language to individual LLM runner commands
+python3 -m src.categorization_runner \
+  --input_file <OUTPUT_DIR>/processed.csv \
+  --output_dir <OUTPUT_DIR>/categorization \
+  --gemini_api_key "$GEMINI_API_KEY" \
+  --additional_context_file src/default-additional-context.md \
+  --output_language "Spanish"
+```
+
+*Note: `--output_language` only affects model-generated labels, summaries, and propositions. Extracted participant quotes remain verbatim in the participant's original language unless translated separately.*
+
+#### 2\. Working with Mixed-Language Inputs & Translation (`src.translate_csv`)
+
+Sensemaking can create reports from participant responses in multiple languages. There are 2 options for working with multilingual input:
+
+1. **Default:** Frontier multilingual models like Gemini can natively analyze mixed-language datasets (for example, English and Spanish responses in the same survey) without pre-translation—discovering shared topics, categorizing opinions, and generating summaries while preserving participants' original phrasing and tone.
+2. **Pre-translation:** We also provide an optional utility (`src.translate_csv`) that translates participant input into a single language before analysis so downstream tasks only process one language.
+
+Using `src.translate_csv` can be helpful in a number of scenarios, including:
+
+* **Low-Resource Languages or Smaller Open Models (Pre-Analysis):** If your dataset includes low-resource languages, or if you are running the pipeline with smaller open-weights models that struggle with cross-lingual clustering and multi-step reasoning (such as Simulated Juries), translating `survey_text` into a single target language before Step 2 can improve consistency.
+* **High Token-per-Word Languages:** Because participant responses are passed to the model across many stages of the pipeline (topic discovery, categorization, autoraters, quote extraction, bridging scoring, summarization, and simulated juries), languages or scripts with significantly higher token counts per word can multiply token usage and costs. Translating once upfront into a more token-compact language can reduce overall token consumption.
+* **Translating Extracted Quotes for a Monolingual Audience (Post-Analysis):** If you would like to translate all quotes in the final report to a single language, you can use the `translate_csv.py` tool to translate the `quote` column before generating the Interactive Report in Step 6.
+
+##### How to Use `src.translate_csv`
+
+The script detects the language of each entry and translates only rows that are not already in `--target_language` (default `en_us`). Whenever a column is translated, the original untranslated text is automatically preserved in a new `original_text_<column>` column (for example, `original_text_survey_text` or `original_text_quote`).
+
+**To pre-translate raw survey responses before analysis:**
+
+When run on `survey_text` (the default for `--columns`), the script automatically translates the inner `<response>...</response>` text from Qualtrics exports without altering `<question>` tags or XML structure, as well as plain-text `survey_text` columns from custom CSVs:
+
+```shell
+python3 -m src.translate_csv \
+  --input_csv <OUTPUT_DIR>/processed.csv \
+  --output_csv <OUTPUT_DIR>/processed_translated.csv \
+  --columns "survey_text" \
+  --target_language "en_us" \
+  --gemini_api_key "$GEMINI_API_KEY"
+```
+
+**To translate only extracted quotes at the end of the pipeline (before Step 6):**
+
+```shell
+python3 -m src.translate_csv \
+  --input_csv <OUTPUT_DIR>/bridging_scores.csv \
+  --output_csv <OUTPUT_DIR>/bridging_scores_translated.csv \
+  --columns "quote" \
+  --target_language "en_us" \
+  --gemini_api_key "$GEMINI_API_KEY"
+```
+
+##### Optional Flags
+
+* `--columns`: Comma-separated list of columns to translate (defaults to `survey_text`).
+* `--target_language`: Target language code or name to translate into (defaults to `en_us`).
+* `--model_name`: Model used for language detection and translation (defaults to `gemini-3.8-flash`).
+* `--gemini_api_key`: Gemini API key (if omitted, falls back to the `GEMINI_API_KEY` environment variable).
 
 ## Our Approach
 
