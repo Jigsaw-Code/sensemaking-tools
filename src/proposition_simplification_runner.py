@@ -37,7 +37,8 @@ import argparse
 import asyncio
 import pandas as pd
 
-from src.models import genai_model
+from src.models import base_model
+from src.models import model_factory
 
 
 DEFAULT_SIMPLIFICATION_PROMPT = """
@@ -69,7 +70,7 @@ Apply this exact process to the list below.
 
 
 async def generate_text_in_parallel(
-    model: genai_model.GenaiModel, prompt_obj_list: list[dict]
+    model: base_model.BaseModel, prompt_obj_list: list[dict]
 ) -> pd.DataFrame:
   response_df, _, _, _ = await model.process_prompts_concurrently(
       prompt_obj_list, lambda x, _: x['text']
@@ -89,7 +90,7 @@ def get_full_prompt(instructions, proposition):
 
 async def main(args):
   """Main function to run the proposition simplification experiment."""
-  model = genai_model.GenaiModel(
+  model = model_factory.get_model(
       model_name=args.model_name,
       gemini_api_key=args.gemini_api_key,
   )

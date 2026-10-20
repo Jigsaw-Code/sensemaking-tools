@@ -133,6 +133,25 @@ class BaseModel(ABC):
     """
     pass
 
+  def calculate_token_count_needed(
+      self,
+      prompt: str,
+      run_name: str = "",
+      temperature: float = 0.0,
+  ) -> int:
+    """Calculates or estimates the number of tokens needed for a given prompt.
+
+    Args:
+        prompt: The prompt to calculate the token count for.
+        run_name: The name of the run for logging purposes.
+        temperature: The temperature to use for the model.
+
+    Returns:
+        The estimated number of tokens needed for the prompt.
+    """
+    del run_name, temperature
+    return len(prompt) // 4
+
   def log_stats_summary(
       self,
       final_stats: list[dict],

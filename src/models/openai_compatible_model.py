@@ -32,6 +32,32 @@ TIMEOUT_SECONDS = 601
 
 
 DEFAULT_MAX_CONCURRENT_CALLS = 20
+DEFAULT_MAX_LLM_RETRIES = 3
+
+_UPPERCASE_JSON_SCHEMA_TYPES = {
+    "OBJECT": "object",
+    "ARRAY": "array",
+    "STRING": "string",
+    "NUMBER": "number",
+    "INTEGER": "integer",
+    "BOOLEAN": "boolean",
+    "NULL": "null",
+}
+
+
+def _normalize_json_schema(schema: Any) -> Any:
+  """Recursively normalizes uppercase OpenAPI/Gemini schema types to JSON Schema."""
+  if isinstance(schema, dict):
+    normalized = {}
+    for k, v in schema.items():
+      if k == "type" and isinstance(v, str) and v in _UPPERCASE_JSON_SCHEMA_TYPES:
+        normalized[k] = _UPPERCASE_JSON_SCHEMA_TYPES[v]
+      else:
+        normalized[k] = _normalize_json_schema(v)
+    return normalized
+  if isinstance(schema, list):
+    return [_normalize_json_schema(item) for item in schema]
+  return schema
 
 
 class OpenAICompatibleModel(BaseModel):
@@ -60,7 +86,11 @@ class OpenAICompatibleModel(BaseModel):
     self.api_key = (
         api_key or os.getenv("OPENAI_API_ENDPOINT_KEY") or "dummy_key"
     )
-    self.max_llm_retries = max_llm_retries
+    self.max_llm_retries = (
+        max_llm_retries
+        if max_llm_retries is not None
+        else DEFAULT_MAX_LLM_RETRIES
+    )
     self.stats_log_file = stats_log_file
     self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.endpoint_url)
     logging.info(
@@ -87,6 +117,21 @@ class OpenAICompatibleModel(BaseModel):
     messages.append({"role": "user", "content": prompt})
 
     extra_args = {}
+    if "max_tokens" not in kwargs and os.getenv("OPENAI_MAX_TOKENS"):
+      try:
+        extra_args["max_tokens"] = int(os.environ["OPENAI_MAX_TOKENS"])
+      except ValueError:
+        pass
+    if (
+        "frequency_penalty" not in kwargs
+        and os.getenv("OPENAI_FREQUENCY_PENALTY")
+    ):
+      try:
+        extra_args["frequency_penalty"] = float(
+            os.environ["OPENAI_FREQUENCY_PENALTY"]
+        )
+      except ValueError:
+        pass
     if response_mime_type == "application/json" or response_schema:
       if response_schema:
         # Handle Pydantic models
@@ -96,7 +141,7 @@ class OpenAICompatibleModel(BaseModel):
           schema = response_schema.model_json_schema()
           name = response_schema.__name__
         else:
-          schema = response_schema
+          schema = _normalize_json_schema(response_schema)
           name = "custom_schema"
 
         format_style = os.getenv(
@@ -132,7 +177,7 @@ class OpenAICompatibleModel(BaseModel):
 
       logging.debug(f"OpenAI response: {response}")
       choice = response.choices[0]
-      text = choice.message.content if choice.message.content else ""
+      text = str(choice.message.content) if choice.message.content else ""
 
       # Extract token counts if available
       usage = response.usage
@@ -186,6 +231,7 @@ class OpenAICompatibleModel(BaseModel):
       log_prefix = f"[Worker-{worker_id}]"
 
       stats["api_calls_made"] = 0
+      stats["non_quota_failures"] = 0
       stats["is_success"] = False
       stats["is_complete_failure"] = False
 
@@ -199,6 +245,7 @@ class OpenAICompatibleModel(BaseModel):
         try:
           logging.debug(f"{log_prefix} Processing job (Attempt {attempt + 1})")
           stats["api_calls_made"] += 1
+          job["current_attempt"] = attempt
 
           resp = await self.generate_content(
               prompt=prompt,
@@ -220,10 +267,16 @@ class OpenAICompatibleModel(BaseModel):
           # Success
           result_data = {
               "result": result,
+              "propositions": result,
               "temperature": temperature,
+              "allocations": job.get("allocations"),
               "total_token_used": resp.get("total_token_count", 0),
               "prompt_token_count": resp.get("prompt_token_count", 0),
               "candidates_token_count": resp.get("candidates_token_count", 0),
+              "tool_use_prompt_token_count": resp.get(
+                  "tool_use_prompt_token_count", 0
+              ),
+              "thoughts_token_count": resp.get("thoughts_token_count", 0),
               "failed_tries": pd.DataFrame(failed_tries),
           }
           result_data = {**job, **result_data}
@@ -235,19 +288,37 @@ class OpenAICompatibleModel(BaseModel):
 
         except Exception as e:
           logging.debug(f"{log_prefix} Error: {e}")
+          stats["non_quota_failures"] += 1
           failed_tries.append({
               "attempt_index": attempt,
               "error_message": str(e),
           })
           attempt += 1
+          temperature = min(1.0, round(temperature + 0.2, 2))
           await asyncio.sleep(1.0)  # Simple sleep for retry
 
       if not stats["is_success"]:
         stats["is_complete_failure"] = True
         stats_list.append(stats)
+        is_json_job = bool(
+            job.get("response_schema")
+            or job.get("response_mime_type") == "application/json"
+        )
+        failed_result = (
+            {"error": f"Failed after {retry_attempts} attempts"}
+            if is_json_job
+            else ""
+        )
         results_list.append({
             **job,
-            "result": {"error": f"Failed after {retry_attempts} attempts"},
+            "result": failed_result,
+            "propositions": pd.DataFrame(columns=["proposition", "reasoning"]),
+            "allocations": job.get("allocations"),
+            "total_token_used": 0,
+            "prompt_token_count": 0,
+            "candidates_token_count": 0,
+            "tool_use_prompt_token_count": 0,
+            "thoughts_token_count": 0,
             "failed_tries": pd.DataFrame(failed_tries),
         })
 
@@ -255,12 +326,50 @@ class OpenAICompatibleModel(BaseModel):
         pbar.update(1)
       queue.task_done()
 
+  def start_concurrent_workers(
+      self,
+      response_parser: Callable[[str, dict[str, Any]], Any],
+      max_concurrent_calls: int | None = None,
+      pbar: Any = None,
+  ) -> Tuple[
+      asyncio.Queue,
+      list[asyncio.Task],
+      list[dict],
+      list[dict],
+      asyncio.Event,
+  ]:
+    """Starts a pool of concurrent workers."""
+    max_concurrent_calls = base_model.resolve_max_concurrent_calls(
+        max_concurrent_calls, DEFAULT_MAX_CONCURRENT_CALLS
+    )
+    queue: asyncio.Queue = asyncio.Queue()
+    final_results: list[dict] = []
+    final_stats: list[dict] = []
+    stop_event = asyncio.Event()
+
+    workers = [
+        asyncio.create_task(
+            self._api_worker_with_retry(
+                i,
+                queue,
+                final_results,
+                final_stats,
+                stop_event,
+                response_parser,
+                pbar,
+            )
+        )
+        for i in range(max_concurrent_calls)
+    ]
+
+    return queue, workers, final_results, final_stats, stop_event
+
   async def process_prompts_concurrently(
       self,
       prompts: list[dict[str, Any]],
       response_parser: Callable[[str, dict[str, Any]], Any],
       max_concurrent_calls: int | None = None,
-      retry_attempts: int | None = 3,
+      retry_attempts: int | None = None,
       **kwargs,
   ) -> Tuple[pd.DataFrame, pd.DataFrame, float, float]:
     """Orchestrates processing of multiple prompts concurrently.
@@ -283,33 +392,24 @@ class OpenAICompatibleModel(BaseModel):
     max_concurrent_calls = base_model.resolve_max_concurrent_calls(
         max_concurrent_calls, DEFAULT_MAX_CONCURRENT_CALLS
     )
+    effective_retry_attempts = (
+        retry_attempts if retry_attempts is not None else self.max_llm_retries
+    )
     stage_start_time = time.time()
-    queue = asyncio.Queue()
-    final_results = []
-    final_stats = []
-    stop_event = asyncio.Event()
-
     pbar = tqdm.asyncio.tqdm(total=len(prompts), desc="Processing prompts")
 
-    workers = [
-        asyncio.create_task(
-            self._api_worker_with_retry(
-                i,
-                queue,
-                final_results,
-                final_stats,
-                stop_event,
-                response_parser,
-                pbar,
-            )
+    queue, workers, final_results, final_stats, _ = (
+        self.start_concurrent_workers(
+            response_parser=response_parser,
+            max_concurrent_calls=max_concurrent_calls,
+            pbar=pbar,
         )
-        for i in range(max_concurrent_calls)
-    ]
+    )
 
     for i, prompt_data in enumerate(prompts):
       job = prompt_data.copy()
       job["job_id"] = i
-      job["retry_attempts"] = retry_attempts
+      job["retry_attempts"] = effective_retry_attempts
       await queue.put(job)
 
     for _ in range(max_concurrent_calls):

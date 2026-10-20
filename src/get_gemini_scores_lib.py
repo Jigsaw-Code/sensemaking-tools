@@ -18,8 +18,8 @@ import pydantic
 from typing import Any
 from src import attribute_prompt_config
 from src import prompts
-from src.models import genai_model
 from src.models import custom_types
+from src.models import model_factory
 
 # Maximum number of missing (row_id, attribute) pairs listed in the warning.
 _MAX_MISSING_TO_LOG = 10
@@ -100,7 +100,7 @@ class ContentScorer:
     """
     self.temperature = attribute_prompt_config.MODEL_CONFIG.get("temperature", 0.0)
 
-    self.client = genai_model.GenaiModel(
+    self.client = model_factory.get_model(
         model_name=model_name,
         gemini_api_key=gemini_api_key,
         max_llm_retries=max_llm_retries,

@@ -44,7 +44,7 @@ import typing
 import pandas as pd
 from src import prompts
 from src import runner_utils
-from src.models import genai_model
+from src.models import model_factory
 from src.propositions import input_csv_validation
 from src.propositions import prompts_util
 from src.propositions import world_model_util
@@ -510,7 +510,7 @@ async def main():
     llm_response_stats = pd.DataFrame([{"combined_tokens": 0}])
 
   else:
-    model = genai_model.GenaiModel(
+    model = model_factory.get_model(
         gemini_api_key=args.gemini_api_key, model_name=args.model_name
     )
 
@@ -547,6 +547,7 @@ async def main():
                 "statement": {"type": "STRING"},
                 "reasoning": {"type": "STRING"},
             },
+            "required": ["statement", "reasoning"],
         }
 
       all_prompts.append({
