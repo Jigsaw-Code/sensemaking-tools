@@ -30,6 +30,8 @@ import numpy as np
 import pandas as pd
 from src import get_perspective_scores_lib
 from src.get_gemini_scores_lib import ContentScorer
+from src.models import decision
+
 # Read by src/report_ui/data.js (BRIDGING_COLUMN) to order quotes; keep the
 # two in sync if this is renamed.
 AVERAGE_BRIDGING_COLUMN = "AVERAGE_OF_3_BRIDGING"
@@ -68,7 +70,13 @@ def _score_texts(
   """
   texts = texts.reset_index(drop=True)
   if scorer_type == "GEMINI":
-    print(f"Using Gemini ({model_name}) for bridging scoring...")
+    decision_model = decision.decision_client()
+    if decision_model is not None:
+      print(
+          f"Using System One ({decision_model.model}) for bridging scoring..."
+      )
+    else:
+      print(f"Using Gemini ({model_name}) for bridging scoring...")
     scorer = ContentScorer(gemini_api_key=gemini_api_key, model_name=model_name)
     # Prepare batch for Gemini, keyed by position in texts.
     texts_with_ids = [
@@ -278,14 +286,23 @@ if __name__ == "__main__":
   gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
   gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
 
-  if args.scorer_type == "GEMINI" and not gemini_api_key:
-    print("Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.")
+  if (
+      args.scorer_type == "GEMINI"
+      and not gemini_api_key
+      and not decision.decision_enabled()
+  ):
+    print(
+        "Error: --scorer_type GEMINI needs --gemini_api_key or the"
+        " GEMINI_API_KEY environment variable, or"
+        " DECISION_ENDPOINT_TYPE=systemone to score with a local System One"
+        " model."
+    )
     exit(1)
 
   df = get_bridging_scores(
       df,
       args.text_column,
-      gemini_api_key,
+      gemini_api_key or "",
       gcloud_api_key,
       args.scorer_type,
       args.model_name,

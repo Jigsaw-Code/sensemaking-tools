@@ -18,8 +18,10 @@ import pydantic
 from typing import Any
 from src import attribute_prompt_config
 from src import prompts
+from src.models import decision
 from src.models import genai_model
 from src.models import custom_types
+from src.models import systemone
 
 # Maximum number of missing (row_id, attribute) pairs listed in the warning.
 _MAX_MISSING_TO_LOG = 10
@@ -100,11 +102,15 @@ class ContentScorer:
     """
     self.temperature = attribute_prompt_config.MODEL_CONFIG.get("temperature", 0.0)
 
-    self.client = genai_model.GenaiModel(
-        model_name=model_name,
-        gemini_api_key=gemini_api_key,
-        max_llm_retries=max_llm_retries,
-    )
+    self._decision = decision.decision_client()
+    if self._decision is None:
+      self.client = genai_model.GenaiModel(
+          model_name=model_name,
+          gemini_api_key=gemini_api_key,
+          max_llm_retries=max_llm_retries,
+      )
+    else:
+      self.client = None
 
   async def score_async(
       self,
@@ -129,6 +135,10 @@ class ContentScorer:
       a row_id with no results at all may be absent from the list. A warning
       summarizing missing pairs is logged.
     """
+    if self._decision is not None:
+      return await self._score_with_decision(
+          self._decision, texts_with_ids, attributes
+      )
 
     jobs = []
     for item in texts_with_ids:
@@ -200,6 +210,32 @@ class ContentScorer:
       )
 
     return list(aggregated.values())
+
+  async def _score_with_decision(
+      self,
+      client: systemone.SystemOneClient,
+      texts_with_ids: list[dict[str, Any]],
+      attributes: list[str],
+  ) -> list[dict[str, Any]]:
+    """Scores each attribute as a System One yes/no probability."""
+    specs = []
+    for attr in attributes:
+      info = attribute_prompt_config.ATTRIBUTES.get(attr)
+      if not info:
+        continue
+      specs.append(
+          decision.AttributeSpec(
+              name=attr,
+              label=info["label"],
+              definition=info["definition"],
+              guidance=info.get("additional_instruction", ""),
+          )
+      )
+    aggregated = []
+    for item in texts_with_ids:
+      scores = await decision.score_attributes(client, item["text"], specs)
+      aggregated.append({"row_id": item["row_id"], "scores": scores})
+    return aggregated
 
   def score(self, texts_with_ids: list[dict[str, Any]], attributes: list[str]) -> list[dict[str, Any]]:
     """Synchronous entry point for scoring a batch of texts.
