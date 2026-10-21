@@ -157,12 +157,27 @@ async def learn_global_opinions(
   """
   logging.info("Starting Global Opinion Learning Phase (Concurrent)...")
 
+  final_topic_map: dict[str, NestedTopic] = {}
+  topics_needing_learning: list[Topic] = []
+  for t in topics_to_process:
+    if t.name == "Other":
+      continue
+    if isinstance(t, NestedTopic) and t.subtopics:
+      if not any(sub.name == "Other" for sub in t.subtopics):
+        t.subtopics.append(FlatTopic(name="Other"))
+      final_topic_map[t.name] = t
+    else:
+      topics_needing_learning.append(t)
+
+  if final_topic_map and not topics_needing_learning:
+    logging.info(
+        "All topics already have predefined opinions. Skipping opinion"
+        " learning."
+    )
+    return final_topic_map
+
   # 1. Prepare Chunks for all topics concurrently
   async def _prepare_topic_chunks(topic: Topic):
-    # Skip "Other" topic for opinion categorization
-    if topic.name == "Other":
-      return topic, [], None
-
     # Gather relevant quotes for this topic
     quotes = []
     for s in statements_with_topics_and_quotes:
@@ -183,8 +198,10 @@ async def learn_global_opinions(
     return topic, chunks, instructions
 
   # Gather chunks for all topics
-  logging.info(f"Preparing chunks for {len(topics_to_process)} topics...")
-  preparation_tasks = [_prepare_topic_chunks(t) for t in topics_to_process]
+  logging.info(
+      f"Preparing chunks for {len(topics_needing_learning)} topics..."
+  )
+  preparation_tasks = [_prepare_topic_chunks(t) for t in topics_needing_learning]
   # We use gather here as this is primarily CPU/minor I/O or token counting
   prepared_topics = await asyncio.gather(*preparation_tasks)
 
@@ -217,7 +234,7 @@ async def learn_global_opinions(
 
   if not generation_prompts:
     logging.warning("No chunks generated for opinion learning.")
-    return {}
+    return final_topic_map
 
   logging.info(
       f"Generated {len(generation_prompts)} opinion learning batches "
@@ -242,7 +259,6 @@ async def learn_global_opinions(
   total_wall_delay += wall_delay
 
   # 4. Process Results and Prepare Merges (Phase 2)
-  final_topic_map = {}
   merge_prompts = []
   # Map topic name to its merge job index
   merge_job_indices: dict[str, int] = {}
@@ -254,7 +270,7 @@ async def learn_global_opinions(
   topic_objs_by_name: dict[str, Topic] = {}
 
   # Initialize list for all expected topics
-  for t in topics_to_process:
+  for t in topics_needing_learning:
     topic_results[t.name] = []
     topic_objs_by_name[t.name] = t
 

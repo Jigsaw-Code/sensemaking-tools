@@ -386,6 +386,29 @@ class CategorizationTest(unittest.TestCase):
       self.assertIn("Other", opinion_names)
       self.assertIn("Opinion 1", opinion_names)
 
+  def test_learn_global_opinions_uses_predefined_subtopics(self):
+    """Predefined subtopics (e.g., from --topic_and_opinion_csv) skip LLM learning."""
+    predefined_topic = custom_types.NestedTopic(
+        name="T1",
+        subtopics=[custom_types.FlatTopic(name="Predefined Opinion 1")],
+    )
+    topics = [predefined_topic, custom_types.FlatTopic(name="Other")]
+    mock_model = MagicMock()
+    mock_model.process_prompts_concurrently = AsyncMock()
+
+    result_map = asyncio.run(
+        categorization.learn_global_opinions(
+            statements_with_topics_and_quotes=[],
+            topics_to_process=topics,
+            model=mock_model,
+        )
+    )
+
+    mock_model.process_prompts_concurrently.assert_not_called()
+    self.assertIn("T1", result_map)
+    opinion_names = [op.name for op in result_map["T1"].subtopics]
+    self.assertEqual(opinion_names, ["Predefined Opinion 1", "Other"])
+
   @patch(
       "src.tasks.categorization.asyncio.sleep",
       new_callable=AsyncMock,
