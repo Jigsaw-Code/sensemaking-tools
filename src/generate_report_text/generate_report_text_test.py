@@ -162,11 +162,11 @@ class GenerateReportTextTest(unittest.TestCase):
         }),
     )
 
-  @patch('src.generate_report_text.generate_report_text.model_factory.get_model')
-  def test_main_handles_none_quote_in_csv(self, mock_get_model):
+  @patch('src.models.genai_model.GenaiModel')
+  def test_main_handles_none_quote_in_csv(self, mock_genai_model_cls):
     mock_process_prompts = MagicMock()
     mock_model = self.get_mock_model(mock_process_prompts)
-    mock_get_model.return_value = mock_model
+    mock_genai_model_cls.return_value = mock_model
 
     with tempfile.TemporaryDirectory() as temp_dir:
       input_csv = os.path.join(temp_dir, 'input.csv')

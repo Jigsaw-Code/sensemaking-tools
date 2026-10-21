@@ -274,7 +274,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -350,7 +350,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -398,7 +398,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -457,7 +457,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
