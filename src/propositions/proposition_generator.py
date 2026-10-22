@@ -44,7 +44,7 @@ import typing
 import pandas as pd
 from src import prompts
 from src import runner_utils
-from src.models import genai_model
+from src.models import model_factory
 from src.propositions import input_csv_validation
 from src.propositions import prompts_util
 from src.propositions import world_model_util
@@ -510,7 +510,7 @@ async def main():
     llm_response_stats = pd.DataFrame([{"combined_tokens": 0}])
 
   else:
-    model = genai_model.GenaiModel(
+    model = model_factory.get_model(
         gemini_api_key=args.gemini_api_key, model_name=args.model_name
     )
 
@@ -547,6 +547,7 @@ async def main():
                 "statement": {"type": "STRING"},
                 "reasoning": {"type": "STRING"},
             },
+            "required": ["statement", "reasoning"],
         }
 
       all_prompts.append({
@@ -555,7 +556,7 @@ async def main():
           "prompt": prompt,
           "allocations": row["allocations"],
           "stats": {
-              "combined_tokens": model.calculate_token_count_needed(
+              "combined_tokens": model.estimate_token_count_needed(
                   prompt=prompt, run_name=row["opinion"][:20]
               )
           },
@@ -598,6 +599,18 @@ async def main():
         else prompts_util.parse_proposition_response_json,
         len(all_prompts),
     )
+    if (
+        "propositions" not in llm_response.columns
+        and "result" in llm_response.columns
+    ):
+      expected_prop_cols = (
+          ["proposition", "reasoning"] if turn_on_reasoning else ["proposition"]
+      )
+      llm_response["propositions"] = llm_response["result"].apply(
+          lambda r: r
+          if isinstance(r, pd.DataFrame) and "proposition" in r.columns
+          else pd.DataFrame(columns=expected_prop_cols)
+      )
 
   # Ensure the opinion text itself is included in the proposition list.
   if args.include_opinion:

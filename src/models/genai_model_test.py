@@ -127,7 +127,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     self.addCleanup(self.patcher1.stop)
     self.addCleanup(self.patcher2.stop)
 
-  def test_calculate_token_count_needed(self, mock_genai_client):
+  def test_estimate_token_count_needed(self, mock_genai_client):
     """Tests that the token count is correctly returned."""
     mock_client_instance = mock_genai_client.return_value
     mock_response = mock.MagicMock()
@@ -135,7 +135,7 @@ class GenaiModelAsyncMethodsTest(unittest.TestCase):
     mock_client_instance.models.count_tokens.return_value = mock_response
 
     model = genai_model.GenaiModel(gemini_api_key='test_key', model_name='test_model')
-    token_count = model.calculate_token_count_needed(prompt='test prompt')
+    token_count = model.estimate_token_count_needed(prompt='test prompt')
 
     self.assertEqual(token_count, 123)
     mock_client_instance.models.count_tokens.assert_called_once()

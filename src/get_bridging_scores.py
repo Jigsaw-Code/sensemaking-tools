@@ -278,7 +278,11 @@ if __name__ == "__main__":
   gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
   gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
 
-  if args.scorer_type == "GEMINI" and not gemini_api_key:
+  if (
+      args.scorer_type == "GEMINI"
+      and os.getenv("MODEL_ENDPOINT_TYPE", "google_genai") == "google_genai"
+      and not gemini_api_key
+  ):
     print("Error: --gemini_api_key or GEMINI_API_KEY environment variable missing.")
     exit(1)
 

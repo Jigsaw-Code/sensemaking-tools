@@ -175,6 +175,132 @@ class OpenAICompatibleModelTest(unittest.TestCase):
     self.assertEqual(llm_response['result'].tolist(), ['result', 'result'])
     self.assertEqual(mock_client.chat.completions.create.call_count, 2)
 
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_generate_content_with_dict_schema_normalizes_uppercase_types(
+      self, mock_async_openai
+  ):
+    mock_client = mock_async_openai.return_value
+    mock_client.chat.completions.create = AsyncMock()
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = '{"propositions": []}'
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+    mock_client.chat.completions.create.return_value = mock_response
+
+    model = OpenAICompatibleModel(
+        model_name='gemma3:270m', endpoint_url='http://localhost:11434/v1'
+    )
+    dict_schema = {
+        'type': 'OBJECT',
+        'properties': {
+            'propositions': {
+                'type': 'ARRAY',
+                'items': {
+                    'type': 'OBJECT',
+                    'properties': {
+                        'statement': {'type': 'STRING'},
+                    },
+                },
+            }
+        },
+        'required': ['propositions'],
+    }
+    asyncio.run(
+        model.generate_content(
+            prompt='test prompt',
+            run_name='test_run',
+            response_schema=dict_schema,
+        )
+    )
+
+    _, kwargs = mock_client.chat.completions.create.call_args
+    passed_schema = kwargs['response_format']['json_schema']['schema']
+    self.assertEqual(passed_schema['type'], 'object')
+    self.assertEqual(
+        passed_schema['properties']['propositions']['type'], 'array'
+    )
+    self.assertEqual(
+        passed_schema['properties']['propositions']['items']['type'], 'object'
+    )
+    self.assertEqual(
+        passed_schema['properties']['propositions']['items']['properties'][
+            'statement'
+        ]['type'],
+        'string',
+    )
+
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_estimate_token_count_needed(self, mock_async_openai):
+    model = OpenAICompatibleModel(
+        model_name='gemma3:270m', endpoint_url='http://localhost:11434/v1'
+    )
+    token_count = model.estimate_token_count_needed('12345678')
+    self.assertEqual(token_count, 2)
+
+  @patch('src.models.openai_compatible_model.asyncio.sleep', new_callable=AsyncMock)
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_process_prompts_concurrently_plain_text_failure_returns_empty_str(
+      self, mock_async_openai, mock_sleep
+  ):
+    mock_client = mock_async_openai.return_value
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=Exception('API Error')
+    )
+    model = OpenAICompatibleModel(
+        model_name='gemma3:270m',
+        endpoint_url='http://localhost:11434/v1',
+        max_llm_retries=1,
+    )
+    llm_response, _, _, _ = asyncio.run(
+        model.process_prompts_concurrently(
+            [{'prompt': 'p1'}],
+            lambda resp, _: resp['text'],
+            max_concurrent_calls=1,
+        )
+    )
+    self.assertEqual(llm_response.iloc[0]['result'], '')
+    self.assertNotIn('propositions', llm_response.columns)
+    self.assertNotIn('allocations', llm_response.columns)
+
+  @patch('src.models.openai_compatible_model.asyncio.sleep', new_callable=AsyncMock)
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_retry_increments_temperature_by_002_and_tracks_quota_vs_non_quota(
+      self, mock_async_openai, mock_sleep
+  ):
+    """Tests +0.02 temperature increment on retry and quota error exclusion from non_quota_failures."""
+    mock_client = mock_async_openai.return_value
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = 'Success after retries'
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+
+    quota_err = Exception('Error code: 429 - Rate limit reached')
+    generic_err = Exception('Generic parsing or server error')
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=[quota_err, generic_err, mock_response]
+    )
+
+    model = OpenAICompatibleModel(
+        model_name='gemma3:270m',
+        endpoint_url='http://localhost:11434/v1',
+        max_llm_retries=3,
+    )
+    llm_response, llm_stats, _, _ = asyncio.run(
+        model.process_prompts_concurrently(
+            [{'prompt': 'p1', 'temperature': 0.0}],
+            lambda resp, _: resp['text'],
+            max_concurrent_calls=1,
+        )
+    )
+
+    self.assertEqual(llm_response.iloc[0]['result'], 'Success after retries')
+    self.assertEqual(llm_response.iloc[0]['temperature'], 0.04)
+    self.assertEqual(llm_stats.iloc[0]['api_calls_made'], 3)
+    self.assertEqual(llm_stats.iloc[0]['non_quota_failures'], 1)
+
 
 if __name__ == '__main__':
   unittest.main()
