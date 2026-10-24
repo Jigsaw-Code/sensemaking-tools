@@ -418,6 +418,54 @@ async def main() -> Optional[str]:
           " assignment to pass."
       ),
   )
+  parser.add_argument(
+      "--recategorize_other",
+      action="store_true",
+      default=False,
+      help=(
+          "If set, runs a secondary pass on quotes assigned to 'Other' to"
+          " discover new emergent opinions and re-categorize into them."
+      ),
+  )
+  parser.add_argument(
+      "--offer_other_opinion",
+      action=argparse.BooleanOptionalAction,
+      default=True,
+      help=(
+          "Whether to offer an 'Other' opinion option during opinion"
+          " categorization. If False, quotes only land in 'Other' when"
+          " autoraters/retries are exhausted or a topic has no opinions."
+      ),
+  )
+  parser.add_argument(
+      "--offer_other_opinion_on_recategorize",
+      action=argparse.BooleanOptionalAction,
+      default=None,
+      help=(
+          "Overrides --offer_other_opinion specifically for the second-pass"
+          " recategorization (--recategorize_other). If not set, inherits"
+          " --offer_other_opinion."
+      ),
+  )
+  parser.add_argument(
+      "--dedup_new_opinions",
+      action=argparse.BooleanOptionalAction,
+      default=False,
+      help=(
+          "Step 5b anti-duplication: hard existing-opinion constraint in the"
+          " learning prompt plus LLM judge deduplication against existing"
+          " opinions."
+      ),
+  )
+  parser.add_argument(
+      "--recategorize_other_skip_autoraters",
+      action=argparse.BooleanOptionalAction,
+      default=False,
+      help=(
+          "Skip autoraters during second-pass recategorization"
+          " (--recategorize_other)."
+      ),
+  )
 
   args = parser.parse_args()
 
@@ -531,6 +579,16 @@ async def main() -> Optional[str]:
       run_autoraters=not args.skip_autoraters,
       skip_quote_extraction=args.skip_quote_extraction,
       max_concurrent_calls=args.max_concurrent_calls,
+      recategorize_other=getattr(args, "recategorize_other", False),
+      pass_existing_opinions_to_recategorize=True,
+      recategorize_other_skip_autoraters=getattr(
+          args, "recategorize_other_skip_autoraters", False
+      ),
+      dedup_new_opinions=getattr(args, "dedup_new_opinions", False),
+      offer_other_opinion=getattr(args, "offer_other_opinion", True),
+      offer_other_opinion_on_recategorize=getattr(
+          args, "offer_other_opinion_on_recategorize", None
+      ),
       max_autorater_retries=getattr(
           args,
           "max_autorater_retries",

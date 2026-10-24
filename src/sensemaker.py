@@ -66,6 +66,12 @@ class Sensemaker:
       max_concurrent_calls: Optional[int] = None,
       max_autorater_retries: int = categorization.DEFAULT_MAX_AUTORATER_RETRIES,
       autorater_min_score: int = categorization.DEFAULT_AUTORATER_MIN_SCORE,
+      recategorize_other: bool = False,
+      pass_existing_opinions_to_recategorize: bool = True,
+      recategorize_other_skip_autoraters: bool = False,
+      dedup_new_opinions: bool = False,
+      offer_other_opinion: bool = True,
+      offer_other_opinion_on_recategorize: Optional[bool] = None,
   ) -> Iterable[custom_types.Statement]:
     """Categorize statements into topics and opinions using an LLM.
 
@@ -85,6 +91,18 @@ class Sensemaker:
           may receive before it is defaulted to 'Other'.
         autorater_min_score: Minimum integer autorater score (0-4 rubric) for
           an opinion assignment to pass.
+        recategorize_other: Whether to run a secondary pass on quotes assigned
+          to 'Other' to discover new emergent opinions and re-categorize.
+        pass_existing_opinions_to_recategorize: Whether to pass existing
+          opinions as a constraint during secondary opinion learning.
+        recategorize_other_skip_autoraters: Whether to skip autoraters during
+          second-pass recategorization.
+        dedup_new_opinions: Whether to run an LLM judge to deduplicate newly
+          learned opinions against existing opinions.
+        offer_other_opinion: Whether to offer an 'Other' opinion option during
+          opinion categorization.
+        offer_other_opinion_on_recategorize: Optional override for
+          offer_other_opinion specifically during second-pass recategorization.
 
     Returns:
         The statements with topics and opinions assigned.
@@ -204,6 +222,7 @@ class Sensemaker:
             model=self._genai_model,
             additional_context=additional_context,
             max_concurrent_calls=max_concurrent_calls,
+            offer_other_opinion=offer_other_opinion,
         )
         if output_dir:
           checkpoint_utils.save_checkpoint(
@@ -221,9 +240,45 @@ class Sensemaker:
           max_concurrent_calls=max_concurrent_calls,
           max_autorater_retries=max_autorater_retries,
           autorater_min_score=autorater_min_score,
+          offer_other_opinion=offer_other_opinion,
       )
 
       if output_dir:
+        checkpoint_utils.save_checkpoint(
+            list(statements_with_opinions), opinions_checkpoint, output_dir
+        )
+
+    # Step 5b: Secondary pass on 'Other' quotes
+    if recategorize_other:
+      pass2_offer_other = (
+          offer_other_opinion
+          if offer_other_opinion_on_recategorize is None
+          else offer_other_opinion_on_recategorize
+      )
+      logging.info(
+          "Step 5b: Re-categorizing quotes (recategorize_all=True)..."
+      )
+      statements_with_opinions, topic_to_opinions_map = (
+          await categorization.recategorize_other_quotes(
+              statements=list(statements_with_opinions),
+              topics_to_process=learned_topics,
+              topic_to_opinions_map=topic_to_opinions_map,
+              model=self._genai_model,
+              additional_context=additional_context,
+              pass_existing_opinions=pass_existing_opinions_to_recategorize,
+              run_autoraters=not recategorize_other_skip_autoraters,
+              recategorize_all=True,
+              max_concurrent_calls=max_concurrent_calls,
+              dedup_new_opinions=dedup_new_opinions,
+              offer_other_opinion=pass2_offer_other,
+              max_autorater_retries=max_autorater_retries,
+              autorater_min_score=autorater_min_score,
+          )
+      )
+      if output_dir:
+        checkpoint_utils.save_checkpoint(
+            topic_to_opinions_map, learned_opinions_checkpoint, output_dir
+        )
         checkpoint_utils.save_checkpoint(
             list(statements_with_opinions), opinions_checkpoint, output_dir
         )

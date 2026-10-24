@@ -184,6 +184,66 @@ class SensemakerTest(unittest.TestCase):
         stage.assert_called_once()
         self.assertEqual(stage.call_args.kwargs["max_concurrent_calls"], 7)
 
+  @patch("src.sensemaker.categorization")
+  @patch("src.sensemaker.quote_extraction_lib")
+  @patch("src.sensemaker.checkpoint_utils")
+  def test_categorize_statements_recategorize_other(
+      self, mock_checkpoint_utils, mock_quote_lib, mock_categorization
+  ):
+    """Test secondary pass when recategorize_other is enabled."""
+    mock_categorization.categorize_topics = AsyncMock(
+        return_value=(self.sample_statements, self.sample_topics)
+    )
+    mock_quote_lib.extract_quotes_from_text = AsyncMock(
+        return_value=self.sample_statements
+    )
+    mock_categorization.learn_global_opinions = AsyncMock(return_value={})
+    mock_categorization.categorize_opinions = AsyncMock(
+        return_value=self.sample_statements
+    )
+    recat_statements = [custom_types.Statement(id="s1", text="recat")]
+    recat_opinions = {
+        "topic1": custom_types.NestedTopic(name="topic1", subtopics=[])
+    }
+    mock_categorization.recategorize_other_quotes = AsyncMock(
+        return_value=(recat_statements, recat_opinions)
+    )
+    mock_checkpoint_utils.load_checkpoint.return_value = None
+
+    result = asyncio.run(
+        self.sensemaker.categorize_statements(
+            statements=self.sample_statements,
+            output_dir="/fake/dir",
+            recategorize_other=True,
+            offer_other_opinion=False,
+            offer_other_opinion_on_recategorize=True,
+            dedup_new_opinions=True,
+            recategorize_other_skip_autoraters=False,
+        )
+    )
+
+    self.assertEqual(result, recat_statements)
+    mock_categorization.learn_global_opinions.assert_called_once()
+    self.assertFalse(
+        mock_categorization.learn_global_opinions.call_args.kwargs[
+            "offer_other_opinion"
+        ]
+    )
+    mock_categorization.categorize_opinions.assert_called_once()
+    self.assertFalse(
+        mock_categorization.categorize_opinions.call_args.kwargs[
+            "offer_other_opinion"
+        ]
+    )
+    mock_categorization.recategorize_other_quotes.assert_called_once()
+    recat_kwargs = (
+        mock_categorization.recategorize_other_quotes.call_args.kwargs
+    )
+    self.assertTrue(recat_kwargs["offer_other_opinion"])
+    self.assertTrue(recat_kwargs["dedup_new_opinions"])
+    self.assertTrue(recat_kwargs["run_autoraters"])
+    self.assertTrue(recat_kwargs["recategorize_all"])
+
 
 if __name__ == "__main__":
   unittest.main()

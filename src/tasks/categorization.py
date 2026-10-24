@@ -35,6 +35,7 @@ from src.models import systemone
 from src.sensemaker_utils import execute_concurrently, get_prompt
 from src import runner_utils
 from src.models.custom_types import (
+    Quote,
     Statement,
     StatementRecord,
     Topic,
@@ -44,6 +45,8 @@ from src.models.custom_types import (
     QuoteOpinionRecord,
     QuoteOpinionRecordList,
     OpinionResponseSchema,
+    OpinionDuplicateDecision,
+    OpinionDedupResponse,
 )
 from src.evals.autorater_evals import (
     prepare_opinion_eval_prompts,
@@ -59,13 +62,45 @@ MAX_BATCH_TOKENS = int(os.getenv("MAX_BATCH_TOKENS", 20000))
 MAX_ITEMS_PER_BATCH = int(os.getenv("MAX_ITEMS_PER_BATCH", 5))
 
 # Number of autorater rejections a single quote may receive before it is
-# defaulted to 'Other'.
+# defaulted to 'Other'. Counted per (statement id, quote id), i.e. per quote.
 DEFAULT_MAX_AUTORATER_RETRIES = 3
 # Minimum integer autorater score (rubric is 0-4) for an opinion assignment to
 # pass.
 DEFAULT_AUTORATER_MIN_SCORE = 4
 
 # Concurrency is driven dynamically via CLI flags passed down to tasks.
+
+
+def normalize_opinion_menu(opinions: list[Topic]) -> list[Topic]:
+  """Returns an opinion menu with unique names and exactly one trailing 'Other'.
+
+  Args:
+    opinions: Opinion topics as stored in the topic -> opinions map.
+
+  Returns:
+    A new list: first occurrence of each distinct (case-insensitive) non-Other
+    name, in original order, followed by a single FlatTopic('Other').
+  """
+  seen: set[str] = set()
+  normalized: list[Topic] = []
+  for op in opinions:
+    key = op.name.strip().lower()
+    if key == "other" or key in seen:
+      continue
+    seen.add(key)
+    normalized.append(op)
+  normalized.append(FlatTopic(name="Other"))
+  return normalized
+
+
+def is_other_opinion(name: str) -> bool:
+  """Returns True if `name` denotes the 'Other' opinion (case-insensitive)."""
+  return name.strip().lower() == "other"
+
+
+def strip_other_opinions(opinions: list[Topic]) -> list[Topic]:
+  """Returns `opinions` without any 'Other' entries, order preserved."""
+  return [op for op in opinions if not is_other_opinion(op.name)]
 
 
 async def categorize_topics(
@@ -149,6 +184,7 @@ async def learn_global_opinions(
     model: genai_model.GenaiModel,
     additional_context: str | None = None,
     max_concurrent_calls: int | None = None,
+    offer_other_opinion: bool = True,
 ) -> dict[str, Any]:
   """Learns opinions for all topics globally using concurrent batching.
 
@@ -160,6 +196,7 @@ async def learn_global_opinions(
         model.
       max_concurrent_calls: Optional maximum number of concurrent LLM calls.
         If None, the model's default is used.
+      offer_other_opinion: Whether to append an 'Other' opinion to learned menus.
 
   Returns:
       A dictionary containing the learned opinions for each topic.
@@ -172,7 +209,7 @@ async def learn_global_opinions(
     if t.name == "Other":
       continue
     if isinstance(t, NestedTopic) and t.subtopics:
-      if not any(sub.name == "Other" for sub in t.subtopics):
+      if offer_other_opinion and not any(sub.name == "Other" for sub in t.subtopics):
         t.subtopics.append(FlatTopic(name="Other"))
       final_topic_map[t.name] = t
     else:
@@ -283,6 +320,8 @@ async def learn_global_opinions(
     topic_results[t.name] = []
     topic_objs_by_name[t.name] = t
 
+  failed_opinion_chunks: dict[str, int] = defaultdict(int)
+
   for _, row in results_df.iterrows():
     topic_obj = row.get("topic_obj")
     if not topic_obj:
@@ -293,27 +332,49 @@ async def learn_global_opinions(
     topic_name = topic_obj.name
     topic_objs_by_name[topic_name] = topic_obj
 
-    # Ensure an "Other" opinion exists for each topic.
-    if not any(sub.name == "Other" for sub in result.subtopics):
-      result.subtopics.append(FlatTopic(name="Other"))
-    if isinstance(result, OpinionResponseSchema):
-      # Convert to NestedTopic
-      topic_results[topic_name].append(
-          NestedTopic(name=result.name, subtopics=result.subtopics)
-      )
-    elif isinstance(result, NestedTopic):
-      topic_results[topic_name].append(result)
-    elif isinstance(result, dict) and result.get("error"):
-      logging.error(
+    if isinstance(result, dict) and result.get("error"):
+      failed_opinion_chunks[topic_name] += 1
+      logging.warning(
           f"Opinion chunk failed for topic '{topic_name}':"
           f" {result.get('error')}"
       )
-      raise ValueError(f"Failed to learn opinions for '{topic_name}'.")
+      continue
+
+    parsed_topic = None
+    if isinstance(result, OpinionResponseSchema):
+      parsed_topic = NestedTopic(name=result.name, subtopics=result.subtopics)
+    elif isinstance(result, NestedTopic):
+      parsed_topic = result
+    elif isinstance(result, dict) and not result.get("error"):
+      subtopics = result.get("subtopics", [])
+      subtopic_objs = [
+          s if isinstance(s, FlatTopic) else FlatTopic(name=s.get("name", "Other") if isinstance(s, dict) else str(s))
+          for s in subtopics
+      ]
+      parsed_topic = NestedTopic(name=result.get("name", topic_name), subtopics=subtopic_objs)
+
+    if parsed_topic:
+      # Ensure an "Other" opinion exists for each topic if offer_other_opinion is True.
+      if offer_other_opinion and not any(sub.name == "Other" for sub in parsed_topic.subtopics):
+        parsed_topic.subtopics.append(FlatTopic(name="Other"))
+      topic_results[topic_name].append(parsed_topic)
+
+  if failed_opinion_chunks:
+    total_failed = sum(failed_opinion_chunks.values())
+    logging.warning(
+        f"Opinion learning failed for {total_failed} of"
+        f" {len(generation_prompts)} chunks across"
+        f" {len(failed_opinion_chunks)} topics: {dict(failed_opinion_chunks)}."
+        " Quotes in failed chunks contribute no opinions."
+    )
 
   # Now iterate over grouped results
   for topic_name, partial_topics in topic_results.items():
     if not partial_topics:
-      final_topic_map[topic_name] = NestedTopic(name=topic_name, subtopics=[])
+      final_topic_map[topic_name] = NestedTopic(
+          name=topic_name,
+          subtopics=[FlatTopic(name="Other")] if offer_other_opinion else [],
+      )
       continue
 
     # Check if merge is needed
@@ -330,10 +391,14 @@ async def learn_global_opinions(
             combined_opinions.append(sub.name)
 
       if not combined_opinions:
-        final_topic_map[topic_name] = NestedTopic(name=topic_name, subtopics=[])
+        final_topic_map[topic_name] = NestedTopic(
+            name=topic_name,
+            subtopics=[FlatTopic(name="Other")] if offer_other_opinion else [],
+        )
         continue
 
       # Prepare Merge Prompt
+      target_topic_obj = topic_objs_by_name.get(topic_name)
       merge_instructions = prompts.get_topic_modeling_merge_opinions_prompt(
           topic_name
       )
@@ -344,7 +409,7 @@ async def learn_global_opinions(
       merge_idx = len(merge_prompts)
       merge_prompts.append({
           "prompt": prompt_str,
-          "topic_obj": topic_objs_by_name[topic_name],
+          "topic_obj": target_topic_obj,
           "response_schema": (
               OpinionResponseSchema
           ),  # Merge prompt expects same structure (JSON list of opinions)
@@ -376,14 +441,36 @@ async def learn_global_opinions(
         final_res = NestedTopic(name=result.name, subtopics=result.subtopics)
       elif isinstance(result, NestedTopic):
         final_res = result
+      elif isinstance(result, dict) and not result.get("error"):
+        subtopics = result.get("subtopics", [])
+        subtopic_objs = [
+            s if isinstance(s, FlatTopic) else FlatTopic(name=s.get("name", "Other") if isinstance(s, dict) else str(s))
+            for s in subtopics
+        ]
+        final_res = NestedTopic(name=result.get("name", topic_name), subtopics=subtopic_objs)
 
       if final_res:
+        if not final_res.subtopics:
+          final_res.subtopics = []
+        if offer_other_opinion and not any(sub.name == "Other" for sub in final_res.subtopics):
+          final_res.subtopics.append(FlatTopic(name="Other"))
         final_topic_map[topic_name] = final_res
       else:
         logging.error(
-            f"Merge failed for topic '{topic_name}'. Returning empty."
+            f"Merge failed for topic '{topic_name}'. Falling back to combined partials."
         )
-        final_topic_map[topic_name] = NestedTopic(name=topic_name, subtopics=[])
+        fallback_subs = []
+        seen = set()
+        for pt in topic_results.get(topic_name, []):
+          for sub in (pt.subtopics or []):
+            if sub.name not in seen:
+              fallback_subs.append(sub)
+              seen.add(sub.name)
+        if offer_other_opinion and not any(s.name == "Other" for s in fallback_subs):
+          fallback_subs.append(FlatTopic(name="Other"))
+        final_topic_map[topic_name] = NestedTopic(
+            name=topic_name, subtopics=fallback_subs
+        )
 
   if all_stage_stats:
     model.log_stats_summary(
@@ -406,6 +493,7 @@ async def categorize_opinions(
     max_concurrent_calls: int | None = None,
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
+    offer_other_opinion: bool = True,
 ) -> Iterable[Statement]:
   """Categorizes opinions within the provided topics for each statement.
 
@@ -421,6 +509,7 @@ async def categorize_opinions(
       receive before it is defaulted to 'Other'.
     autorater_min_score: Minimum integer autorater score (0-4 rubric) for an
       opinion assignment to pass.
+    offer_other_opinion: Whether to offer an 'Other' option to the model.
 
   Returns:
     List of statements with categorized opinions.
@@ -488,6 +577,14 @@ async def categorize_opinions(
 
   stage_start_time = time.time()
 
+  if not offer_other_opinion:
+    _assign_other_for_empty_menus(
+        topic_work_queue_ids,
+        topics_to_process,
+        topic_to_opinions_map,
+        input_statements_map,
+    )
+
   for attempt in range(1, model.max_llm_retries + 1):
     if not topic_work_queue_ids:
       break
@@ -499,6 +596,7 @@ async def categorize_opinions(
         input_statements_map,
         additional_context,
         attempt,
+        offer_other_opinion=offer_other_opinion,
     )
 
     if not all_prompts:
@@ -634,6 +732,57 @@ async def categorize_opinions(
   return input_statements_map.values()
 
 
+def _assign_other_for_empty_menus(
+    topic_work_queue_ids: dict[str, list[str]],
+    topics_to_process: list[Topic],
+    topic_to_opinions_map: dict[str, Any],
+    input_statements_map: dict[str, Statement],
+) -> None:
+  """Assigns 'Other' to quotes of topics with no non-Other opinions.
+
+  Used when 'Other' is not offered: such topics have nothing to offer the LLM,
+  so their quotes go straight to 'Other' and the topics are removed from the
+  work queue (mutated in place).
+
+  Args:
+    topic_work_queue_ids: Topic name -> pending statement ids (mutated).
+    topics_to_process: Topics being categorized.
+    topic_to_opinions_map: Topic name -> NestedTopic of opinions.
+    input_statements_map: Statement id -> Statement (updated in place).
+  """
+  for topic_name in list(topic_work_queue_ids):
+    learned = topic_to_opinions_map.get(topic_name)
+    menu = strip_other_opinions(
+        (learned.subtopics if learned and learned.subtopics else []) or []
+    )
+    if menu:
+      continue
+    topic = next((t for t in topics_to_process if t.name == topic_name), None)
+    sids = topic_work_queue_ids.pop(topic_name)
+    if not topic:
+      continue
+    records = []
+    for sid in sids:
+      stmt = input_statements_map.get(sid)
+      if not stmt:
+        continue
+      for q in stmt.quotes:
+        if q.topic.name == topic_name:
+          records.append(
+              StatementRecord(
+                  id=sid, quote_id=q.id, topics=[FlatTopic(name="Other")]
+              )
+          )
+    logging.warning(
+        f"Topic '{topic_name}' has no non-Other opinions and 'Other' is not"
+        f" offered; assigning {len(records)} quotes to 'Other'."
+    )
+    if records:
+      _merge_opinions_into_statements_inplace(
+          input_statements_map, records, topic
+      )
+
+
 def _prepare_opinion_prompts_for_pending_work(
     topic_work_queue_ids: dict[str, list[str]],
     topics_to_process: list[Topic],
@@ -641,6 +790,7 @@ def _prepare_opinion_prompts_for_pending_work(
     input_statements_map: dict[str, Statement],
     additional_context: str | None,
     attempt: int,
+    offer_other_opinion: bool = True,
 ) -> list[dict[str, Any]]:
   """Prepares opinion categorization prompts for all pending topics."""
   all_prompts = []
@@ -659,6 +809,16 @@ def _prepare_opinion_prompts_for_pending_work(
       continue
 
     opinions = learned_topic_result.subtopics
+    if offer_other_opinion:
+      opinions = normalize_opinion_menu(opinions)
+    else:
+      opinions = strip_other_opinions(opinions)
+      if not opinions:
+        logging.warning(
+            f"Topic '{topic.name}' has no non-Other opinions to offer."
+            " Skipping."
+        )
+        continue
 
     # Reconstruct statement list from IDs
     pending_statements = [
@@ -939,6 +1099,373 @@ def _assign_defaults_for_exhausted_retries(
       )
 
   return
+
+
+def _apply_dedup_decisions(
+    new_opinions: list[FlatTopic],
+    num_existing: int,
+    decisions: list[OpinionDuplicateDecision],
+) -> tuple[list[FlatTopic], dict[str, str]]:
+  """Applies LLM dedup decisions to a topic's new opinions.
+
+  Invalid references (unknown ids, self/forward references to new opinions)
+  are ignored, i.e. the new opinion is kept.
+
+  Args:
+    new_opinions: The new opinions (N1..Nm).
+    num_existing: Number of existing opinions (E1..En).
+    decisions: LLM decisions.
+
+  Returns:
+    (kept new opinions, {dropped new opinion name: id it was merged into}).
+  """
+  dup_of: dict[int, str] = {}
+  for d in decisions:
+    m_new = re.fullmatch(r"\s*N(\d+)\s*", d.new_id or "")
+    if not m_new or not d.duplicate_of:
+      continue
+    n_idx = int(m_new.group(1))
+    if not 1 <= n_idx <= len(new_opinions):
+      continue
+    target = d.duplicate_of.strip().upper()
+    m_e = re.fullmatch(r"E(\d+)", target)
+    m_n = re.fullmatch(r"N(\d+)", target)
+    if m_e and 1 <= int(m_e.group(1)) <= num_existing:
+      dup_of[n_idx] = target
+    elif m_n and 1 <= int(m_n.group(1)) < n_idx:
+      dup_of[n_idx] = target
+  kept, merged = [], {}
+  for i, op in enumerate(new_opinions, start=1):
+    if i in dup_of:
+      merged[op.name] = dup_of[i]
+    else:
+      kept.append(op)
+  return kept, merged
+
+
+async def dedup_new_opinions_against_existing(
+    new_by_topic: dict[str, list[FlatTopic]],
+    existing_by_topic: dict[str, list[Topic]],
+    model: genai_model.GenaiModel,
+    max_concurrent_calls: int | None = None,
+) -> dict[str, list[FlatTopic]]:
+  """Drops new opinions that an LLM judge deems equivalent to existing ones.
+
+  One judge call per topic (all topics concurrently). Each new opinion that
+  is semantically equivalent to an existing opinion, or to an earlier new
+  opinion, is dropped; its quotes are then picked up by the equivalent
+  opinion during re-categorization. If the judge call fails for a topic, all
+  of that topic's new opinions are kept (logged at WARNING).
+
+  Args:
+    new_by_topic: Topic name -> newly learned opinions.
+    existing_by_topic: Topic name -> existing (non-Other) opinions.
+    model: The model.
+    max_concurrent_calls: Maximum concurrent LLM calls.
+
+  Returns:
+    Topic name -> kept new opinions.
+  """
+  jobs = []
+  for topic_name, new_ops in new_by_topic.items():
+    if not new_ops:
+      continue
+    existing = existing_by_topic.get(topic_name, [])
+    jobs.append({
+        "prompt": prompts.get_opinion_dedup_prompt(
+            topic_name, [e.name for e in existing], [n.name for n in new_ops]
+        ),
+        "dedup_topic_name": topic_name,
+        "response_schema": OpinionDedupResponse,
+        "response_mime_type": "application/json",
+        "log_prefix_marker": "5b (New Opinion Dedup)",
+    })
+  if not jobs:
+    return new_by_topic
+
+  def _parser(resp, job):
+    parsed = parse_response(resp["text"], job["response_schema"])
+    if parsed is None:
+      raise ValueError("Empty dedup response")
+    return parsed
+
+  results_df, _, _, _ = await model.process_prompts_concurrently(
+      jobs,
+      response_parser=_parser,
+      max_concurrent_calls=max_concurrent_calls,
+      retry_attempts=3,
+      skip_log=True,
+  )
+
+  out = dict(new_by_topic)
+  total_new = sum(len(v) for v in new_by_topic.values())
+  total_merged = 0
+  for _, row in results_df.iterrows():
+    topic_name = row.get("dedup_topic_name")
+    result = row.get("result")
+    if not isinstance(result, OpinionDedupResponse):
+      logging.warning(
+          f"New-opinion dedup failed for topic '{topic_name}'; keeping all"
+          f" {len(new_by_topic.get(topic_name, []))} new opinions."
+      )
+      continue
+    kept, merged = _apply_dedup_decisions(
+        new_by_topic[topic_name],
+        len(existing_by_topic.get(topic_name, [])),
+        result.decisions,
+    )
+    existing = existing_by_topic.get(topic_name, [])
+    new_ops = new_by_topic[topic_name]
+    for name, target in merged.items():
+      idx = int(target[1:]) - 1
+      target_name = existing[idx].name if target[0] == "E" else new_ops[idx].name
+      logging.info(
+          f"Dedup [{topic_name}]: merged new opinion '{name}' into"
+          f" {target} '{target_name}'."
+      )
+    total_merged += len(merged)
+    out[topic_name] = kept
+  logging.info(
+      f"New-opinion dedup merged {total_merged} of {total_new} new opinions"
+      " into equivalent existing/new opinions."
+  )
+  return out
+
+
+async def recategorize_other_quotes(
+    statements: list[Statement],
+    topics_to_process: list[Topic],
+    topic_to_opinions_map: dict[str, NestedTopic],
+    model: genai_model.GenaiModel,
+    additional_context: str | None = None,
+    pass_existing_opinions: bool = True,
+    run_autoraters: bool = True,
+    recategorize_all: bool = True,
+    max_concurrent_calls: int | None = None,
+    dedup_new_opinions: bool = False,
+    offer_other_opinion: bool = True,
+    **categorize_kwargs: Any,
+) -> tuple[list[Statement], dict[str, NestedTopic]]:
+  """Reruns opinion learning on 'Other' quotes and recategorizes.
+
+  Args:
+    statements: Statements after pass-1 opinion categorization.
+    topics_to_process: Topics to process.
+    topic_to_opinions_map: Topic name -> NestedTopic of pass-1 opinions. A new
+      expanded map is returned; entries are replaced, not mutated.
+    model: The model.
+    additional_context: Optional additional prompt context.
+    pass_existing_opinions: Tell the learner about the existing opinions.
+    run_autoraters: Run autoraters during re-categorization.
+    recategorize_all: Re-categorize ALL statements (else only 'Other' ones).
+    max_concurrent_calls: Maximum concurrent LLM calls.
+    dedup_new_opinions: If True, existing opinions are passed to the learner as
+      a hard constraint and an LLM judge maps each new opinion that is equivalent
+      to an existing (or earlier new) opinion onto it, dropping the duplicate.
+    offer_other_opinion: Whether to append an 'Other' opinion to learned menus.
+    **categorize_kwargs: Forwarded to `categorize_opinions`.
+
+  Returns:
+    (statements, expanded topic -> opinions map).
+  """
+  logging.info("Starting secondary opinion learning on 'Other' quotes...")
+
+  other_quotes_by_topic: dict[str, list[Quote]] = {
+      t.name: [] for t in topics_to_process if t.name != "Other"
+  }
+  other_statements_by_id: dict[str, Statement] = {}
+
+  for s in statements:
+    has_other = False
+    for q in s.quotes:
+      opinions = getattr(q.topic, "subtopics", [])
+      is_other = any(o.name.lower() == "other" for o in opinions)
+      if is_other and q.topic.name != "Other":
+        other_quotes_by_topic.setdefault(q.topic.name, []).append(q)
+        has_other = True
+    if has_other:
+      other_statements_by_id[s.id] = s
+
+  if not any(other_quotes_by_topic.values()):
+    logging.info(
+        "No quotes found assigned to 'Other'. Skipping secondary pass."
+    )
+    return statements, topic_to_opinions_map
+
+  topic_to_opinions_map = dict(topic_to_opinions_map)
+  learned_new: dict[str, list[FlatTopic]] = {}
+  existing_by_topic: dict[str, list[Topic]] = {}
+
+  for t in topics_to_process:
+    if t.name == "Other":
+      continue
+    quotes = other_quotes_by_topic.get(t.name, [])
+    if not quotes:
+      continue
+
+    logging.info(
+        f"Learning new opinions for {len(quotes)} 'Other' quotes in topic"
+        f" '{t.name}'..."
+    )
+
+    existing_subtopics = [
+        sub
+        for sub in topic_to_opinions_map.get(
+            t.name, NestedTopic(name=t.name, subtopics=[])
+        ).subtopics
+        if sub.name.lower() != "other"
+    ]
+    existing_by_topic[t.name] = existing_subtopics
+
+    custom_context = additional_context or ""
+    if pass_existing_opinions and existing_subtopics:
+      instructions = prompts.get_topic_modeling_new_opinions_prompt(
+          t.name, [sub.name for sub in existing_subtopics]
+      )
+    else:
+      instructions = prompts.get_topic_modeling_opinions_prompt(t.name)
+
+    prompt_input_data = [f"<quote>{q.text}</quote>" for q in quotes]
+    chunks = await topic_modeling_util.create_chunks(
+        model, instructions, prompt_input_data, custom_context
+    )
+
+    generation_prompts = []
+    for i, chunk in enumerate(chunks):
+      prompt_str = get_prompt(instructions, chunk, custom_context)
+      generation_prompts.append({
+          "prompt": prompt_str,
+          "topic_obj": t,
+          "chunk_index": i,
+          "total_chunks": len(chunks),
+          "response_schema": OpinionResponseSchema,
+          "log_prefix_marker": f"5b (Other Opinion ID - {t.name})",
+          "progress_index": i,
+      })
+
+    if not generation_prompts:
+      continue
+
+    def _parse_opinion_response(resp, job):
+      return parse_response(resp["text"], job["response_schema"])
+
+    results_df, _, _, _ = await model.process_prompts_concurrently(
+        generation_prompts,
+        response_parser=_parse_opinion_response,
+        max_concurrent_calls=max_concurrent_calls,
+        retry_attempts=3,
+    )
+
+    new_subtopics: list[FlatTopic] = []
+    existing_names = {sub.name.lower() for sub in existing_subtopics}
+    existing_names.add("other")
+
+    failed_chunks = 0
+    for _, row in results_df.iterrows():
+      result = row["result"]
+      if isinstance(result, OpinionResponseSchema):
+        for sub in result.subtopics:
+          if sub.name.lower() not in existing_names:
+            new_subtopics.append(FlatTopic(name=sub.name))
+            existing_names.add(sub.name.lower())
+      else:
+        failed_chunks += 1
+    if failed_chunks:
+      logging.warning(
+          f"Secondary opinion learning failed for {failed_chunks} of"
+          f" {len(generation_prompts)} chunks in topic '{t.name}'; their"
+          " 'Other' quotes contribute no new opinions."
+      )
+
+    if new_subtopics:
+      logging.info(
+          f"Learned {len(new_subtopics)} new categories for topic '{t.name}': "
+          + ", ".join(sub.name for sub in new_subtopics)
+      )
+      learned_new[t.name] = new_subtopics
+
+  if dedup_new_opinions and learned_new:
+    learned_new = await dedup_new_opinions_against_existing(
+        learned_new,
+        existing_by_topic,
+        model,
+        max_concurrent_calls=max_concurrent_calls,
+    )
+
+  for topic_name, new_subtopics in learned_new.items():
+    if not new_subtopics:
+      continue
+    updated_subtopics = existing_by_topic.get(topic_name, []) + new_subtopics
+    if offer_other_opinion:
+      updated_subtopics.append(FlatTopic(name="Other"))
+    topic_to_opinions_map[topic_name] = NestedTopic(
+        name=topic_name, subtopics=updated_subtopics
+    )
+
+  if recategorize_all:
+    logging.info(
+        f"Re-categorizing ALL {len(statements)} statements across the newly"
+        " expanded opinion set..."
+    )
+    statements_to_recategorize = [
+        Statement(
+            id=s.id,
+            text=s.text,
+            topics=s.topics,
+            quotes=[
+                Quote(
+                    id=q.id,
+                    text=q.text,
+                    topic=(
+                        q.topic.model_copy(deep=True)
+                        if (q.topic and q.topic.name == "Other")
+                        else FlatTopic(name=q.topic.name)
+                        if q.topic
+                        else None
+                    ),
+                )
+                for q in s.quotes
+            ] if s.quotes else [],
+        )
+        for s in statements
+    ]
+  else:
+    statements_to_recategorize = list(other_statements_by_id.values())
+    logging.info(
+        f"Re-categorizing {len(statements_to_recategorize)} statements that had"
+        " 'Other'..."
+    )
+    for s in statements_to_recategorize:
+      if s.quotes:
+        for q in s.quotes:
+          opinions = getattr(q.topic, "subtopics", [])
+          if any(o.name.lower() == "other" for o in opinions):
+            q.topic = FlatTopic(name=q.topic.name)
+
+  recategorized_statements = await categorize_opinions(
+      statements_with_topics_and_quotes=statements_to_recategorize,
+      topics_to_process=topics_to_process,
+      topic_to_opinions_map=topic_to_opinions_map,
+      model=model,
+      additional_context=additional_context,
+      run_autoraters=run_autoraters,
+      max_concurrent_calls=max_concurrent_calls,
+      offer_other_opinion=offer_other_opinion,
+      **categorize_kwargs,
+  )
+
+  if recategorize_all:
+    return list(recategorized_statements), topic_to_opinions_map
+
+  recat_map = {s.id: s for s in recategorized_statements}
+  final_statements = []
+  for s in statements:
+    if s.id in recat_map:
+      final_statements.append(recat_map[s.id])
+    else:
+      final_statements.append(s)
+
+  return final_statements, topic_to_opinions_map
 
 
 def _create_token_based_batches(

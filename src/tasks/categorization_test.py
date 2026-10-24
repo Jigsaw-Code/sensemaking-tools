@@ -867,6 +867,184 @@ class CategorizationTest(unittest.TestCase):
     # Should have called LLM 3 times
     self.assertEqual(mock_model.process_prompts_concurrently.call_count, 3)
 
+  def test_normalize_opinion_menu(self):
+    menu = [
+        custom_types.FlatTopic(name=n)
+        for n in ["A", "other", "B", "a ", "Other"]
+    ]
+    normalized = categorization.normalize_opinion_menu(menu)
+    self.assertEqual([o.name for o in normalized], ["A", "B", "Other"])
+    self.assertEqual(
+        [o.name for o in categorization.normalize_opinion_menu([])], ["Other"]
+    )
+
+  def test_strip_other_opinions(self):
+    menu = [
+        custom_types.FlatTopic(name=n)
+        for n in ["A", "other", "B", "Other", "C"]
+    ]
+    stripped = categorization.strip_other_opinions(menu)
+    self.assertEqual([o.name for o in stripped], ["A", "B", "C"])
+
+  def test_is_other_opinion(self):
+    self.assertTrue(categorization.is_other_opinion("Other"))
+    self.assertTrue(categorization.is_other_opinion("other"))
+    self.assertTrue(categorization.is_other_opinion(" OTHER "))
+    self.assertFalse(categorization.is_other_opinion("Another"))
+
+  def test_apply_dedup_decisions(self):
+    new = [custom_types.FlatTopic(name=n) for n in ["n1", "n2", "n3", "n4"]]
+    decisions = [
+        custom_types.OpinionDuplicateDecision(new_id="N1", duplicate_of="E2"),
+        custom_types.OpinionDuplicateDecision(new_id="N2", duplicate_of=None),
+        custom_types.OpinionDuplicateDecision(new_id="N3", duplicate_of="N2"),
+        custom_types.OpinionDuplicateDecision(new_id="N4", duplicate_of="N4"),
+        custom_types.OpinionDuplicateDecision(new_id="N9", duplicate_of="E1"),
+    ]
+    kept, merged = categorization._apply_dedup_decisions(new, 2, decisions)
+    self.assertEqual([k.name for k in kept], ["n2", "n4"])
+    self.assertEqual(merged, {"n1": "E2", "n3": "N2"})
+
+    # Out-of-range existing reference is ignored
+    kept, merged = categorization._apply_dedup_decisions(
+        new[:1],
+        1,
+        [custom_types.OpinionDuplicateDecision(new_id="N1", duplicate_of="E5")],
+    )
+    self.assertEqual([k.name for k in kept], ["n1"])
+    self.assertEqual(merged, {})
+
+  def test_assign_other_for_empty_menus(self):
+    topic_t1 = custom_types.FlatTopic(name="T1")
+    topic_t2 = custom_types.FlatTopic(name="T2")
+    q1 = custom_types.Quote(id="q1", text="q1 text", topic=topic_t1)
+    q2 = custom_types.Quote(id="q2", text="q2 text", topic=topic_t2)
+    stmt = custom_types.Statement(
+        id="s1", text="sample", topics=[topic_t1, topic_t2], quotes=[q1, q2]
+    )
+    stmts_map = {"s1": stmt}
+    work_queue = {"T1": ["s1"], "T2": ["s1"]}
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        ),
+        "T2": custom_types.NestedTopic(
+            name="T2", subtopics=[custom_types.FlatTopic(name="Other")]
+        ),
+    }
+    categorization._assign_other_for_empty_menus(
+        work_queue, [topic_t1, topic_t2], topic_map, stmts_map
+    )
+    # T2 should be popped from work_queue because it only has "Other"
+    self.assertIn("T1", work_queue)
+    self.assertNotIn("T2", work_queue)
+    # q2 in stmt should have opinion "Other"
+    self.assertEqual(q2.topic.subtopics[0].name, "Other")
+
+  @patch(
+      "src.tasks.categorization.topic_modeling_util.create_chunks",
+      new_callable=AsyncMock,
+  )
+  def test_recategorize_other_quotes_skips_other_topic(self, mock_chunks):
+    mock_chunks.return_value = [["<quote>other quote</quote>"]]
+    topic_real = custom_types.FlatTopic(name="RealTopic")
+    topic_other = custom_types.FlatTopic(name="Other")
+
+    q_real = custom_types.Quote(
+        id="q1",
+        text="real text",
+        topic=custom_types.NestedTopic(
+            name="RealTopic", subtopics=[custom_types.FlatTopic(name="Other")]
+        ),
+    )
+    q_other = custom_types.Quote(
+        id="q2",
+        text="other text",
+        topic=custom_types.FlatTopic(name="Other"),
+    )
+    s1 = custom_types.Statement(
+        id="s1", text="stmt 1", topics=[topic_real], quotes=[q_real]
+    )
+    s2 = custom_types.Statement(
+        id="s2", text="stmt 2", topics=[topic_other], quotes=[q_other]
+    )
+
+    topic_map = {
+        "RealTopic": custom_types.NestedTopic(
+            name="RealTopic",
+            subtopics=[
+                custom_types.FlatTopic(name="Op1"),
+                custom_types.FlatTopic(name="Other"),
+            ],
+        )
+    }
+
+    mock_model = MagicMock()
+
+    # Step 5b learning response: new opinion "OpNew"
+    resp_learning = custom_types.OpinionResponseSchema(
+        name="RealTopic", subtopics=[custom_types.FlatTopic(name="OpNew")]
+    )
+
+    # Step 5b recategorization response
+    resp_recat = [
+        custom_types.StatementRecord(
+            id="s1",
+            quote_id="q1",
+            topics=[custom_types.FlatTopic(name="OpNew")],
+        )
+    ]
+
+    mock_model.process_prompts_concurrently = AsyncMock(
+        side_effect=[
+            (
+                pd.DataFrame([{"result": resp_learning}]),
+                pd.DataFrame(),
+                0.0,
+                0.1,
+            ),
+            (
+                pd.DataFrame([
+                    {
+                        "result": resp_recat,
+                        "target_opinions": [
+                            custom_types.FlatTopic(name="Op1"),
+                            custom_types.FlatTopic(name="OpNew"),
+                            custom_types.FlatTopic(name="Other"),
+                        ],
+                        "parent_topic_obj": topic_real,
+                        "batch_items": [s1],
+                        "work_queue_topic_name": "RealTopic",
+                    }
+                ]),
+                pd.DataFrame(),
+                0.0,
+                0.1,
+            ),
+        ]
+    )
+
+    statements_out, updated_map = asyncio.run(
+        categorization.recategorize_other_quotes(
+            statements=[s1, s2],
+            topics_to_process=[topic_real, topic_other],
+            topic_to_opinions_map=topic_map,
+            model=mock_model,
+            run_autoraters=False,
+            recategorize_all=True,
+        )
+    )
+
+    # Both statements must be preserved
+    self.assertEqual(len(statements_out), 2)
+    s_ids = {s.id for s in statements_out}
+    self.assertEqual(s_ids, {"s1", "s2"})
+    # RealTopic got new opinion
+    real_op_names = [o.name for o in updated_map["RealTopic"].subtopics]
+    self.assertEqual(real_op_names, ["Op1", "OpNew", "Other"])
+    # Topic "Other" was skipped in updated_map
+    self.assertNotIn("Other", updated_map)
+
 
 if __name__ == "__main__":
   unittest.main()

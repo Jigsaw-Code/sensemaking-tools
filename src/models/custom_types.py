@@ -129,6 +129,25 @@ class OpinionResponseSchema(BaseModel):
   subtopics: list[FlatTopic]
 
 
+class OpinionDuplicateDecision(BaseModel):
+  """Dedup judgement for one newly learned opinion."""
+
+  new_id: str = Field(description="The id of the new opinion, e.g. 'N1'.")
+  duplicate_of: str | None = Field(
+      default=None,
+      description=(
+          "The id ('E3' or an earlier 'N2') of the opinion this new opinion is"
+          " semantically equivalent to, or null if it is distinct."
+      ),
+  )
+
+
+class OpinionDedupResponse(BaseModel):
+  """Dedup judgements for all new opinions of a topic."""
+
+  decisions: list[OpinionDuplicateDecision]
+
+
 class ScoreResponse(BaseModel):
   """Schema for score generation for moderation and bridging."""
 

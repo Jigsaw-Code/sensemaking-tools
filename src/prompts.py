@@ -498,6 +498,80 @@ For example:
 """
 
 
+def get_topic_modeling_new_opinions_prompt(
+    parent_topic_name: str, existing_opinions: list[str]
+) -> str:
+  """Prompt for learning ONLY new opinions from residual ('Other') quotes.
+
+  Wraps `get_topic_modeling_opinions_prompt` and lists the existing opinions
+  for the topic in full as a hard constraint (instead of a soft hint in the
+  additional context), so the model does not re-derive near-duplicate
+  variants of opinions that already exist.
+
+  Args:
+    parent_topic_name: The topic name.
+    existing_opinions: Full text of the existing (non-Other) opinions.
+
+  Returns:
+    The prompt instructions.
+  """
+  existing_block = "\n".join(f"- {op}" for op in existing_opinions)
+  return (
+      get_topic_modeling_opinions_prompt(parent_topic_name)
+      + f"""
+### **Existing Opinions (MUST NOT be repeated)**
+The following opinions already exist for "{parent_topic_name}". The quotes below were NOT assigned to any of them.
+{existing_block}
+
+* Only propose opinions that express a viewpoint NOT already covered by an existing opinion.
+* Do not propose rephrasings, shorter or longer variants, narrower sub-cases, or broader generalizations of an existing opinion.
+* If a quote's viewpoint is already covered by an existing opinion, do not create an opinion for it.
+* If every viewpoint in the quotes is already covered, respond with an empty "subtopics" list.
+"""
+  )
+
+
+def get_opinion_dedup_prompt(
+    parent_topic_name: str,
+    existing_opinions: list[str],
+    new_opinions: list[str],
+) -> str:
+  """Prompt asking an LLM judge to map new opinions onto equivalent ones.
+
+  Args:
+    parent_topic_name: The topic name.
+    existing_opinions: Existing opinions, referenced as E1..En.
+    new_opinions: Newly learned opinions, referenced as N1..Nm.
+
+  Returns:
+    The prompt text.
+  """
+  existing_block = "\n".join(
+      f"E{i}: {op}" for i, op in enumerate(existing_opinions, start=1)
+  )
+  new_block = "\n".join(
+      f"N{i}: {op}" for i, op in enumerate(new_opinions, start=1)
+  )
+  return f"""
+You are an expert qualitative data analyst. For the topic "{parent_topic_name}", a list of EXISTING opinions was learned first, and then a list of NEW candidate opinions was learned from leftover quotes.
+Your task: for each NEW opinion, decide whether it is semantically equivalent to an EXISTING opinion or to an EARLIER NEW opinion (one with a smaller N number).
+
+Two opinions are equivalent if a typical participant who holds one would clearly also endorse the other, and grouping their quotes together would not lose a meaningfully distinct viewpoint. Shorter/longer rephrasings, the same proposal with slightly different examples, or one being a minor narrowing of the other count as equivalent.
+They are NOT equivalent if they propose different actions, take opposing stances, or focus on clearly different concerns.
+
+EXISTING opinions:
+{existing_block if existing_block else "(none)"}
+
+NEW opinions:
+{new_block}
+
+Respond with JSON matching this schema, with exactly one decision per NEW opinion:
+{{"decisions": [{{"new_id": "N1", "duplicate_of": "E2"}}, {{"new_id": "N2", "duplicate_of": null}}]}}
+Use "duplicate_of": null when the NEW opinion is distinct. Only reference ids that appear above, and for NEW-to-NEW matches only reference an EARLIER new opinion.
+Do not include markdown code blocks around the JSON response.
+"""
+
+
 def get_topic_modeling_merge_opinions_prompt(parent_topic_name: str) -> str:
   return f"""
 You are an expert qualitative data analyst specializing in thematic analysis and data structuring.
