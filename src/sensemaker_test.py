@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import logging
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -80,8 +81,9 @@ class SensemakerTest(unittest.TestCase):
     mock_quote_lib.extract_quotes_from_text.assert_called_once()
     mock_categorization.categorize_opinions.assert_called_once()
 
-    # Verify that we saved the checkpoints (topics, quotes, learned_opinions, opinions)
-    self.assertEqual(mock_checkpoint_utils.save_checkpoint.call_count, 4)
+    # Verify that we saved the checkpoints (topics, quotes, learned_opinions,
+    # statements_with_opinions_pass1, learned_opinions_pass1, opinions)
+    self.assertEqual(mock_checkpoint_utils.save_checkpoint.call_count, 6)
     mock_checkpoint_utils.save_checkpoint.assert_any_call(
         (self.sample_statements, self.sample_topics),
         "statements_with_topics_and_learned_topics",
@@ -113,11 +115,13 @@ class SensemakerTest(unittest.TestCase):
     # 1. topics -> return (statements, topics)
     # 2. quotes -> return None (so it extracts quotes)
     # 3. opinions -> return None (so it learns opinions)
-    # 4. learned_opinions -> return None
+    # 4. opinions pass 1 -> return None
+    # 5. learned opinions -> return None
     mock_checkpoint_utils.load_checkpoint.side_effect = [
         (self.sample_statements, self.sample_topics),  # topics loaded
         None,  # quotes not loaded
         None,  # opinions not loaded
+        None,  # pass-1 opinions not loaded
         None,  # learned opinions not loaded
     ]
 
@@ -132,7 +136,7 @@ class SensemakerTest(unittest.TestCase):
 
     # Assert
     # Verify that we attempted to load the topics checkpoint
-    self.assertEqual(mock_checkpoint_utils.load_checkpoint.call_count, 4)
+    self.assertEqual(mock_checkpoint_utils.load_checkpoint.call_count, 5)
     mock_checkpoint_utils.load_checkpoint.assert_any_call(
         "statements_with_topics_and_learned_topics", "/fake/dir"
     )
@@ -144,8 +148,9 @@ class SensemakerTest(unittest.TestCase):
     mock_quote_lib.extract_quotes_from_text.assert_called_once()
     mock_categorization.categorize_opinions.assert_called_once()
 
-    # Verify that checkpoints were saved (quotes, learned_opinions, opinions)
-    self.assertEqual(mock_checkpoint_utils.save_checkpoint.call_count, 3)
+    # Verify that checkpoints were saved (quotes, learned_opinions, the two
+    # pass-1 checkpoints, opinions)
+    self.assertEqual(mock_checkpoint_utils.save_checkpoint.call_count, 5)
 
   @patch("src.sensemaker.categorization")
   @patch("src.sensemaker.quote_extraction_lib")
@@ -243,6 +248,182 @@ class SensemakerTest(unittest.TestCase):
     self.assertTrue(recat_kwargs["dedup_new_opinions"])
     self.assertTrue(recat_kwargs["run_autoraters"])
     self.assertTrue(recat_kwargs["recategorize_all"])
+
+
+class _FakeCheckpoints:
+  """Dict-backed stand-in for src.checkpoint_utils."""
+
+  def __init__(self, store=None):
+    self.store = dict(store or {})
+    self.saves = []  # step names, in order
+
+  def load_checkpoint(self, step_name, output_dir):
+    del output_dir
+    return self.store.get(step_name)
+
+  def save_checkpoint(self, data, step_name, output_dir):
+    del output_dir
+    self.saves.append(step_name)
+    self.store[step_name] = data
+
+  def checkpoint_exists(self, step_name, output_dir):
+    del output_dir
+    return step_name in self.store
+
+
+def _quoted_statement(sid, opinion=None):
+  topic = (
+      custom_types.NestedTopic(
+          name="T1", subtopics=[custom_types.FlatTopic(name=opinion)]
+      )
+      if opinion
+      else custom_types.FlatTopic(name="T1")
+  )
+  return custom_types.Statement(
+      id=sid,
+      text="t",
+      topics=[custom_types.FlatTopic(name="T1")],
+      quotes=[custom_types.Quote(id=f"{sid}-T1", text="q", topic=topic)],
+  )
+
+
+class Pass1CheckpointTest(unittest.TestCase):
+  """Pass-1 checkpoint preservation and Step 5b resume."""
+
+  def setUp(self):
+    # genai_model_test disables logging at import time; assertLogs needs it.
+    previous_disable = logging.root.manager.disable
+    logging.disable(logging.NOTSET)
+    self.addCleanup(logging.disable, previous_disable)
+    self.sensemaker = Sensemaker(genai_model=MagicMock())
+    self.topics = [custom_types.FlatTopic(name="T1")]
+    self.input = [_quoted_statement("s1")]
+    self.pass1 = [_quoted_statement("s1", "Other")]
+    self.pass1_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="A")]
+        )
+    }
+    self.final = [_quoted_statement("s1", "B")]
+    self.final_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1",
+            subtopics=[
+                custom_types.FlatTopic(name="A"),
+                custom_types.FlatTopic(name="B"),
+            ],
+        )
+    }
+
+  def _run(self, ckpt, mock_cat, **kwargs):
+    with patch("src.sensemaker.checkpoint_utils", ckpt):
+      return asyncio.run(
+          self.sensemaker.categorize_statements(
+              statements=self.input,
+              topics=self.topics,
+              output_dir="/fake",
+              **kwargs,
+          )
+      )
+
+  def _mock_categorization(self, mock_cat, ckpt=None):
+    mock_cat.learn_global_opinions = AsyncMock(return_value=self.pass1_map)
+    mock_cat.categorize_opinions = AsyncMock(return_value=self.pass1)
+
+    async def _recat(**kwargs):
+      if ckpt is not None:
+        # Pass-1 checkpoints must already be on disk when 5b starts.
+        self.assertIn("statements_with_opinions_pass1", ckpt.store)
+        self.assertIn("learned_opinions_pass1", ckpt.store)
+      return self.final, self.final_map
+
+    mock_cat.recategorize_other_quotes = AsyncMock(side_effect=_recat)
+
+  @patch("src.sensemaker.categorization")
+  def test_full_run_preserves_pass1_checkpoints(self, mock_cat):
+    ckpt = _FakeCheckpoints()
+    self._mock_categorization(mock_cat, ckpt)
+    out = self._run(ckpt, mock_cat, recategorize_other=True)
+    self.assertEqual(out, self.final)
+    self.assertEqual(ckpt.store["statements_with_opinions_pass1"], self.pass1)
+    self.assertEqual(ckpt.store["learned_opinions_pass1"], self.pass1_map)
+    self.assertEqual(ckpt.store["statements_with_opinions"], self.final)
+    self.assertEqual(ckpt.store["learned_opinions"], self.final_map)
+    self.assertEqual(ckpt.saves.count("statements_with_opinions_pass1"), 1)
+    self.assertEqual(ckpt.saves.count("learned_opinions_pass1"), 1)
+    self.assertLess(
+        ckpt.saves.index("learned_opinions_pass1"),
+        ckpt.saves.index("statements_with_opinions"),
+    )
+
+  @patch("src.sensemaker.categorization")
+  def test_resume_runs_5b_from_pass1(self, mock_cat):
+    ckpt = _FakeCheckpoints({
+        "statements_with_opinions_pass1": self.pass1,
+        "learned_opinions_pass1": self.pass1_map,
+    })
+    self._mock_categorization(mock_cat)
+    with self.assertLogs(level="INFO") as logs:
+      out = self._run(ckpt, mock_cat, recategorize_other=True)
+    self.assertEqual(out, self.final)
+    mock_cat.learn_global_opinions.assert_not_called()
+    mock_cat.categorize_opinions.assert_not_called()
+    kwargs = mock_cat.recategorize_other_quotes.call_args.kwargs
+    self.assertEqual(kwargs["statements"], self.pass1)
+    self.assertEqual(kwargs["topic_to_opinions_map"], self.pass1_map)
+    self.assertEqual(ckpt.store["statements_with_opinions"], self.final)
+    self.assertEqual(ckpt.store["learned_opinions"], self.final_map)
+    # Pass-1 checkpoints are untouched.
+    self.assertNotIn("statements_with_opinions_pass1", ckpt.saves)
+    self.assertNotIn("learned_opinions_pass1", ckpt.saves)
+    self.assertEqual(ckpt.store["statements_with_opinions_pass1"], self.pass1)
+    self.assertTrue(any("RESUME from pass-1" in m for m in logs.output))
+
+  @patch("src.sensemaker.categorization")
+  def test_resume_without_5b_uses_pass1_as_final(self, mock_cat):
+    ckpt = _FakeCheckpoints({
+        "statements_with_opinions_pass1": self.pass1,
+        "learned_opinions_pass1": self.pass1_map,
+    })
+    self._mock_categorization(mock_cat)
+    out = self._run(ckpt, mock_cat)
+    self.assertEqual(out, self.pass1)
+    mock_cat.recategorize_other_quotes.assert_not_called()
+    self.assertEqual(ckpt.store["statements_with_opinions"], self.pass1)
+
+  @patch("src.sensemaker.categorization")
+  def test_resume_missing_pass1_map_raises(self, mock_cat):
+    ckpt = _FakeCheckpoints({"statements_with_opinions_pass1": self.pass1})
+    self._mock_categorization(mock_cat)
+    with self.assertRaises(RuntimeError):
+      self._run(ckpt, mock_cat, recategorize_other=True)
+
+  @patch("src.sensemaker.categorization")
+  def test_legacy_final_only_skips_5b_with_warning(self, mock_cat):
+    ckpt = _FakeCheckpoints({"statements_with_opinions": self.final})
+    self._mock_categorization(mock_cat)
+    with self.assertLogs(level="WARNING") as logs:
+      out = self._run(ckpt, mock_cat, recategorize_other=True)
+    self.assertEqual(out, self.final)
+    mock_cat.categorize_opinions.assert_not_called()
+    mock_cat.recategorize_other_quotes.assert_not_called()
+    self.assertTrue(any("SKIPPED" in m for m in logs.output))
+    self.assertEqual(ckpt.saves, [])
+
+  @patch("src.sensemaker.categorization")
+  def test_final_and_pass1_present_skips_without_warning(self, mock_cat):
+    ckpt = _FakeCheckpoints({
+        "statements_with_opinions": self.final,
+        "statements_with_opinions_pass1": self.pass1,
+        "learned_opinions_pass1": self.pass1_map,
+    })
+    self._mock_categorization(mock_cat)
+    with self.assertLogs(level="INFO") as logs:
+      out = self._run(ckpt, mock_cat, recategorize_other=True)
+    self.assertEqual(out, self.final)
+    mock_cat.recategorize_other_quotes.assert_not_called()
+    self.assertFalse(any("WARNING" in m for m in logs.output))
+    self.assertTrue(any("already completed" in m for m in logs.output))
 
 
 if __name__ == "__main__":

@@ -25,11 +25,21 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
   sys.path.insert(0, project_root)
 
-from src import runner_utils, checkpoint_utils
+from src import checkpoint_utils
+from src import runner_utils
 from src.models import custom_types
 from src.tasks import categorization
 from src.quote_extraction import quote_extraction_lib
 from src.models import genai_model
+
+# Opinion-stage checkpoint names. The *_PASS1 checkpoints hold pass-1 opinion
+# learning (Step 4) and categorization (Step 5) results and are never
+# overwritten by optional pass-2 'Other' recategorization (Step 5b), so Step 5b
+# can be re-run (or ablated across arms) from an identical pass-1 state.
+OPINIONS_CHECKPOINT = "statements_with_opinions"
+LEARNED_OPINIONS_CHECKPOINT = "learned_opinions"
+PASS1_OPINIONS_CHECKPOINT = "statements_with_opinions_pass1"
+PASS1_LEARNED_OPINIONS_CHECKPOINT = "learned_opinions_pass1"
 
 
 class Sensemaker:
@@ -74,6 +84,22 @@ class Sensemaker:
       offer_other_opinion_on_recategorize: Optional[bool] = None,
   ) -> Iterable[custom_types.Statement]:
     """Categorize statements into topics and opinions using an LLM.
+
+    Pipeline steps:
+      - Step 1: Topic discovery and statement-to-topic categorization
+        (checkpoint: `statements_with_topics_and_learned_topics`).
+      - Step 2: Quote extraction per assigned topic
+        (checkpoint: `statements_with_quotes`).
+      - Opinion processing (Steps 4, 5, and optional Step 5b):
+        - Step 4: Pass-1 global opinion learning per topic
+          (checkpoints: `learned_opinions`, `learned_opinions_pass1`).
+        - Step 5: Pass-1 quote-to-opinion categorization
+          (checkpoint: `statements_with_opinions_pass1`, plus
+          `statements_with_opinions` when Step 5b is not run).
+        - Step 5b (optional, when `recategorize_other=True`): Pass-2 opinion
+          learning on 'Other' quotes followed by corpus re-categorization
+          (updates `learned_opinions` and `statements_with_opinions` while
+          leaving `*_pass1` checkpoints intact).
 
     Args:
         statements: The statements to categorize.
@@ -195,22 +221,84 @@ class Sensemaker:
         )
         runner_utils.write_dicts_to_csv(semifinal_rows, semifinal_csv_path)
 
-    # Step 3: Opinion Processing
+    # Opinion Processing (Steps 4, 5, and optional Step 5b)
     logging.info("Starting opinion processing.")
 
-    opinions_checkpoint = "statements_with_opinions"
-    loaded_opinions = checkpoint_utils.load_checkpoint(
-        opinions_checkpoint, output_dir
+    categorize_kwargs = dict(
+        max_autorater_retries=max_autorater_retries,
+        autorater_min_score=autorater_min_score,
+        offer_other_opinion=offer_other_opinion,
     )
 
+    loaded_opinions = checkpoint_utils.load_checkpoint(
+        OPINIONS_CHECKPOINT, output_dir
+    )
+    pass1_statements = None
+    if not loaded_opinions:
+      pass1_statements = checkpoint_utils.load_checkpoint(
+          PASS1_OPINIONS_CHECKPOINT, output_dir
+      )
+
     if loaded_opinions:
-      logging.info("Loaded statements with opinions from checkpoint.")
+      # Path F: final results exist; nothing to recompute.
       statements_with_opinions = loaded_opinions
-    else:
-      # Step 4: Global Opinion Learning
-      learned_opinions_checkpoint = "learned_opinions"
+      logging.info(
+          "Opinion path: FINAL checkpoint '%s' loaded; skipping Steps 4, 5"
+          " and 5b.",
+          OPINIONS_CHECKPOINT,
+      )
+      if recategorize_other and not checkpoint_utils.checkpoint_exists(
+          PASS1_OPINIONS_CHECKPOINT, output_dir
+      ):
+        logging.warning(
+            "Step 5b was requested but SKIPPED: only the legacy final"
+            " checkpoint '%s' exists and there is no pass-1 checkpoint '%s'"
+            " to re-run Step 5b from.",
+            OPINIONS_CHECKPOINT,
+            PASS1_OPINIONS_CHECKPOINT,
+        )
+      elif recategorize_other:
+        logging.info(
+            "Step 5b already completed for this output_dir. To re-run it from"
+            " the pass-1 checkpoint, delete '%s.pkl'.",
+            OPINIONS_CHECKPOINT,
+        )
+      logging.info(
+          "Topic and opinion categorization took"
+          f" {(time.perf_counter_ns() - start_time) / 60e9:.2f} minutes."
+      )
+      return statements_with_opinions
+
+    if pass1_statements:
+      # Path R: resume from the preserved pass-1 results.
       topic_to_opinions_map = checkpoint_utils.load_checkpoint(
-          learned_opinions_checkpoint, output_dir
+          PASS1_LEARNED_OPINIONS_CHECKPOINT, output_dir
+      )
+      if not topic_to_opinions_map:
+        raise RuntimeError(
+            f"Checkpoint '{PASS1_OPINIONS_CHECKPOINT}' exists but"
+            f" '{PASS1_LEARNED_OPINIONS_CHECKPOINT}' is missing or unreadable"
+            f" in {output_dir}; cannot resume. Copy both pass-1 checkpoints."
+        )
+      statements_with_opinions = pass1_statements
+      logging.info(
+          "Opinion path: RESUME from pass-1 checkpoints ('%s', '%s');"
+          " skipping Steps 4 and 5. %s",
+          PASS1_OPINIONS_CHECKPOINT,
+          PASS1_LEARNED_OPINIONS_CHECKPOINT,
+          "Running Step 5b."
+          if recategorize_other
+          else "Step 5b not requested; pass-1 results are final.",
+      )
+    else:
+      # Path P: full pass 1.
+      logging.info(
+          "Opinion path: FULL (Step 4 learning, Step 5 categorization%s).",
+          ", Step 5b" if recategorize_other else "",
+      )
+      # Step 4: Global Opinion Learning
+      topic_to_opinions_map = checkpoint_utils.load_checkpoint(
+          LEARNED_OPINIONS_CHECKPOINT, output_dir
       )
 
       if topic_to_opinions_map:
@@ -226,7 +314,7 @@ class Sensemaker:
         )
         if output_dir:
           checkpoint_utils.save_checkpoint(
-              topic_to_opinions_map, learned_opinions_checkpoint, output_dir
+              topic_to_opinions_map, LEARNED_OPINIONS_CHECKPOINT, output_dir
           )
 
       # Step 5: Global Opinion Categorization
@@ -238,14 +326,21 @@ class Sensemaker:
           additional_context=additional_context,
           run_autoraters=run_autoraters,
           max_concurrent_calls=max_concurrent_calls,
-          max_autorater_retries=max_autorater_retries,
-          autorater_min_score=autorater_min_score,
-          offer_other_opinion=offer_other_opinion,
+          pass_label="pass1",
+          **categorize_kwargs,
       )
 
+      # Preserve pass-1 results; Step 5b never writes these checkpoints.
       if output_dir:
         checkpoint_utils.save_checkpoint(
-            list(statements_with_opinions), opinions_checkpoint, output_dir
+            list(statements_with_opinions),
+            PASS1_OPINIONS_CHECKPOINT,
+            output_dir,
+        )
+        checkpoint_utils.save_checkpoint(
+            topic_to_opinions_map,
+            PASS1_LEARNED_OPINIONS_CHECKPOINT,
+            output_dir,
         )
 
     # Step 5b: Secondary pass on 'Other' quotes
@@ -255,6 +350,8 @@ class Sensemaker:
           if offer_other_opinion_on_recategorize is None
           else offer_other_opinion_on_recategorize
       )
+      step5b_categorize_kwargs = dict(categorize_kwargs)
+      step5b_categorize_kwargs["offer_other_opinion"] = pass2_offer_other
       logging.info(
           "Step 5b: Re-categorizing quotes (recategorize_all=True)..."
       )
@@ -270,18 +367,18 @@ class Sensemaker:
               recategorize_all=True,
               max_concurrent_calls=max_concurrent_calls,
               dedup_new_opinions=dedup_new_opinions,
-              offer_other_opinion=pass2_offer_other,
-              max_autorater_retries=max_autorater_retries,
-              autorater_min_score=autorater_min_score,
+              **step5b_categorize_kwargs,
           )
       )
       if output_dir:
         checkpoint_utils.save_checkpoint(
-            topic_to_opinions_map, learned_opinions_checkpoint, output_dir
+            topic_to_opinions_map, LEARNED_OPINIONS_CHECKPOINT, output_dir
         )
-        checkpoint_utils.save_checkpoint(
-            list(statements_with_opinions), opinions_checkpoint, output_dir
-        )
+
+    if output_dir:
+      checkpoint_utils.save_checkpoint(
+          list(statements_with_opinions), OPINIONS_CHECKPOINT, output_dir
+      )
 
     logging.info(
         "Topic and opinion categorization took"

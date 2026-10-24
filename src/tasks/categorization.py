@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import collections
 import enum
 import functools
 import itertools
@@ -30,6 +31,7 @@ from more_itertools import batched
 from src.tasks.topic_modeling_util import parse_response
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from src import prompts
+from src import run_health
 from src.models import decision
 from src.models import genai_model
 from src.models import systemone
@@ -287,6 +289,76 @@ def _normalize_opinion_records(
         records[idx].id = missing_id
         records[idx].quote_id = missing_qid
   return records
+
+
+OTHER_SOURCE_MODEL_CHOICE = "model_choice"
+OTHER_SOURCE_AUTORATER_EXHAUSTED = "autorater_exhausted"
+OTHER_SOURCE_RETRIES_EXHAUSTED = "retries_exhausted"
+OTHER_SOURCE_NO_OPINION_MENU = "no_opinion_menu"
+OTHER_SOURCES = (
+    OTHER_SOURCE_MODEL_CHOICE,
+    OTHER_SOURCE_AUTORATER_EXHAUSTED,
+    OTHER_SOURCE_RETRIES_EXHAUSTED,
+    OTHER_SOURCE_NO_OPINION_MENU,
+)
+
+
+def count_other_provenance(
+    input_statements_map: dict[str, Statement],
+    quote_keys: set[tuple[str, str]],
+    other_provenance: dict[tuple[str, str], str],
+) -> collections.Counter[str]:
+  """Counts how the 'Other' assignments among `quote_keys` arose.
+
+  Args:
+    input_statements_map: Statement id -> categorized Statement.
+    quote_keys: (statement id, quote id) pairs processed by this pass.
+    other_provenance: Fallback source per (statement id, quote id); quotes in
+      'Other' without an entry are counted as the model's own choice.
+
+  Returns:
+    Counter mapping each source in OTHER_SOURCES to its number of quotes
+    whose final opinions include 'Other'.
+  """
+  counts: collections.Counter[str] = collections.Counter()
+  for sid, quote_id in quote_keys:
+    stmt = input_statements_map.get(sid)
+    if not stmt:
+      continue
+    for q in stmt.quotes:
+      if q.id != quote_id:
+        continue
+      opinions = getattr(q.topic, "subtopics", None) or []
+      if any(is_other_opinion(o.name) for o in opinions):
+        source = other_provenance.get(
+            (sid, quote_id), OTHER_SOURCE_MODEL_CHOICE
+        )
+        counts[source] += 1
+      break
+  return counts
+
+
+def _log_other_provenance(
+    counts: collections.Counter[str],
+    total_quotes: int,
+    pass_label: str,
+    offer_other_opinion: bool,
+) -> None:
+  """Logs the 'Other' provenance breakdown and records it in run_health."""
+  n_other = sum(counts.values())
+  pct = 100.0 * n_other / total_quotes if total_quotes else 0.0
+  breakdown = ", ".join(f"{k}={counts.get(k, 0)}" for k in OTHER_SOURCES)
+  logging.info(
+      f"'Other' provenance [{pass_label}] (offer_other_opinion="
+      f"{offer_other_opinion}): {n_other}/{total_quotes} quotes ({pct:.1f}%)"
+      f" in 'Other': {breakdown}."
+  )
+  for kind in OTHER_SOURCES:
+    if counts.get(kind):
+      run_health.record(
+          f"other_source.{pass_label}.{kind}", n=counts[kind]
+      )
+
 async def categorize_topics(
     statements: list[Statement],
     model: genai_model.GenaiModel,
@@ -567,11 +639,17 @@ async def learn_global_opinions(
 
   if failed_opinion_chunks:
     total_failed = sum(failed_opinion_chunks.values())
-    logging.warning(
+    run_health.warning(
+        "opinion_chunk_failed",
         f"Opinion learning failed for {total_failed} of"
         f" {len(generation_prompts)} chunks across"
         f" {len(failed_opinion_chunks)} topics: {dict(failed_opinion_chunks)}."
-        " Quotes in failed chunks contribute no opinions."
+        " Quotes in failed chunks contribute no opinions.",
+        n=total_failed,
+        detail=[
+            f"{t_name}: {n_failed}/{len(topic_job_indices.get(t_name, []))}"
+            for t_name, n_failed in failed_opinion_chunks.items()
+        ],
     )
 
   # Now iterate over grouped results
@@ -734,9 +812,11 @@ async def learn_global_opinions(
           final_res.subtopics.append(FlatTopic(name="Other"))
         final_topic_map[topic_name] = final_res
       else:
-        logging.error(
+        run_health.error(
+            "opinion_merge_failed",
             f"Merge failed for topic '{topic_name}'. Falling back to combined"
-            " partials."
+            " partials.",
+            detail=topic_name,
         )
         if combined_opinions:
           fallback_subs = [
@@ -780,6 +860,7 @@ async def categorize_opinions(
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
     offer_other_opinion: bool = True,
+    pass_label: str = "pass1",
 ) -> Iterable[Statement]:
   """Categorizes opinions within the provided topics for each statement.
 
@@ -796,6 +877,8 @@ async def categorize_opinions(
     autorater_min_score: Minimum integer autorater score (0-4 rubric) for an
       opinion assignment to pass.
     offer_other_opinion: Whether to offer an 'Other' option to the model.
+    pass_label: Label used in the 'Other' provenance log line and run_health
+      events (e.g. "pass1", "pass2").
 
   Returns:
     List of statements with categorized opinions.
@@ -848,6 +931,17 @@ async def categorize_opinions(
         if t.name in [q.topic.name for q in s.quotes]
     ]
 
+  # Fallback reasons for quotes that end up assigned to 'Other', keyed by (statement id, quote id).
+  # Quotes in 'Other' without an entry were put there by the model.
+  other_provenance: dict[tuple[str, str], str] = {}
+  processed_quote_keys = {
+      (sid, q.id)
+      for t_name, sids in topic_work_queue_ids.items()
+      for sid in sids
+      for q in input_statements_map[sid].quotes
+      if q.topic.name == t_name
+  }
+
   # Autorater rejections per quote, keyed by (statement id, quote id).
   autorater_retry_counts: dict[tuple[str, str], int] = {}
 
@@ -869,6 +963,7 @@ async def categorize_opinions(
         topics_to_process,
         topic_to_opinions_map,
         input_statements_map,
+        other_provenance,
     )
 
   for attempt in range(1, model.max_llm_retries + 1):
@@ -945,6 +1040,7 @@ async def categorize_opinions(
           max_autorater_retries=max_autorater_retries,
           autorater_min_score=autorater_min_score,
           max_concurrent_calls=max_concurrent_calls,
+          other_provenance=other_provenance,
       )
       finalized_count_events += phase2_finalized_count
       all_stage_6_stats.extend(stage_6_stats)
@@ -1000,6 +1096,16 @@ async def categorize_opinions(
       topic_work_queue_ids,
       topics_to_process,
       input_statements_map,
+      other_provenance=other_provenance,
+  )
+
+  _log_other_provenance(
+      count_other_provenance(
+          input_statements_map, processed_quote_keys, other_provenance
+      ),
+      len(processed_quote_keys),
+      pass_label,
+      offer_other_opinion,
   )
 
   stage_duration = time.time() - stage_start_time
@@ -1028,6 +1134,7 @@ def _assign_other_for_empty_menus(
     topics_to_process: list[Topic],
     topic_to_opinions_map: dict[str, Any],
     input_statements_map: dict[str, Statement],
+    other_provenance: dict[tuple[str, str], str] | None = None,
 ) -> None:
   """Assigns 'Other' to quotes of topics with no non-Other opinions.
 
@@ -1040,6 +1147,8 @@ def _assign_other_for_empty_menus(
     topics_to_process: Topics being categorized.
     topic_to_opinions_map: Topic name -> NestedTopic of opinions.
     input_statements_map: Statement id -> Statement (updated in place).
+    other_provenance: If given, updated in place with the source of each
+      assignment.
   """
   for topic_name in list(topic_work_queue_ids):
     learned = topic_to_opinions_map.get(topic_name)
@@ -1064,9 +1173,14 @@ def _assign_other_for_empty_menus(
                   id=sid, quote_id=q.id, topics=[FlatTopic(name="Other")]
               )
           )
-    logging.warning(
+          if other_provenance is not None:
+            other_provenance[(sid, q.id)] = OTHER_SOURCE_NO_OPINION_MENU
+    run_health.warning(
+        "other_no_opinion_menu",
         f"Topic '{topic_name}' has no non-Other opinions and 'Other' is not"
-        f" offered; assigning {len(records)} quotes to 'Other'."
+        f" offered; assigning {len(records)} quotes to 'Other'.",
+        n=len(records),
+        detail=topic_name,
     )
     if records:
       _merge_opinions_into_statements_inplace(
@@ -1224,8 +1338,24 @@ async def _run_opinion_autoraters(
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
     max_concurrent_calls: int | None = None,
+    other_provenance: dict[tuple[str, str], str] | None = None,
 ) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
-  """Runs autoraters concurrently and processes results."""
+  """Runs autoraters concurrently and processes results.
+
+  Args:
+    model: The GenaiModel instance.
+    autorater_candidates: Batches of opinion assignments to evaluate.
+    input_statements_map: Statement id -> Statement (updated in place).
+    autorater_retry_counts: Rejections per quote (updated in place).
+    max_autorater_retries: Rejections allowed before defaulting to 'Other'.
+    autorater_min_score: Minimum autorater score (0-4 rubric) for a pass.
+    max_concurrent_calls: Concurrency limit.
+    other_provenance: If given, records `autorater_exhausted` for each quote
+      defaulted to 'Other', keyed by (statement id, quote id).
+
+  Returns:
+    (finalized_count, retries_by_topic, stats, wall_delay, duration)
+  """
   logging.info(
       f"Running autoraters for {len(autorater_candidates)} batches"
       " concurrently..."
@@ -1320,10 +1450,16 @@ async def _run_opinion_autoraters(
       )
 
       if autorater_retry_counts[retry_key] >= max_autorater_retries:
-        logging.warning(
+        run_health.warning(
+            "autorater_exhausted_to_other",
             f"Quote {original_record.quote_id} (statement {stat.id}) failed"
-            f" autorater {max_autorater_retries} times. Defaulting to 'Other'."
+            f" autorater {max_autorater_retries} times. Defaulting to 'Other'.",
+            detail=f"{original_record.quote_id}",
         )
+        if other_provenance is not None:
+          other_provenance[(stat.id, original_record.quote_id)] = (
+              OTHER_SOURCE_AUTORATER_EXHAUSTED
+          )
         # Permanently failed -> Other
         other_topic = FlatTopic(name="Other")
         other_record = StatementRecord(
@@ -1357,8 +1493,17 @@ def _assign_defaults_for_exhausted_retries(
     topic_work_queue_ids: dict[str, list[str]],
     topics_to_process: list[Topic],
     input_statements_map: dict[str, Statement],
+    other_provenance: dict[tuple[str, str], str] | None = None,
 ) -> None:
-  """Assigns statements to 'Other' if they exhausted all retries."""
+  """Assigns statements to 'Other' if they exhausted all retries.
+
+  Args:
+    topic_work_queue_ids: Topic name -> statement ids needing retry.
+    topics_to_process: Topics being categorized.
+    input_statements_map: Statement id -> Statement (updated in place).
+    other_provenance: If given, records `retries_exhausted` for each quote
+      defaulted to 'Other', keyed by (statement id, quote id).
+  """
   for topic_name, failed_ids in topic_work_queue_ids.items():
     topic = next((t for t in topics_to_process if t.name == topic_name), None)
     if not topic:
@@ -1370,9 +1515,12 @@ def _assign_defaults_for_exhausted_retries(
         if sid in input_statements_map
     ]
 
-    logging.warning(
+    run_health.warning(
+        "opinion_retries_exhausted_to_other",
         f"Exhausted retries for topic {topic_name} on {len(failed_stats)}"
-        " statements. Defaulting to 'Other'."
+        " statements. Defaulting to 'Other'.",
+        n=len(failed_stats),
+        detail=f"{topic_name}: {len(failed_stats)} statements",
     )
 
     other_topic = FlatTopic(name="Other")
@@ -1384,6 +1532,8 @@ def _assign_defaults_for_exhausted_retries(
           other_records.append(
               StatementRecord(id=stat.id, quote_id=q.id, topics=[other_topic])
           )
+          if other_provenance is not None:
+            other_provenance[(stat.id, q.id)] = OTHER_SOURCE_RETRIES_EXHAUSTED
     if other_records:
       _merge_opinions_into_statements_inplace(
           input_statements_map, other_records, topic
@@ -1495,9 +1645,11 @@ async def dedup_new_opinions_against_existing(
     topic_name = row.get("dedup_topic_name")
     result = row.get("result")
     if not isinstance(result, OpinionDedupResponse):
-      logging.warning(
+      run_health.warning(
+          "opinion_dedup_failed",
           f"New-opinion dedup failed for topic '{topic_name}'; keeping all"
-          f" {len(new_by_topic.get(topic_name, []))} new opinions."
+          f" {len(new_by_topic.get(topic_name, []))} new opinions.",
+          detail=str(topic_name),
       )
       continue
     kept, merged = _apply_dedup_decisions(
@@ -1662,10 +1814,13 @@ async def recategorize_other_quotes(
       else:
         failed_chunks += 1
     if failed_chunks:
-      logging.warning(
+      run_health.warning(
+          "other_opinion_chunk_failed",
           f"Secondary opinion learning failed for {failed_chunks} of"
           f" {len(generation_prompts)} chunks in topic '{t.name}'; their"
-          " 'Other' quotes contribute no new opinions."
+          " 'Other' quotes contribute no new opinions.",
+          n=failed_chunks,
+          detail=f"{t.name}: {failed_chunks}/{len(generation_prompts)} chunks",
       )
 
     if new_subtopics:
@@ -1732,6 +1887,9 @@ async def recategorize_other_quotes(
           opinions = getattr(q.topic, "subtopics", [])
           if any(o.name.lower() == "other" for o in opinions):
             q.topic = FlatTopic(name=q.topic.name)
+
+  categorize_kwargs = dict(categorize_kwargs)
+  categorize_kwargs.setdefault("pass_label", "pass2")
 
   recategorized_statements = await categorize_opinions(
       statements_with_topics_and_quotes=statements_to_recategorize,
@@ -2181,15 +2339,16 @@ async def _process_topic_categorization(
 
   if uncategorized_for_retry:
     item_ids = [s.id for s in uncategorized_for_retry]
-    logging.warning(
+    run_health.warning(
+        "topic_retries_exhausted_to_other",
         "\n"
         + ("!" * 80)
         + f"\nMax retries reached for {len(uncategorized_for_retry)} items."
         + " Defaulting them to 'Other'.\n"
         + f"Item IDs: {item_ids[:20]}\n"
-        + ("!" * 80)
+        + ("!" * 80),
+        n=len(uncategorized_for_retry),
     )
-
     other_topic = FlatTopic(name="Other")
 
     for statement in uncategorized_for_retry:
@@ -2480,10 +2639,12 @@ def _merge_opinions_into_statements_inplace(
                 f"('{q.id}' - '{q.topic.name})'" for q in input_statement.quotes
             ])
         )
-        logging.warning(
+        run_health.warning(
+            "opinion_assignment_skipped",
             f"Opinion categorization failed. For statement {llm_statement.id},"
             f" LLM quote '{llm_statement.quote_id}' or provided topic"
             f" '{parent_topic.name}' didn't match any input quote_id-topic"
-            " pair. Skipping this opinion assignment."
+            " pair. Skipping this opinion assignment.",
+            detail=str(llm_statement.quote_id),
         )
         continue

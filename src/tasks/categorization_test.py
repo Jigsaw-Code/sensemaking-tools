@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import asyncio
+import collections
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 
 from src import prompts
+from src import run_health
 from src.models import custom_types
 from src.tasks import categorization
 
@@ -1212,6 +1214,73 @@ class CategorizationTest(unittest.TestCase):
     self.assertEqual(
         [s.name for s in result_map["Roads"].subtopics], ["Other"]
     )
+
+  def test_count_other_provenance(self):
+    stmt1 = custom_types.Statement(
+        id="s1",
+        text="text 1",
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="q1",
+                topic=custom_types.NestedTopic(
+                    name="T1", subtopics=[custom_types.FlatTopic(name="Other")]
+                ),
+            )
+        ],
+    )
+    stmt2 = custom_types.Statement(
+        id="s2",
+        text="text 2",
+        quotes=[
+            custom_types.Quote(
+                id="q2",
+                text="q2",
+                topic=custom_types.NestedTopic(
+                    name="T1", subtopics=[custom_types.FlatTopic(name="Other")]
+                ),
+            )
+        ],
+    )
+    stmt3 = custom_types.Statement(
+        id="s3",
+        text="text 3",
+        quotes=[
+            custom_types.Quote(
+                id="q3",
+                text="q3",
+                topic=custom_types.NestedTopic(
+                    name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+                ),
+            )
+        ],
+    )
+    stmts_map = {"s1": stmt1, "s2": stmt2, "s3": stmt3}
+    quote_keys = {("s1", "q1"), ("s2", "q2"), ("s3", "q3")}
+    other_provenance = {
+        ("s1", "q1"): categorization.OTHER_SOURCE_AUTORATER_EXHAUSTED,
+    }
+    counts = categorization.count_other_provenance(
+        stmts_map, quote_keys, other_provenance
+    )
+    self.assertEqual(
+        counts[categorization.OTHER_SOURCE_AUTORATER_EXHAUSTED], 1
+    )
+    self.assertEqual(counts[categorization.OTHER_SOURCE_MODEL_CHOICE], 1)
+    self.assertEqual(counts[categorization.OTHER_SOURCE_RETRIES_EXHAUSTED], 0)
+
+  def test_log_other_provenance_records_run_health(self):
+    run_health.reset()
+    counts = collections.Counter({
+        categorization.OTHER_SOURCE_MODEL_CHOICE: 2,
+        categorization.OTHER_SOURCE_AUTORATER_EXHAUSTED: 1,
+    })
+    categorization._log_other_provenance(
+        counts, total_quotes=5, pass_label="pass1", offer_other_opinion=True
+    )
+    summary = run_health.summary()
+    self.assertEqual(summary["other_source.pass1.model_choice"], 2)
+    self.assertEqual(summary["other_source.pass1.autorater_exhausted"], 1)
 
 
 if __name__ == "__main__":

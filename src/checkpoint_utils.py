@@ -51,6 +51,18 @@ def save_checkpoint(data: Any, step_name: str, output_dir: Optional[str]):
     pickle.dump(data, f)  # type: ignore
 
 
+def checkpoint_exists(step_name: str, output_dir: Optional[str]) -> bool:
+  """Returns True if a checkpoint file for `step_name` exists (no unpickling).
+
+  Args:
+      step_name: The name of the step.
+      output_dir: The output directory. If None, returns False.
+  """
+  if not output_dir:
+    return False
+  return os.path.exists(_get_checkpoint_path(output_dir, step_name))
+
+
 def load_checkpoint(step_name: str, output_dir: Optional[str]) -> Optional[Any]:
   """Loads data from a checkpoint file if it exists.
 

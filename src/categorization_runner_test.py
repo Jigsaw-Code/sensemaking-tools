@@ -15,6 +15,9 @@
 import argparse
 import asyncio
 import io
+import json
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -666,6 +669,13 @@ class CategorizationRunnerTest(unittest.TestCase):
         autorater_min_score=4,
     )
 
+  def test_write_run_health(self):
+    """Tests that the run-health counts are written as JSON."""
+    with tempfile.TemporaryDirectory() as tmp:
+      out = os.path.join(tmp, 'nested')
+      categorization_runner._write_run_health(out, {'model_stalled': 1})
+      with open(os.path.join(out, 'run_health.json')) as f:
+        self.assertEqual(json.load(f), {'model_stalled': 1})
 
 if __name__ == '__main__':
   unittest.main()

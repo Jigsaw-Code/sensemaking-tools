@@ -15,6 +15,7 @@
 import logging
 from typing import List, Optional
 from src.models.genai_model import GenaiModel
+from src import run_health
 from src import sensemaker_utils
 from src import prompts
 from src.tasks import topic_modeling_util
@@ -122,8 +123,10 @@ async def learn_topics(
   if response_topics:
     return response_topics
 
-  logging.error(
-      "Could not generate topics after retries. Returning empty list."
+  run_health.error(
+      "topic_learning_failed",
+      "Could not generate topics after retries. Returning empty list.",
+      detail=f"{len(statements)} statements",
   )
   return []
 

@@ -20,17 +20,21 @@ import logging
 import os
 import random
 import time
-import tqdm.asyncio
 from typing import Any, Callable, Tuple, TypedDict
+
 from google import genai
 from google.api_core import exceptions as google_api_core_exceptions
 from google.api_core import exceptions as google_exceptions
 from google.genai import errors as google_genai_errors
 from google.genai import types as genai_types
-from google.protobuf import duration_pb2, json_format
-from src.models import custom_types
+from google.protobuf import duration_pb2
+from google.protobuf import json_format
 import pandas as pd
+import tqdm.asyncio
+
+from src import run_health
 from src.models import base_model
+from src.models import custom_types
 from src.models.base_model import BaseModel
 
 
@@ -361,7 +365,11 @@ class GenaiModel(BaseModel):
         " silently degrading results."
     )
     logging.error("!" * 80)
-    logging.error("MODEL STALLED: %s", self._stall_message)
+    run_health.error(
+        "model_stalled",
+        f"MODEL STALLED: {self._stall_message}",
+        detail=self._stall_message,
+    )
     logging.error("!" * 80)
     # Wake any workers blocked on a global pause so they can exit promptly.
     self._global_pause_event.set()

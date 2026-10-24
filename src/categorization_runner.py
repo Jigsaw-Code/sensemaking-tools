@@ -32,6 +32,7 @@ python -m src.categorization_runner \
 import argparse
 import asyncio
 import collections
+import json
 import logging
 import os
 import re
@@ -40,7 +41,9 @@ import time
 from typing import Any, Dict, Iterable, List, Literal, Optional, Union, cast
 from src.models import decision
 from src.models import model_factory
-from src import runner_utils, sensemaker
+from src import run_health
+from src import runner_utils
+from src import sensemaker
 from src.tasks import categorization
 from src.models import custom_types
 from src.models import genai_model
@@ -297,8 +300,26 @@ def _format_seconds(seconds: float) -> str:
   return f"{seconds:.2f}s"
 
 
+def _write_run_health(output_dir: str, counts: Dict[str, int]) -> None:
+  """Writes the run-health event counts to `<output_dir>/run_health.json`.
+
+  Args:
+    output_dir: The run's output directory.
+    counts: Event counts as returned by `run_health.log_summary()`.
+  """
+  path = os.path.join(output_dir, "run_health.json")
+  try:
+    os.makedirs(output_dir, exist_ok=True)
+    with open(path, "w") as f:
+      json.dump(counts, f, indent=2, sort_keys=True)
+    logging.info(f"Run health summary written to {path}")
+  except OSError as e:
+    logging.error(f"Failed to write run health summary to {path}: {e}")
+
+
 async def main() -> Optional[str]:
   """Main function to run the categorization runner."""
+  run_health.reset()
   parser = argparse.ArgumentParser(
       description="Categorize statements using Sensemaker."
   )
@@ -644,6 +665,8 @@ async def main() -> Optional[str]:
   )
   _filter_csv_columns(categorized_csv_path, output_csv_path, filtered_columns)
 
+  _write_run_health(args.output_dir, run_health.log_summary())
+
   return log_dir
 
 
@@ -655,6 +678,7 @@ if __name__ == "__main__":
   except Exception as e:
     # Gracefully handle exceptions so the stack trace is saved to the log file.
     logging.exception(f"Process crashed with an error: {e}")
+    run_health.log_summary()
     raise
   end_time = time.time()
 

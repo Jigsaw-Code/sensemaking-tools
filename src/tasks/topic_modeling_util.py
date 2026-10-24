@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from src.models.genai_model import GenaiModel
 from src.models import custom_types
+from src import run_health
 from src import runner_utils
 from src import sensemaker_utils
 from src import prompts
@@ -228,6 +229,36 @@ def parse_response(response_text: str, schema_to_expect: Any) -> Any:
     ) from e
 
 
+def _report_failed_chunks(
+    stage: str,
+    event: str,
+    failures: List[str],
+    total: int,
+) -> None:
+  """Logs a WARNING and records run_health events for failed chunks.
+
+  Args:
+    stage: Human-readable stage name for the log message.
+    event: run_health event name (one occurrence recorded per failed chunk).
+    failures: One description per failed chunk.
+    total: Total number of chunks submitted.
+  """
+  if not failures:
+    return
+  run_health.warning(
+      event,
+      f"{stage}: failed {len(failures)} of {total} chunks; their input was"
+      f" excluded from the merged result. Failures: {failures[:10]}",
+      n=len(failures),
+      detail=[f"{failure} (of {total} chunks)" for failure in failures],
+  )
+
+
+def _chunk_label(row: Dict[str, Any], index: int) -> str:
+  """Returns a label identifying a chunk result row for diagnostics."""
+  return str(row.get("chunk") or f"chunk_{index}")
+
+
 async def create_chunks(
     model: GenaiModel,
     instructions: str,
@@ -329,9 +360,13 @@ async def generate_topics_with_chunking(
   )
 
   partial_results = []
-  for result in results_df["result"]:
+  failures: List[str] = []
+  rows = results_df.to_dict("records")
+  for index, row in enumerate(rows):
+    result = row.get("result")
+    label = _chunk_label(row, index)
     if result is None or (isinstance(result, dict) and result.get("error")):
-      logging.warning(f"Skipping failed chunk result: {result}")
+      failures.append(f"{label}: {result}")
       continue
 
     if isinstance(result, list):
@@ -339,9 +374,12 @@ async def generate_topics_with_chunking(
     elif isinstance(result, custom_types.FlatTopicList):
       partial_results.extend(result.topics)
     else:
-      logging.warning(
-          f"Unexpected result type in chunk processing: {type(result)}"
-      )
+      failures.append(f"{label}: unexpected result type {type(result)}")
+  if len(rows) < chunk_count:
+    failures.append(f"{chunk_count - len(rows)} chunk(s) returned no result")
+  _report_failed_chunks(
+      "Topic identification", "topic_chunk_failed", failures, chunk_count
+  )
 
   return await _merge_topics(
       model, partial_results, schema_to_expect, additional_context
@@ -478,17 +516,27 @@ async def generate_opinions_with_chunking(
   )
 
   partial_results_list = []
-  for result in results_df["result"]:
+  failures: List[str] = []
+  rows = results_df.to_dict("records")
+  for index, row in enumerate(rows):
+    result = row.get("result")
+    label = _chunk_label(row, index)
     if result is None or (isinstance(result, dict) and result.get("error")):
-      logging.warning(f"Skipping failed opinion chunk result: {result}")
+      failures.append(f"{label}: {result}")
       continue
 
     if isinstance(result, custom_types.NestedTopic):
       partial_results_list.append(result)
     else:
-      logging.warning(
-          f"Unexpected result type in opinion chunk processing: {type(result)}"
-      )
+      failures.append(f"{label}: unexpected result type {type(result)}")
+  if len(rows) < chunk_count:
+    failures.append(f"{chunk_count - len(rows)} chunk(s) returned no result")
+  _report_failed_chunks(
+      f"Opinion identification for topic '{parent_topic.name}'",
+      "opinion_chunk_failed",
+      failures,
+      chunk_count,
+  )
 
   return await merge_opinions(
       model,
@@ -534,8 +582,10 @@ async def merge_opinions(
   )
 
   if resp.get("error"):
-    logging.error(
-        f"Error calling Gemini for opinion merge: {resp.get('error')}"
+    run_health.error(
+        "opinion_merge_failed",
+        f"Error calling Gemini for opinion merge: {resp.get('error')}",
+        detail=f"topic '{parent_topic.name}': {str(resp.get('error'))[:200]}",
     )
     return custom_types.NestedTopic(name=parent_topic.name, subtopics=[])
 
