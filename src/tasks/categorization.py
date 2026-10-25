@@ -455,7 +455,8 @@ async def categorize_opinions(
         if t.name in [q.topic.name for q in s.quotes]
     ]
 
-  autorater_retry_counts: dict[str, int] = {}
+  # Autorater rejections per quote, keyed by (statement id, quote id).
+  autorater_retry_counts: dict[tuple[str, str], int] = {}
 
   total_statements = len(input_statements_map)
   finalized_count_events = 0
@@ -750,7 +751,7 @@ async def _run_opinion_autoraters(
     model: genai_model.GenaiModel,
     autorater_candidates: list[dict[str, Any]],
     input_statements_map: dict[str, Statement],
-    autorater_retry_counts: dict[str, int],
+    autorater_retry_counts: dict[tuple[str, str], int],
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
     max_concurrent_calls: int | None = None,
@@ -841,14 +842,18 @@ async def _run_opinion_autoraters(
       if not stat:
         continue
 
-      autorater_retry_counts[stat.id] = (
-          autorater_retry_counts.get(stat.id, 0) + 1
+      # Count rejections per quote (not per statement): a statement with
+      # quotes in several topics must not exhaust one quote's budget through
+      # rejections of its other quotes.
+      retry_key = (stat.id, original_record.quote_id or parent_topic_name)
+      autorater_retry_counts[retry_key] = (
+          autorater_retry_counts.get(retry_key, 0) + 1
       )
 
-      if autorater_retry_counts[stat.id] >= max_autorater_retries:
+      if autorater_retry_counts[retry_key] >= max_autorater_retries:
         logging.warning(
-            f"Statement {stat.id} failed autorater"
-            f" {max_autorater_retries} times. Defaulting to 'Other'."
+            f"Quote {original_record.quote_id} (statement {stat.id}) failed"
+            f" autorater {max_autorater_retries} times. Defaulting to 'Other'."
         )
         # Permanently failed -> Other
         other_topic = FlatTopic(name="Other")

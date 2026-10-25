@@ -16,6 +16,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pandas as pd
+
 from src import prompts
 from src.models import custom_types
 from src.tasks import categorization
@@ -666,6 +668,114 @@ class CategorizationTest(unittest.TestCase):
     self.assertEqual(len(result), 1)
     self.assertEqual(result[0].quotes[0].topic.subtopics[0].name, "Op1")
     self.assertEqual(mock_model.process_prompts_concurrently.call_count, 1)
+
+  def test_autorater_retries_counted_per_quote_not_per_statement(self):
+    # A statement with quotes in 2 topics: T1 always fails autorater,
+    # T2 fails autorater once then passes on attempt 2.
+    # With per-quote tracking, T1 rejections do not consume T2's budget.
+    statement = custom_types.Statement(
+        id="s1",
+        text="multi quote statement",
+        topics=[
+            custom_types.FlatTopic(name="T1"),
+            custom_types.FlatTopic(name="T2"),
+        ],
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="quote 1",
+                topic=custom_types.FlatTopic(name="T1"),
+            ),
+            custom_types.Quote(
+                id="q2",
+                text="quote 2",
+                topic=custom_types.FlatTopic(name="T2"),
+            ),
+        ],
+    )
+    topics = [
+        custom_types.FlatTopic(name="T1"),
+        custom_types.FlatTopic(name="T2"),
+    ]
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        ),
+        "T2": custom_types.NestedTopic(
+            name="T2", subtopics=[custom_types.FlatTopic(name="Op2")]
+        ),
+    }
+    mock_model = MagicMock()
+    mock_model.max_llm_retries = 20
+
+    t2_call_count = 0
+
+    def mock_process_prompts(prompts, **kwargs):
+      rows = []
+      for p in prompts:
+        topic_name = p["work_queue_topic_name"]
+        records = []
+        for s in p["batch_items"]:
+          for q in s.quotes:
+            if q.topic.name == topic_name:
+              op_name = "Op1" if topic_name == "T1" else "Op2"
+              records.append(
+                  custom_types.QuoteOpinionRecord(
+                      id=s.id,
+                      quote_id=q.id,
+                      topics=[custom_types.FlatTopic(name=op_name)],
+                  )
+              )
+        rows.append({**p, "result": records})
+      return pd.DataFrame(rows), pd.DataFrame(), 0.0, 1.0
+
+    mock_model.process_prompts_concurrently = AsyncMock(
+        side_effect=mock_process_prompts
+    )
+
+    def mock_workers(*args, **kwargs):
+      stop_event = asyncio.Event()
+      results_list = []
+
+      class CustomQueue:
+
+        def put_nowait(self, p):
+          nonlocal t2_call_count
+          if p is None:
+            return
+          rec = p["metadata"]["original_record"]
+          if rec.quote_id == "q1":
+            score = 1  # Always fail
+          else:
+            t2_call_count += 1
+            score = 1 if t2_call_count == 1 else 4  # Fails 1st, passes 2nd
+          results_list.append({
+              "result": {"score": score, "explanation": ""},
+              "metadata": p["metadata"],
+          })
+
+      return CustomQueue(), [], results_list, [], stop_event
+
+    mock_model.start_concurrent_workers.side_effect = mock_workers
+
+    out = list(
+        asyncio.run(
+            categorization.categorize_opinions(
+                statements_with_topics_and_quotes=[statement],
+                topics_to_process=topics,
+                topic_to_opinions_map=topic_map,
+                model=mock_model,
+                max_autorater_retries=3,
+            )
+        )
+    )
+
+    self.assertEqual(len(out), 1)
+    by_topic = {q.topic.name: q.topic.subtopics[0].name for q in out[0].quotes}
+    # q1 failed 3 times -> Other
+    # q2 failed 1 time then succeeded -> Op2 (would have been forced to Other
+    # under per-statement counting)
+    self.assertEqual(by_topic, {"T1": "Other", "T2": "Op2"})
 
   @patch(
       "src.tasks.categorization.asyncio.sleep",
