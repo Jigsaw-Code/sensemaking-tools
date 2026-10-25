@@ -396,6 +396,16 @@ async def main() -> Optional[str]:
           " defaulted to 'Other'."
       ),
   )
+  parser.add_argument(
+      "--autorater_min_score",
+      type=int,
+      choices=range(0, 5),
+      default=categorization.DEFAULT_AUTORATER_MIN_SCORE,
+      help=(
+          "Minimum integer autorater score (0-4 rubric) for an opinion"
+          " assignment to pass."
+      ),
+  )
 
   args = parser.parse_args()
 
@@ -501,6 +511,11 @@ async def main() -> Optional[str]:
           args,
           "max_autorater_retries",
           categorization.DEFAULT_MAX_AUTORATER_RETRIES,
+      ),
+      autorater_min_score=getattr(
+          args,
+          "autorater_min_score",
+          categorization.DEFAULT_AUTORATER_MIN_SCORE,
       ),
   )
 

@@ -59,6 +59,9 @@ MAX_ITEMS_PER_BATCH = int(os.getenv("MAX_ITEMS_PER_BATCH", 5))
 # Number of autorater rejections a single quote may receive before it is
 # defaulted to 'Other'.
 DEFAULT_MAX_AUTORATER_RETRIES = 3
+# Minimum integer autorater score (rubric is 0-4) for an opinion assignment to
+# pass.
+DEFAULT_AUTORATER_MIN_SCORE = 4
 
 # Concurrency is driven dynamically via CLI flags passed down to tasks.
 
@@ -400,6 +403,7 @@ async def categorize_opinions(
     run_autoraters: bool = True,
     max_concurrent_calls: int | None = None,
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
+    autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
 ) -> Iterable[Statement]:
   """Categorizes opinions within the provided topics for each statement.
 
@@ -413,6 +417,8 @@ async def categorize_opinions(
     max_concurrent_calls: Optional maximum number of concurrent LLM calls.
     max_autorater_retries: Number of autorater rejections a single quote may
       receive before it is defaulted to 'Other'.
+    autorater_min_score: Minimum integer autorater score (0-4 rubric) for an
+      opinion assignment to pass.
 
   Returns:
     List of statements with categorized opinions.
@@ -420,6 +426,10 @@ async def categorize_opinions(
   if max_autorater_retries < 0:
     raise ValueError(
         f"max_autorater_retries must be >= 0, got {max_autorater_retries}"
+    )
+  if not (0 <= autorater_min_score <= 4):
+    raise ValueError(
+        f"autorater_min_score must be between 0 and 4, got {autorater_min_score}"
     )
 
   logging.info("Starting Global Opinion Categorization Phase...")
@@ -525,6 +535,7 @@ async def categorize_opinions(
           input_statements_map=input_statements_map,
           autorater_retry_counts=autorater_retry_counts,
           max_autorater_retries=max_autorater_retries,
+          autorater_min_score=autorater_min_score,
           max_concurrent_calls=max_concurrent_calls,
       )
       finalized_count_events += phase2_finalized_count
@@ -741,6 +752,7 @@ async def _run_opinion_autoraters(
     input_statements_map: dict[str, Statement],
     autorater_retry_counts: dict[str, int],
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
+    autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
     max_concurrent_calls: int | None = None,
 ) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
   """Runs autoraters concurrently and processes results."""
@@ -816,7 +828,7 @@ async def _run_opinion_autoraters(
     if not original_record or not parent_topic_obj:
       continue
 
-    if score is not None and score >= 4:
+    if score is not None and score >= autorater_min_score:
       # Passed
       _merge_opinions_into_statements_inplace(
           input_statements_map, [original_record], parent_topic_obj

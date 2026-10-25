@@ -106,6 +106,32 @@ class AutoraterEvalsTest(unittest.TestCase):
     self.assertEqual(len(processed["failed"]), 1)
     self.assertEqual(processed["failed"][0].id, "s1")
 
+  def test_process_opinion_eval_results_custom_min_score(self):
+    record = custom_types.StatementRecord(id="s1", topics=[])
+    results_list = [{
+        "result": {"score": 3, "explanation": "Mostly good"},
+        "metadata": {"original_record": record},
+    }]
+    processed_default = autorater_evals.process_opinion_eval_results(
+        results_list
+    )
+    self.assertEqual(len(processed_default["passed"]), 0)
+    self.assertEqual(len(processed_default["failed"]), 1)
+
+    processed_min_3 = autorater_evals.process_opinion_eval_results(
+        results_list, min_score=3
+    )
+    self.assertEqual(len(processed_min_3["passed"]), 1)
+    self.assertEqual(len(processed_min_3["failed"]), 0)
+
+  def test_process_opinion_eval_results_rejects_invalid_min_score(self):
+    for bad_score in (-1, 5):
+      with self.subTest(bad_score=bad_score):
+        with self.assertRaises(ValueError):
+          autorater_evals.process_opinion_eval_results(
+              [], min_score=bad_score
+          )
+
 
 if __name__ == "__main__":
   unittest.main()

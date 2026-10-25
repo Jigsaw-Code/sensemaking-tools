@@ -512,6 +512,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         skip_quote_extraction=False,
         max_concurrent_calls=42,  # Verifies it was forwarded correctly!
         max_autorater_retries=3,
+        autorater_min_score=4,
     )
 
   @mock.patch('src.categorization_runner.model_factory.get_model')
@@ -521,7 +522,7 @@ class CategorizationRunnerTest(unittest.TestCase):
   @mock.patch('src.categorization_runner._convert_csv_rows_to_statements')
   @mock.patch('src.categorization_runner._read_csv_to_dicts')
   @mock.patch('argparse.ArgumentParser.parse_args')
-  def test_cli_max_autorater_retries_forwarded_to_categorize_statements(
+  def test_cli_autorater_args_forwarded_to_categorize_statements(
       self,
       mock_parse_args,
       mock_read_csv,
@@ -545,6 +546,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         gemini_api_key=None,
         max_concurrent_calls=None,
         max_autorater_retries=5,
+        autorater_min_score=3,
     )
     mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
     mock_statement = custom_types.Statement(
@@ -572,6 +574,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         skip_quote_extraction=False,
         max_concurrent_calls=None,
         max_autorater_retries=5,
+        autorater_min_score=3,
     )
 
 

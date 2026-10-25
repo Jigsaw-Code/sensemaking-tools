@@ -112,8 +112,22 @@ def prepare_opinion_eval_prompts(
 
 def process_opinion_eval_results(
     results_list: list[dict[str, Any]],
+    min_score: int = 4,
 ) -> dict[str, list[custom_types.StatementRecord]]:
-  """Processes the evaluation results."""
+  """Processes the evaluation results.
+
+  Args:
+    results_list: Rows returned by the model worker.
+    min_score: Minimum integer score (0-4 rubric) for a record to pass.
+
+  Returns:
+    Dict with "passed" and "failed" record lists.
+  """
+  if not (0 <= min_score <= 4):
+    raise ValueError(
+        f"min_score must be between 0 and 4, got {min_score}"
+    )
+
   passed_records = []
   failed_records = []
 
@@ -144,7 +158,7 @@ def process_opinion_eval_results(
             f"Opinion categorization for quote {original_record.quote_id}"
             f" failed eval with execution error: {error}"
         )
-      elif score is not None and score >= 4:
+      elif score is not None and score >= min_score:
         passed_records.append(original_record)
       else:
         failed_records.append(original_record)
