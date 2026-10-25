@@ -151,7 +151,9 @@ class CategorizationTest(unittest.TestCase):
     topic_map = {"Topic A": nested_topic}
 
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock process_prompts_concurrently
     fake_record = custom_types.StatementRecord(
@@ -239,7 +241,9 @@ class CategorizationTest(unittest.TestCase):
     topic_map = {"Topic A": nested_topic}
 
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock process_prompts_concurrently with mismatched quote_id
     fake_record = custom_types.StatementRecord(
@@ -346,7 +350,9 @@ class CategorizationTest(unittest.TestCase):
     ]
     topics = [custom_types.FlatTopic(name="T1")]
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock chunks
     with patch(
@@ -436,7 +442,9 @@ class CategorizationTest(unittest.TestCase):
     }
 
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock process_prompts
     # It will be called multiple times: 1st attempt, 2nd, 3rd.
@@ -516,6 +524,39 @@ class CategorizationTest(unittest.TestCase):
     # So process_prompts_concurrently should be called 3 times.
     self.assertEqual(mock_model.process_prompts_concurrently.call_count, 3)
 
+  def test_categorize_opinions_invalid_max_autorater_retries(self):
+    statement = custom_types.Statement(
+        id="statement1",
+        text="text",
+        topics=[custom_types.FlatTopic(name="T1")],
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="quote",
+                topic=custom_types.NestedTopic(
+                    name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+                ),
+            )
+        ],
+    )
+    topics = [custom_types.FlatTopic(name="T1")]
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        )
+    }
+    mock_model = MagicMock()
+    with self.assertRaises(ValueError):
+      asyncio.run(
+          categorization.categorize_opinions(
+              statements_with_topics_and_quotes=[statement],
+              topics_to_process=topics,
+              topic_to_opinions_map=topic_map,
+              model=mock_model,
+              max_autorater_retries=-1,
+          )
+      )
+
   @patch(
       "src.tasks.categorization.asyncio.sleep",
       new_callable=AsyncMock,
@@ -540,7 +581,9 @@ class CategorizationTest(unittest.TestCase):
         )
     }
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     fake_record = custom_types.StatementRecord(
         id="statement1",

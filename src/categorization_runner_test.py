@@ -511,6 +511,67 @@ class CategorizationRunnerTest(unittest.TestCase):
         run_autoraters=True,
         skip_quote_extraction=False,
         max_concurrent_calls=42,  # Verifies it was forwarded correctly!
+        max_autorater_retries=3,
+    )
+
+  @mock.patch('src.categorization_runner.model_factory.get_model')
+  @mock.patch('src.categorization_runner.sensemaker.Sensemaker')
+  @mock.patch('src.categorization_runner.runner_utils')
+  @mock.patch('src.categorization_runner._set_topics_on_csv_rows')
+  @mock.patch('src.categorization_runner._convert_csv_rows_to_statements')
+  @mock.patch('src.categorization_runner._read_csv_to_dicts')
+  @mock.patch('argparse.ArgumentParser.parse_args')
+  def test_cli_max_autorater_retries_forwarded_to_categorize_statements(
+      self,
+      mock_parse_args,
+      mock_read_csv,
+      mock_convert,
+      _mock_set_topics,
+      mock_runner_utils,
+      mock_sensemaker_cls,
+      mock_get_model,
+  ):
+    mock_parse_args.return_value = argparse.Namespace(
+        output_dir='/tmp/output',
+        input_file='/tmp/input.csv',
+        topics=None,
+        topic_and_opinion_csv=None,
+        model_name='gemini-pro',
+        force_rerun=False,
+        log_level='INFO',
+        skip_autoraters=False,
+        max_llm_retries=None,
+        skip_quote_extraction=False,
+        gemini_api_key=None,
+        max_concurrent_calls=None,
+        max_autorater_retries=5,
+    )
+    mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
+    mock_statement = custom_types.Statement(
+        id='1', text='test', topics=[], quotes=[]
+    )
+    mock_convert.return_value = [mock_statement]
+    mock_runner_utils.filter_large_statements.return_value = (
+        [mock_statement],
+        [],
+    )
+    mock_sensemaker_instance = mock_sensemaker_cls.return_value
+    mock_sensemaker_instance.categorize_statements = mock.AsyncMock(
+        return_value=[mock_statement]
+    )
+
+    asyncio.run(categorization_runner.main())
+
+    mock_sensemaker_instance.categorize_statements.assert_called_once_with(
+        statements=[mock_statement],
+        topics=None,
+        additional_context=mock.ANY,
+        original_csv_rows=mock.ANY,
+        output_dir='/tmp/output',
+        run_autoraters=True,
+        skip_quote_extraction=False,
+        max_concurrent_calls=None,
+        max_autorater_retries=5,
     )
 
 

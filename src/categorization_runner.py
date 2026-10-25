@@ -40,6 +40,7 @@ import time
 from typing import Any, Dict, Iterable, List, Literal, Optional, Union, cast
 from src.models import model_factory
 from src import runner_utils, sensemaker
+from src.tasks import categorization
 from src.models import custom_types
 from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
 from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
@@ -386,6 +387,15 @@ async def main() -> Optional[str]:
           " response as the quote."
       ),
   )
+  parser.add_argument(
+      "--max_autorater_retries",
+      type=int,
+      default=categorization.DEFAULT_MAX_AUTORATER_RETRIES,
+      help=(
+          "Autorater rejections a single quote may receive before it is"
+          " defaulted to 'Other'."
+      ),
+  )
 
   args = parser.parse_args()
 
@@ -487,6 +497,11 @@ async def main() -> Optional[str]:
       run_autoraters=not args.skip_autoraters,
       skip_quote_extraction=args.skip_quote_extraction,
       max_concurrent_calls=args.max_concurrent_calls,
+      max_autorater_retries=getattr(
+          args,
+          "max_autorater_retries",
+          categorization.DEFAULT_MAX_AUTORATER_RETRIES,
+      ),
   )
 
   output_csv_rows = _set_topics_on_csv_rows(
