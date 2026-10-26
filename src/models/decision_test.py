@@ -321,6 +321,46 @@ class DecisionTests(unittest.TestCase):
 
     self.assertEqual(updated[0].quotes[0].topic.subtopics[0].name, "Other")
 
+  def test_autorater_skips_a_quote_that_already_fell_back_to_other(self):
+    client, transport = _client()
+    statement = custom_types.Statement(
+        id="s1",
+        text="The weather was fine.",
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="The weather was fine.",
+                topic=custom_types.FlatTopic(name="Transit"),
+            )
+        ],
+    )
+    learned = {
+        "Transit": custom_types.NestedTopic(
+            name="Transit",
+            subtopics=[custom_types.FlatTopic(name="More buses")],
+        )
+    }
+    updated = list(
+        asyncio.run(
+            categorization._categorize_opinions_with_decision(
+                [statement],
+                [custom_types.FlatTopic(name="Transit")],
+                learned,
+                None,
+                True,
+                client,
+            )
+        )
+    )
+
+    self.assertEqual(updated[0].quotes[0].topic.subtopics[0].name, "Other")
+    asked = [
+        question["type"]
+        for body in transport.bodies
+        for question in body["questions"].values()
+    ]
+    self.assertEqual(asked, ["noul"])
+
   def test_autorater_min_score_zero_keeps_the_assignment(self):
     client, _ = _client()
     statement = custom_types.Statement(

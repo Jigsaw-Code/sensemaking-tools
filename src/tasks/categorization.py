@@ -1093,7 +1093,9 @@ async def _categorize_opinions_with_decision(
 
   System One answers are deterministic, so repeating the same judgment cannot
   change the verdict. A score below autorater_min_score is finalized as Other
-  immediately, without the retries the generative path uses.
+  immediately, without the retries the generative path uses. A quote that
+  already fell back to Other is not rated, since rejecting it would change
+  nothing.
   """
   input_statements_map = {
       statement.id: statement.model_copy(deep=True)
@@ -1118,7 +1120,7 @@ async def _categorize_opinions_with_decision(
             opinion_names,
             kind="opinion",
         )
-        if run_autoraters:
+        if run_autoraters and chosen != [decision.OTHER]:
           level = await decision.rubric_level(
               client,
               (
