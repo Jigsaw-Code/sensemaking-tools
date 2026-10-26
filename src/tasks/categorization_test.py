@@ -16,6 +16,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pandas as pd
+
 from src import prompts
 from src.models import custom_types
 from src.tasks import categorization
@@ -151,7 +153,9 @@ class CategorizationTest(unittest.TestCase):
     topic_map = {"Topic A": nested_topic}
 
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock process_prompts_concurrently
     fake_record = custom_types.StatementRecord(
@@ -239,7 +243,9 @@ class CategorizationTest(unittest.TestCase):
     topic_map = {"Topic A": nested_topic}
 
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock process_prompts_concurrently with mismatched quote_id
     fake_record = custom_types.StatementRecord(
@@ -346,7 +352,9 @@ class CategorizationTest(unittest.TestCase):
     ]
     topics = [custom_types.FlatTopic(name="T1")]
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock chunks
     with patch(
@@ -386,6 +394,29 @@ class CategorizationTest(unittest.TestCase):
       self.assertIn("Other", opinion_names)
       self.assertIn("Opinion 1", opinion_names)
 
+  def test_learn_global_opinions_uses_predefined_subtopics(self):
+    """Predefined subtopics (e.g., from --topic_and_opinion_csv) skip LLM learning."""
+    predefined_topic = custom_types.NestedTopic(
+        name="T1",
+        subtopics=[custom_types.FlatTopic(name="Predefined Opinion 1")],
+    )
+    topics = [predefined_topic, custom_types.FlatTopic(name="Other")]
+    mock_model = MagicMock()
+    mock_model.process_prompts_concurrently = AsyncMock()
+
+    result_map = asyncio.run(
+        categorization.learn_global_opinions(
+            statements_with_topics_and_quotes=[],
+            topics_to_process=topics,
+            model=mock_model,
+        )
+    )
+
+    mock_model.process_prompts_concurrently.assert_not_called()
+    self.assertIn("T1", result_map)
+    opinion_names = [op.name for op in result_map["T1"].subtopics]
+    self.assertEqual(opinion_names, ["Predefined Opinion 1", "Other"])
+
   @patch(
       "src.tasks.categorization.asyncio.sleep",
       new_callable=AsyncMock,
@@ -413,7 +444,9 @@ class CategorizationTest(unittest.TestCase):
     }
 
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     # Mock process_prompts
     # It will be called multiple times: 1st attempt, 2nd, 3rd.
@@ -493,6 +526,257 @@ class CategorizationTest(unittest.TestCase):
     # So process_prompts_concurrently should be called 3 times.
     self.assertEqual(mock_model.process_prompts_concurrently.call_count, 3)
 
+  def test_categorize_opinions_invalid_max_autorater_retries(self):
+    statement = custom_types.Statement(
+        id="statement1",
+        text="text",
+        topics=[custom_types.FlatTopic(name="T1")],
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="quote",
+                topic=custom_types.NestedTopic(
+                    name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+                ),
+            )
+        ],
+    )
+    topics = [custom_types.FlatTopic(name="T1")]
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        )
+    }
+    mock_model = MagicMock()
+    with self.assertRaises(ValueError):
+      asyncio.run(
+          categorization.categorize_opinions(
+              statements_with_topics_and_quotes=[statement],
+              topics_to_process=topics,
+              topic_to_opinions_map=topic_map,
+              model=mock_model,
+              max_autorater_retries=-1,
+          )
+      )
+
+  def test_categorize_opinions_invalid_autorater_min_score(self):
+    statement = custom_types.Statement(
+        id="statement1",
+        text="text",
+        topics=[custom_types.FlatTopic(name="T1")],
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="quote",
+                topic=custom_types.NestedTopic(
+                    name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+                ),
+            )
+        ],
+    )
+    topics = [custom_types.FlatTopic(name="T1")]
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        )
+    }
+    mock_model = MagicMock()
+    for bad_score in (-1, 5):
+      with self.subTest(bad_score=bad_score):
+        with self.assertRaises(ValueError):
+          asyncio.run(
+              categorization.categorize_opinions(
+                  statements_with_topics_and_quotes=[statement],
+                  topics_to_process=topics,
+                  topic_to_opinions_map=topic_map,
+                  model=mock_model,
+                  autorater_min_score=bad_score,
+              )
+          )
+
+  def test_categorize_opinions_respects_autorater_min_score(self):
+    import pandas as pd
+
+    statement = custom_types.Statement(
+        id="statement1",
+        text="text",
+        topics=[custom_types.FlatTopic(name="T1")],
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="quote",
+                topic=custom_types.FlatTopic(name="T1"),
+            )
+        ],
+    )
+    topics = [custom_types.FlatTopic(name="T1")]
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        )
+    }
+    mock_model = MagicMock()
+    mock_model.max_llm_retries = 20
+
+    fake_record = custom_types.StatementRecord(
+        id="statement1",
+        quote_id="q1",
+        topics=[custom_types.FlatTopic(name="Op1")],
+    )
+    results_data = [{
+        "result": [fake_record],
+        "target_opinions": topic_map["T1"].subtopics,
+        "parent_topic_obj": topics[0],
+        "batch_items": [statement],
+        "work_queue_topic_name": "T1",
+    }]
+    mock_model.process_prompts_concurrently = AsyncMock(
+        return_value=(pd.DataFrame(results_data), pd.DataFrame(), 0.0, 1.0)
+    )
+
+    queue = asyncio.Queue()
+    stop_event = asyncio.Event()
+    autorater_result_score_3 = {
+        "result": {"score": 3, "explanation": "Mostly matches"},
+        "metadata": {
+            "original_record": fake_record,
+            "parent_topic_obj": topics[0],
+            "parent_topic_name": "T1",
+        },
+    }
+    mock_model.start_concurrent_workers.return_value = (
+        queue,
+        [],
+        [autorater_result_score_3],
+        [],
+        stop_event,
+    )
+
+    # With autorater_min_score=3, a score of 3 passes on the first attempt
+    # instead of being rejected and falling back to 'Other'.
+    result = list(
+        asyncio.run(
+            categorization.categorize_opinions(
+                statements_with_topics_and_quotes=[statement],
+                topics_to_process=topics,
+                topic_to_opinions_map=topic_map,
+                model=mock_model,
+                autorater_min_score=3,
+            )
+        )
+    )
+    self.assertEqual(len(result), 1)
+    self.assertEqual(result[0].quotes[0].topic.subtopics[0].name, "Op1")
+    self.assertEqual(mock_model.process_prompts_concurrently.call_count, 1)
+
+  def test_autorater_retries_counted_per_quote_not_per_statement(self):
+    # A statement with quotes in 2 topics: T1 always fails autorater,
+    # T2 fails autorater once then passes on attempt 2.
+    # With per-quote tracking, T1 rejections do not consume T2's budget.
+    statement = custom_types.Statement(
+        id="s1",
+        text="multi quote statement",
+        topics=[
+            custom_types.FlatTopic(name="T1"),
+            custom_types.FlatTopic(name="T2"),
+        ],
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="quote 1",
+                topic=custom_types.FlatTopic(name="T1"),
+            ),
+            custom_types.Quote(
+                id="q2",
+                text="quote 2",
+                topic=custom_types.FlatTopic(name="T2"),
+            ),
+        ],
+    )
+    topics = [
+        custom_types.FlatTopic(name="T1"),
+        custom_types.FlatTopic(name="T2"),
+    ]
+    topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        ),
+        "T2": custom_types.NestedTopic(
+            name="T2", subtopics=[custom_types.FlatTopic(name="Op2")]
+        ),
+    }
+    mock_model = MagicMock()
+    mock_model.max_llm_retries = 20
+
+    t2_call_count = 0
+
+    def mock_process_prompts(prompts, **kwargs):
+      rows = []
+      for p in prompts:
+        topic_name = p["work_queue_topic_name"]
+        records = []
+        for s in p["batch_items"]:
+          for q in s.quotes:
+            if q.topic.name == topic_name:
+              op_name = "Op1" if topic_name == "T1" else "Op2"
+              records.append(
+                  custom_types.QuoteOpinionRecord(
+                      id=s.id,
+                      quote_id=q.id,
+                      topics=[custom_types.FlatTopic(name=op_name)],
+                  )
+              )
+        rows.append({**p, "result": records})
+      return pd.DataFrame(rows), pd.DataFrame(), 0.0, 1.0
+
+    mock_model.process_prompts_concurrently = AsyncMock(
+        side_effect=mock_process_prompts
+    )
+
+    def mock_workers(*args, **kwargs):
+      stop_event = asyncio.Event()
+      results_list = []
+
+      class CustomQueue:
+
+        def put_nowait(self, p):
+          nonlocal t2_call_count
+          if p is None:
+            return
+          rec = p["metadata"]["original_record"]
+          if rec.quote_id == "q1":
+            score = 1  # Always fail
+          else:
+            t2_call_count += 1
+            score = 1 if t2_call_count == 1 else 4  # Fails 1st, passes 2nd
+          results_list.append({
+              "result": {"score": score, "explanation": ""},
+              "metadata": p["metadata"],
+          })
+
+      return CustomQueue(), [], results_list, [], stop_event
+
+    mock_model.start_concurrent_workers.side_effect = mock_workers
+
+    out = list(
+        asyncio.run(
+            categorization.categorize_opinions(
+                statements_with_topics_and_quotes=[statement],
+                topics_to_process=topics,
+                topic_to_opinions_map=topic_map,
+                model=mock_model,
+                max_autorater_retries=3,
+            )
+        )
+    )
+
+    self.assertEqual(len(out), 1)
+    by_topic = {q.topic.name: q.topic.subtopics[0].name for q in out[0].quotes}
+    # q1 failed 3 times -> Other
+    # q2 failed 1 time then succeeded -> Op2 (would have been forced to Other
+    # under per-statement counting)
+    self.assertEqual(by_topic, {"T1": "Other", "T2": "Op2"})
+
   @patch(
       "src.tasks.categorization.asyncio.sleep",
       new_callable=AsyncMock,
@@ -517,7 +801,9 @@ class CategorizationTest(unittest.TestCase):
         )
     }
     mock_model = MagicMock()
-    mock_model.max_llm_retries = 10
+    # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
+    # is independent of max_llm_retries.
+    mock_model.max_llm_retries = 20
 
     fake_record = custom_types.StatementRecord(
         id="statement1",

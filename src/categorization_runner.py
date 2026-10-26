@@ -41,6 +41,7 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Union, cast
 from src.models import decision
 from src.models import model_factory
 from src import runner_utils, sensemaker
+from src.tasks import categorization
 from src.models import custom_types
 from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
 from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
@@ -55,7 +56,7 @@ def _filter_csv_columns(
 ):
   """Filters a CSV file to keep only specified columns."""
   try:
-    df = pd.read_csv(input_file, dtype=str)
+    df = pd.read_csv(input_file, dtype=str, keep_default_na=False)
 
     # Find which of the desired columns are present in the input file
     present_columns = [col for col in columns_to_keep if col in df.columns]
@@ -88,7 +89,7 @@ def _read_csv_to_dicts(input_file_path: str) -> List[Dict[str, str]]:
   if not os.path.exists(file_path):
     raise FileNotFoundError(f"Input file not found: {file_path}")
 
-  df = pd.read_csv(file_path, dtype=str)
+  df = pd.read_csv(file_path, dtype=str, keep_default_na=False)
   # Convert all header names to lowercase
   df.columns = [h.lower() for h in df.columns]
   return df.to_dict("records")
@@ -234,7 +235,7 @@ def _get_topics_from_arg(
 
 def _get_topics_and_opinions_from_csv(csv_path: str):
   return_topics = []
-  df = pd.read_csv(csv_path)
+  df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
   for topic_str, group_df in df.groupby("topic"):
     new_topic = custom_types.NestedTopic(name=topic_str)
     for opinion_str in group_df["opinion"].unique():
@@ -387,6 +388,25 @@ async def main() -> Optional[str]:
           " response as the quote."
       ),
   )
+  parser.add_argument(
+      "--max_autorater_retries",
+      type=int,
+      default=categorization.DEFAULT_MAX_AUTORATER_RETRIES,
+      help=(
+          "Autorater rejections a single quote may receive before it is"
+          " defaulted to 'Other'."
+      ),
+  )
+  parser.add_argument(
+      "--autorater_min_score",
+      type=int,
+      choices=range(0, 5),
+      default=categorization.DEFAULT_AUTORATER_MIN_SCORE,
+      help=(
+          "Minimum integer autorater score (0-4 rubric) for an opinion"
+          " assignment to pass."
+      ),
+  )
 
   args = parser.parse_args()
 
@@ -496,6 +516,16 @@ async def main() -> Optional[str]:
       run_autoraters=not args.skip_autoraters,
       skip_quote_extraction=args.skip_quote_extraction,
       max_concurrent_calls=args.max_concurrent_calls,
+      max_autorater_retries=getattr(
+          args,
+          "max_autorater_retries",
+          categorization.DEFAULT_MAX_AUTORATER_RETRIES,
+      ),
+      autorater_min_score=getattr(
+          args,
+          "autorater_min_score",
+          categorization.DEFAULT_AUTORATER_MIN_SCORE,
+      ),
   )
 
   output_csv_rows = _set_topics_on_csv_rows(

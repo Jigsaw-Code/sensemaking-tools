@@ -281,21 +281,22 @@ if __name__ == "__main__":
       ),
   )
   args = parser.parse_args()
-  df = pd.read_csv(args.input_csv)
+  df = pd.read_csv(args.input_csv, keep_default_na=False, na_values=[""])
   print(f"Scoring {len(df)} rows from {args.input_csv}")
   gemini_api_key = args.gemini_api_key or os.getenv("GEMINI_API_KEY")
   gcloud_api_key = args.gcloud_api_key or os.getenv("GCLOUD_API_KEY")
 
   if (
       args.scorer_type == "GEMINI"
+      and os.getenv("MODEL_ENDPOINT_TYPE", "google_genai") == "google_genai"
       and not gemini_api_key
       and not decision.decision_enabled()
   ):
     print(
         "Error: --scorer_type GEMINI needs --gemini_api_key or the"
         " GEMINI_API_KEY environment variable, or"
-        " DECISION_ENDPOINT_TYPE=systemone to score with a local System One"
-        " model."
+        " DECISION_ENDPOINT_TYPE=systemone to score with a System One"
+        " decision model."
     )
     exit(1)
 

@@ -58,6 +58,13 @@ from src.tasks.topic_modeling import learn_topics, learn_opinions
 MAX_BATCH_TOKENS = int(os.getenv("MAX_BATCH_TOKENS", 20000))
 MAX_ITEMS_PER_BATCH = int(os.getenv("MAX_ITEMS_PER_BATCH", 5))
 
+# Number of autorater rejections a single quote may receive before it is
+# defaulted to 'Other'.
+DEFAULT_MAX_AUTORATER_RETRIES = 3
+# Minimum integer autorater score (rubric is 0-4) for an opinion assignment to
+# pass.
+DEFAULT_AUTORATER_MIN_SCORE = 4
+
 # Concurrency is driven dynamically via CLI flags passed down to tasks.
 
 
@@ -159,12 +166,27 @@ async def learn_global_opinions(
   """
   logging.info("Starting Global Opinion Learning Phase (Concurrent)...")
 
+  final_topic_map: dict[str, NestedTopic] = {}
+  topics_needing_learning: list[Topic] = []
+  for t in topics_to_process:
+    if t.name == "Other":
+      continue
+    if isinstance(t, NestedTopic) and t.subtopics:
+      if not any(sub.name == "Other" for sub in t.subtopics):
+        t.subtopics.append(FlatTopic(name="Other"))
+      final_topic_map[t.name] = t
+    else:
+      topics_needing_learning.append(t)
+
+  if final_topic_map and not topics_needing_learning:
+    logging.info(
+        "All topics already have predefined opinions. Skipping opinion"
+        " learning."
+    )
+    return final_topic_map
+
   # 1. Prepare Chunks for all topics concurrently
   async def _prepare_topic_chunks(topic: Topic):
-    # Skip "Other" topic for opinion categorization
-    if topic.name == "Other":
-      return topic, [], None
-
     # Gather relevant quotes for this topic
     quotes = []
     for s in statements_with_topics_and_quotes:
@@ -185,8 +207,10 @@ async def learn_global_opinions(
     return topic, chunks, instructions
 
   # Gather chunks for all topics
-  logging.info(f"Preparing chunks for {len(topics_to_process)} topics...")
-  preparation_tasks = [_prepare_topic_chunks(t) for t in topics_to_process]
+  logging.info(
+      f"Preparing chunks for {len(topics_needing_learning)} topics..."
+  )
+  preparation_tasks = [_prepare_topic_chunks(t) for t in topics_needing_learning]
   # We use gather here as this is primarily CPU/minor I/O or token counting
   prepared_topics = await asyncio.gather(*preparation_tasks)
 
@@ -219,7 +243,7 @@ async def learn_global_opinions(
 
   if not generation_prompts:
     logging.warning("No chunks generated for opinion learning.")
-    return {}
+    return final_topic_map
 
   logging.info(
       f"Generated {len(generation_prompts)} opinion learning batches "
@@ -244,7 +268,6 @@ async def learn_global_opinions(
   total_wall_delay += wall_delay
 
   # 4. Process Results and Prepare Merges (Phase 2)
-  final_topic_map = {}
   merge_prompts = []
   # Map topic name to its merge job index
   merge_job_indices: dict[str, int] = {}
@@ -256,7 +279,7 @@ async def learn_global_opinions(
   topic_objs_by_name: dict[str, Topic] = {}
 
   # Initialize list for all expected topics
-  for t in topics_to_process:
+  for t in topics_needing_learning:
     topic_results[t.name] = []
     topic_objs_by_name[t.name] = t
 
@@ -381,6 +404,8 @@ async def categorize_opinions(
     additional_context: str | None = None,
     run_autoraters: bool = True,
     max_concurrent_calls: int | None = None,
+    max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
+    autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
 ) -> Iterable[Statement]:
   """Categorizes opinions within the provided topics for each statement.
 
@@ -391,10 +416,23 @@ async def categorize_opinions(
     model: GenaiModel instance for LLM calls.
     additional_context: Additional context to provide to the LLM.
     run_autoraters: Whether to run autorater evaluations.
+    max_concurrent_calls: Optional maximum number of concurrent LLM calls.
+    max_autorater_retries: Number of autorater rejections a single quote may
+      receive before it is defaulted to 'Other'.
+    autorater_min_score: Minimum integer autorater score (0-4 rubric) for an
+      opinion assignment to pass.
 
   Returns:
     List of statements with categorized opinions.
   """
+  if max_autorater_retries < 0:
+    raise ValueError(
+        f"max_autorater_retries must be >= 0, got {max_autorater_retries}"
+    )
+  if not (0 <= autorater_min_score <= 4):
+    raise ValueError(
+        f"autorater_min_score must be between 0 and 4, got {autorater_min_score}"
+    )
 
   logging.info("Starting Global Opinion Categorization Phase...")
 
@@ -434,11 +472,8 @@ async def categorize_opinions(
         if t.name in [q.topic.name for q in s.quotes]
     ]
 
-  autorater_retry_counts: dict[str, int] = {}
-  # Use max_llm_retries override if provided, otherwise default to 3
-  MAX_AUTORATER_RETRIES = (
-      model.max_llm_retries if model.max_llm_retries != 10 else 3
-  )
+  # Autorater rejections per quote, keyed by (statement id, quote id).
+  autorater_retry_counts: dict[tuple[str, str], int] = {}
 
   total_statements = len(input_statements_map)
   finalized_count_events = 0
@@ -517,7 +552,8 @@ async def categorize_opinions(
           autorater_candidates=autorater_candidates,
           input_statements_map=input_statements_map,
           autorater_retry_counts=autorater_retry_counts,
-          max_autorater_retries=MAX_AUTORATER_RETRIES,
+          max_autorater_retries=max_autorater_retries,
+          autorater_min_score=autorater_min_score,
           max_concurrent_calls=max_concurrent_calls,
       )
       finalized_count_events += phase2_finalized_count
@@ -732,8 +768,9 @@ async def _run_opinion_autoraters(
     model: genai_model.GenaiModel,
     autorater_candidates: list[dict[str, Any]],
     input_statements_map: dict[str, Statement],
-    autorater_retry_counts: dict[str, int],
-    max_autorater_retries: int,
+    autorater_retry_counts: dict[tuple[str, str], int],
+    max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
+    autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
     max_concurrent_calls: int | None = None,
 ) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
   """Runs autoraters concurrently and processes results."""
@@ -809,7 +846,7 @@ async def _run_opinion_autoraters(
     if not original_record or not parent_topic_obj:
       continue
 
-    if score is not None and score >= 4:
+    if score is not None and score >= autorater_min_score:
       # Passed
       _merge_opinions_into_statements_inplace(
           input_statements_map, [original_record], parent_topic_obj
@@ -822,14 +859,18 @@ async def _run_opinion_autoraters(
       if not stat:
         continue
 
-      autorater_retry_counts[stat.id] = (
-          autorater_retry_counts.get(stat.id, 0) + 1
+      # Count rejections per quote (not per statement): a statement with
+      # quotes in several topics must not exhaust one quote's budget through
+      # rejections of its other quotes.
+      retry_key = (stat.id, original_record.quote_id or parent_topic_name)
+      autorater_retry_counts[retry_key] = (
+          autorater_retry_counts.get(retry_key, 0) + 1
       )
 
-      if autorater_retry_counts[stat.id] >= max_autorater_retries:
+      if autorater_retry_counts[retry_key] >= max_autorater_retries:
         logging.warning(
-            f"Statement {stat.id} failed autorater"
-            f" {max_autorater_retries} times. Defaulting to 'Other'."
+            f"Quote {original_record.quote_id} (statement {stat.id}) failed"
+            f" autorater {max_autorater_retries} times. Defaulting to 'Other'."
         )
         # Permanently failed -> Other
         other_topic = FlatTopic(name="Other")

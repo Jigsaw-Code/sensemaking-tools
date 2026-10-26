@@ -64,6 +64,8 @@ class Sensemaker:
       run_autoraters: bool = True,
       skip_quote_extraction: bool = False,
       max_concurrent_calls: Optional[int] = None,
+      max_autorater_retries: int = categorization.DEFAULT_MAX_AUTORATER_RETRIES,
+      autorater_min_score: int = categorization.DEFAULT_AUTORATER_MIN_SCORE,
   ) -> Iterable[custom_types.Statement]:
     """Categorize statements into topics and opinions using an LLM.
 
@@ -79,6 +81,10 @@ class Sensemaker:
           response as quote.
         max_concurrent_calls: Optional maximum number of concurrent LLM calls,
           applied to every LLM stage. If None, the model's default is used.
+        max_autorater_retries: Number of autorater rejections a single quote
+          may receive before it is defaulted to 'Other'.
+        autorater_min_score: Minimum integer autorater score (0-4 rubric) for
+          an opinion assignment to pass.
 
     Returns:
         The statements with topics and opinions assigned.
@@ -213,6 +219,8 @@ class Sensemaker:
           additional_context=additional_context,
           run_autoraters=run_autoraters,
           max_concurrent_calls=max_concurrent_calls,
+          max_autorater_retries=max_autorater_retries,
+          autorater_min_score=autorater_min_score,
       )
 
       if output_dir:

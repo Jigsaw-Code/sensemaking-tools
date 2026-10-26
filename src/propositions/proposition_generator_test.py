@@ -267,14 +267,14 @@ class WorldModelBuilderTest(unittest.TestCase):
     mock_model_instance.process_prompts_concurrently.side_effect = (
         mock_async_function
     )
-    mock_model_instance.calculate_token_count_needed.return_value = 100
+    mock_model_instance.estimate_token_count_needed.return_value = 100
     mock_genai_model.return_value = mock_model_instance
     return mock_model_instance
 
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -324,7 +324,7 @@ class WorldModelBuilderTest(unittest.TestCase):
         gemini_api_key="test_key", model_name="gemini-3.5-flash"
     )
     self.assertEqual(
-        mock_model_instance.calculate_token_count_needed.call_count, 5
+        mock_model_instance.estimate_token_count_needed.call_count, 5
     )
     mock_model_instance.process_prompts_concurrently.assert_called_once()
     # Check that the correct parser was passed
@@ -350,7 +350,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -398,7 +398,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -457,7 +457,7 @@ class WorldModelBuilderTest(unittest.TestCase):
   @mock.patch(
       "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
   )
-  @mock.patch("src.propositions.proposition_generator.genai_model.GenaiModel")
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
   @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
   @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
   @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
@@ -514,6 +514,81 @@ class WorldModelBuilderTest(unittest.TestCase):
         "propositions"
     ].iloc[0]
     self.assertNotIn(opinion_val, opinion_props["proposition"].values)
+
+  @mock.patch(
+      "src.propositions.proposition_generator.analyze_and_allocate_by_opinion"
+  )
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
+  @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
+  @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
+  @mock.patch(
+      "src.propositions.input_csv_validation.is_r1_df_missing_required_column",
+      return_value=None,
+  )
+  @mock.patch(
+      "src.propositions.input_csv_validation.is_r2_df_missing_required_column",
+      return_value=None,
+  )
+  def test_main_populates_propositions_from_result_column(
+      self,
+      mock_is_r2_valid,
+      mock_is_r1_valid,
+      mock_read_csv,
+      mock_save_csv,
+      mock_save_pickle,
+      mock_get_model,
+      mock_analyze_opinion,
+  ):
+    """Tests deriving propositions from 'result' when model omits 'propositions'."""
+    mock_read_csv.return_value = self.df_r1
+    mock_model_instance = self._setup_main_mocks(
+        mock_get_model, mock_analyze_opinion
+    )
+
+    async def mock_result_only_response(prompts, parser, *args, **kwargs):
+      del parser, args, kwargs
+      results = [
+          pd.DataFrame({"proposition": [f"prop {i}"]})
+          if i > 0
+          else {"error": "Failed after 3 attempts"}
+          for i in range(len(prompts))
+      ]
+      response_df = pd.DataFrame({
+          "topic": [p["topic"] for p in prompts],
+          "opinion": [p["opinion"] for p in prompts],
+          "allocations": [p["allocations"] for p in prompts],
+          "result": results,
+          "total_token_used": [100] * len(prompts),
+          "prompt_token_count": [90] * len(prompts),
+          "candidates_token_count": [1] * len(prompts),
+          "tool_use_prompt_token_count": [0] * len(prompts),
+          "thoughts_token_count": [0] * len(prompts),
+      })
+      stats_df = pd.DataFrame({"combined_tokens": [100 * len(prompts)]})
+      return (response_df, stats_df, 0.0, 1.0)
+
+    mock_model_instance.process_prompts_concurrently.side_effect = (
+        mock_result_only_response
+    )
+
+    test_args = [
+        "proposition_generator.py",
+        "--r1_input_file",
+        self.r1_file,
+        "--output_dir",
+        self.output_dir,
+        "--gemini_api_key",
+        "test_key",
+    ]
+    with mock.patch.object(sys, "argv", test_args):
+      asyncio.run(proposition_generator.main())
+
+    final_df = mock_save_pickle.call_args[0][0]
+    self.assertIn("propositions", final_df.columns)
+    for props_df in final_df["propositions"]:
+      self.assertIsInstance(props_df, pd.DataFrame)
+      self.assertIn("proposition", props_df.columns)
 
 
 if __name__ == "__main__":

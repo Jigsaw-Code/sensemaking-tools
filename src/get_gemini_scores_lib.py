@@ -18,9 +18,9 @@ import pydantic
 from typing import Any
 from src import attribute_prompt_config
 from src import prompts
-from src.models import decision
-from src.models import genai_model
 from src.models import custom_types
+from src.models import decision
+from src.models import model_factory
 from src.models import systemone
 
 # Maximum number of missing (row_id, attribute) pairs listed in the warning.
@@ -104,7 +104,7 @@ class ContentScorer:
 
     self._decision = decision.decision_client()
     if self._decision is None:
-      self.client = genai_model.GenaiModel(
+      self.client = model_factory.get_model(
           model_name=model_name,
           gemini_api_key=gemini_api_key,
           max_llm_retries=max_llm_retries,

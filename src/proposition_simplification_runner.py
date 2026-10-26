@@ -37,7 +37,9 @@ import argparse
 import asyncio
 import pandas as pd
 
-from src.models import genai_model
+from src import runner_utils
+from src.models import base_model
+from src.models import model_factory
 
 
 DEFAULT_SIMPLIFICATION_PROMPT = """
@@ -69,7 +71,7 @@ Apply this exact process to the list below.
 
 
 async def generate_text_in_parallel(
-    model: genai_model.GenaiModel, prompt_obj_list: list[dict]
+    model: base_model.BaseModel, prompt_obj_list: list[dict]
 ) -> pd.DataFrame:
   response_df, _, _, _ = await model.process_prompts_concurrently(
       prompt_obj_list, lambda x, _: x['text']
@@ -77,9 +79,19 @@ async def generate_text_in_parallel(
   return response_df
 
 
-def get_full_prompt(instructions, proposition):
+def get_full_prompt(
+    instructions: str,
+    proposition: str,
+    additional_context: str | None = None,
+) -> str:
+  """Constructs the full simplification prompt for a single proposition."""
+  context_block = (
+      f"\n\n<additionalContext>\n  {additional_context}\n</additionalContext>"
+      if additional_context
+      else ""
+  )
   return (
-      f"{instructions}\n\n"
+      f"{instructions}{context_block}\n\n"
       "Here is the proposition to rewrite:\n"
       f"<proposition>\n{proposition}\n</proposition>\n\n"
       "Provide only the rewritten proposition as your output. "
@@ -89,18 +101,23 @@ def get_full_prompt(instructions, proposition):
 
 async def main(args):
   """Main function to run the proposition simplification experiment."""
-  model = genai_model.GenaiModel(
+  model = model_factory.get_model(
       model_name=args.model_name,
       gemini_api_key=args.gemini_api_key,
   )
 
+  additional_context = runner_utils.get_additional_context(args)
   df = pd.read_csv(args.input_csv)
 
   # For each proposition, run the simplification prompt
   prompt_objs = []
-  for i, row in df.iterrows():
+  for _, row in df.iterrows():
     prompt_objs.append({
-      'prompt': get_full_prompt(args.prompt, row[args.proposition_column])
+        "prompt": get_full_prompt(
+            args.prompt,
+            row[args.proposition_column],
+            additional_context=additional_context,
+        )
     })
   response_df = await generate_text_in_parallel(model, prompt_objs)
 
@@ -150,6 +167,7 @@ def get_args():
       default="proposition",
       help="The name of the proposition column to use. Default: proposition.",
   )
+  runner_utils.add_additional_context_args(parser)
   return parser.parse_args()
 
 

@@ -1018,16 +1018,16 @@ class GenaiModel(BaseModel):
       )
       return {"error": e}
 
-  def calculate_token_count_needed(
+  def estimate_token_count_needed(
       self,
       prompt: str,
       run_name: str = "",
       temperature: float = 0.0,
   ) -> int:
-    """Calculates the number of tokens needed for a given prompt.
+    """Calculates or estimates the number of tokens needed for a given prompt.
 
     Args:
-      prompt: The prompt to calculate the token count for.
+      prompt: The prompt to estimate the token count for.
       run_name: The name of the run for logging purposes.
       temperature: The temperature to use for the model.
 

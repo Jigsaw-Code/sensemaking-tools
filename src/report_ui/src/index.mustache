@@ -116,9 +116,8 @@
 							<hr>
 							<p>{{{conversationOverviewLead}}}</p>
 							
-							<div class="toggle-container">
-								<button class="button-filter-compare"><img inline src="svg/filter.svg" alt="" role="presentation"><span>{{i18n.sections.filterCompare}}</span></button>
-									{{#hasToggle}}
+							<div class="toggle-container">{{#hasDemographics}}
+								<button class="button-filter-compare"><img inline src="svg/filter.svg" alt="" role="presentation"><span>{{i18n.sections.filterCompare}}</span></button>{{/hasDemographics}}{{#hasToggle}}
 								<fieldset class="toggle-group">
 									<legend class="sr-only">{{i18n.sections.toggleViewLegend}}</legend>
 									
@@ -127,9 +126,7 @@
 									
 									<input type="radio" name="toggleView" id="option-opinions" value="opinions">
 									<label for="option-opinions">{{i18n.sections.topOpinions}}</label>
-								</fieldset>
-								{{/hasToggle}}
-							</div>
+								</fieldset>{{/hasToggle}}</div>
 							
 							<div id="conversation-overview-chart"></div>
 						</section>
@@ -184,7 +181,7 @@
 										</div>	
 										{{#viewAllQuotes}}
 										<div class="topic-opinion-view-all">
-											<button class="button-quotes" data-id="{{fullID}}"><img inline src="svg/eye.svg" alt="" role="presentation"><span>{{i18n.sections.viewAllQuotesAndDemographics}}</span></button>
+											<button class="button-quotes" data-id="{{fullID}}"><img inline src="svg/eye.svg" alt="" role="presentation"><span>{{#hasDemographics}}{{i18n.sections.viewAllQuotesAndDemographics}}{{/hasDemographics}}{{^hasDemographics}}{{i18n.sections.viewAllQuotes}}{{/hasDemographics}}</span></button>
 										</div>
 										{{/viewAllQuotes}}
 									</div>
@@ -204,7 +201,7 @@
 								<button class="button-share" data-id="predicted-agreement-summary" data-text="{{i18n.predicted.title}}"><img inline src="svg/share.svg" alt="" role="presentation"><span>{{i18n.sections.share}}</span></button>
 							</header>
 							<hr>
-							<p>{{{predicted.text}}}</p>
+							<p>{{i18n.predicted.description}}</p>
 						</section>
 					</article>
 					
@@ -255,6 +252,7 @@
 							</div>
 						</div>
 						<div id="drawer-quotes" class="tab is-visible">
+							{{#hasDemographics}}
 							<div class="drawer-quotes-filters">
 							{{#demographics}}
 								<label class="sr-only" for="drawer-filter-{{label}}">{{label}}</label>
@@ -266,6 +264,7 @@
 								</select>
 							{{/demographics}}
 							</div>
+							{{/hasDemographics}}
 							<ul class="drawer-quotes"></ul>
 						</div>
 
@@ -277,7 +276,8 @@
 						<button class="button-close"><img inline src="svg/x.svg" alt="{{i18n.meta.closeAlt}}"></button>
 					</div>
 				</div>
-					<div id="filter-compare">
+				{{#hasDemographics}}
+				<div id="filter-compare">
 					<div class="filter-compare-bg"></div>
 					<div class="filter-compare-content">
 						<h2 class="filter-compare-title">{{i18n.filterModal.title}}</h2>
@@ -290,12 +290,13 @@
 						</div>
 						<button class="button-close"><img inline src="svg/x.svg" alt="{{i18n.meta.closeAlt}}"></button>
 					</div>
-			</div>
+				</div>
+				{{/hasDemographics}}
 
 			<div id="share" class="no-print">
 				<div class="share-bg"></div>
 				<div class="share-content">
-					<p class="share-title">{{i18n.sections.share}} <span></span></p>
+					<p class="share-title">{{i18n.sections.share}}</p>
 					<p class="share-description">{{i18n.sections.copyLinkToShare}}</p>
 					<div class="share-url"><input id="share-url-input" type="text" readonly dir="ltr" value=""><button class="button-copy" data-copied="{{i18n.sections.copied}}"><img inline src="svg/copy.svg" alt="{{i18n.meta.copyLinkAlt}}"></button></div>
 					<div class="share-close"><button class="button-close-share">{{i18n.sections.close}}</button></div>

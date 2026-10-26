@@ -99,6 +99,64 @@ class CategorizationRunnerTest(unittest.TestCase):
   @mock.patch(
       'os.path.expanduser',
       return_value=io.StringIO(
+          'participant_id,survey_text\n'
+          '1,None\n'
+          '2,"None"\n'
+          '3,N/A\n'
+          "4,I'm not aware of any active campaigns"
+      ),
+  )
+  @mock.patch('os.path.exists', return_value=True)
+  def test_read_csv_preserves_literal_na_strings(
+      self, mock_expanduser, mock_exists
+  ):
+    # pylint: disable=protected-access
+    rows = categorization_runner._read_csv_to_dicts('dummy_path')
+    mock_exists.assert_called()
+    mock_expanduser.assert_called()
+    self.assertEqual(
+        rows,
+        [
+            {'participant_id': '1', 'survey_text': 'None'},
+            {'participant_id': '2', 'survey_text': 'None'},
+            {'participant_id': '3', 'survey_text': 'N/A'},
+            {
+                'participant_id': '4',
+                'survey_text': "I'm not aware of any active campaigns",
+            },
+        ],
+    )
+    statements = categorization_runner._convert_csv_rows_to_statements(rows)
+    self.assertEqual(
+        statements,
+        [
+            custom_types.Statement(id='1', text='None'),
+            custom_types.Statement(id='2', text='None'),
+            custom_types.Statement(id='3', text='N/A'),
+            custom_types.Statement(
+                id='4', text="I'm not aware of any active campaigns"
+            ),
+        ],
+    )
+
+  @mock.patch(
+      'os.path.expanduser',
+      return_value=io.StringIO('participant_id,survey_text\n1,\n'),
+  )
+  @mock.patch('os.path.exists', return_value=True)
+  def test_read_csv_empty_survey_text_raises_value_error(
+      self, _mock_expanduser, _mock_exists
+  ):
+    # pylint: disable=protected-access
+    rows = categorization_runner._read_csv_to_dicts('dummy_path')
+    with self.assertRaisesRegex(
+        ValueError, r"Row 1 \(ID: 1\) is missing 'survey_text'"
+    ):
+      categorization_runner._convert_csv_rows_to_statements(rows)
+
+  @mock.patch(
+      'os.path.expanduser',
+      return_value=io.StringIO(
           "participant_id,survey_text\n"
           "1,Este es un texto en español para probar.\n"
           "2,这是一个测试中文的文本。"
@@ -453,6 +511,70 @@ class CategorizationRunnerTest(unittest.TestCase):
         run_autoraters=True,
         skip_quote_extraction=False,
         max_concurrent_calls=42,  # Verifies it was forwarded correctly!
+        max_autorater_retries=3,
+        autorater_min_score=4,
+    )
+
+  @mock.patch('src.categorization_runner.model_factory.get_model')
+  @mock.patch('src.categorization_runner.sensemaker.Sensemaker')
+  @mock.patch('src.categorization_runner.runner_utils')
+  @mock.patch('src.categorization_runner._set_topics_on_csv_rows')
+  @mock.patch('src.categorization_runner._convert_csv_rows_to_statements')
+  @mock.patch('src.categorization_runner._read_csv_to_dicts')
+  @mock.patch('argparse.ArgumentParser.parse_args')
+  def test_cli_autorater_args_forwarded_to_categorize_statements(
+      self,
+      mock_parse_args,
+      mock_read_csv,
+      mock_convert,
+      _mock_set_topics,
+      mock_runner_utils,
+      mock_sensemaker_cls,
+      mock_get_model,
+  ):
+    mock_parse_args.return_value = argparse.Namespace(
+        output_dir='/tmp/output',
+        input_file='/tmp/input.csv',
+        topics=None,
+        topic_and_opinion_csv=None,
+        model_name='gemini-pro',
+        force_rerun=False,
+        log_level='INFO',
+        skip_autoraters=False,
+        max_llm_retries=None,
+        skip_quote_extraction=False,
+        gemini_api_key=None,
+        max_concurrent_calls=None,
+        max_autorater_retries=5,
+        autorater_min_score=3,
+    )
+    mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
+    mock_statement = custom_types.Statement(
+        id='1', text='test', topics=[], quotes=[]
+    )
+    mock_convert.return_value = [mock_statement]
+    mock_runner_utils.filter_large_statements.return_value = (
+        [mock_statement],
+        [],
+    )
+    mock_sensemaker_instance = mock_sensemaker_cls.return_value
+    mock_sensemaker_instance.categorize_statements = mock.AsyncMock(
+        return_value=[mock_statement]
+    )
+
+    asyncio.run(categorization_runner.main())
+
+    mock_sensemaker_instance.categorize_statements.assert_called_once_with(
+        statements=[mock_statement],
+        topics=None,
+        additional_context=mock.ANY,
+        original_csv_rows=mock.ANY,
+        output_dir='/tmp/output',
+        run_autoraters=True,
+        skip_quote_extraction=False,
+        max_concurrent_calls=None,
+        max_autorater_retries=5,
+        autorater_min_score=3,
     )
 
 

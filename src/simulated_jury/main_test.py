@@ -235,6 +235,45 @@ class MainTest(unittest.TestCase):
     _, kwargs = mock_run.call_args
     self.assertEqual(kwargs.get('max_concurrent_calls'), 42)
 
+  @mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'test_key'})
+  @mock.patch(
+      'src.simulated_jury.simulated_jury.run_simulated_jury',
+      new_callable=AsyncMock,
+  )
+  def test_main_preserves_none_in_participants_csv(self, mock_run):
+    with open(self.participants_csv, 'w', encoding='utf-8') as f:
+      f.write('participant_id,survey_text\np1,None\np2,N/A\n')
+
+    mock_run.return_value = (
+        pd.DataFrame([
+            {
+                'data_row': {'participant_id': 'p1'},
+                'result': {'A': True, 'B': False},
+            },
+            {
+                'data_row': {'participant_id': 'p2'},
+                'result': {'A': True, 'B': True},
+            },
+        ]),
+        {},
+    )
+
+    test_args = [
+        'main.py',
+        '--participants_csv',
+        self.participants_csv,
+        '--statements_csv',
+        self.statements_csv,
+        '--output_csv',
+        self.output_csv,
+    ]
+    with mock.patch.object(sys, 'argv', test_args):
+      main.main()
+
+    _, kwargs = mock_run.call_args
+    passed_df = kwargs['participants_df']
+    self.assertEqual(passed_df['survey_text'].tolist(), ['None', 'N/A'])
+
 
 if __name__ == '__main__':
   unittest.main()

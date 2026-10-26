@@ -123,5 +123,57 @@ class MaxConcurrentCallsArgTest(unittest.TestCase):
     self.assertIn("must be an integer >= 1", stderr.getvalue())
 
 
+class AdditionalContextAndOutputLanguageTest(unittest.TestCase):
+  """Tests for runner_utils.get_additional_context and add_additional_context_args."""
+
+  def test_returns_none_when_unset(self):
+    parser = argparse.ArgumentParser()
+    runner_utils.add_additional_context_args(parser)
+    args = parser.parse_args([])
+    with patch.dict(os.environ, {}, clear=True):
+      self.assertIsNone(runner_utils.get_additional_context(args))
+
+  def test_output_language_only(self):
+    parser = argparse.ArgumentParser()
+    runner_utils.add_additional_context_args(parser)
+    args = parser.parse_args(["--output_language", "Spanish"])
+    with patch.dict(os.environ, {}, clear=True):
+      context = runner_utils.get_additional_context(args)
+    self.assertIsNotNone(context)
+    self.assertIn("Spanish", context)
+    self.assertIn('"Other"', context)
+
+  def test_combines_additional_context_and_output_language(self):
+    parser = argparse.ArgumentParser()
+    runner_utils.add_additional_context_args(parser)
+    args = parser.parse_args([
+        "--additional_context",
+        "Role: Policy Analyst",
+        "--output_language",
+        "French",
+    ])
+    with patch.dict(os.environ, {}, clear=True):
+      context = runner_utils.get_additional_context(args)
+    self.assertTrue(context.startswith("Role: Policy Analyst\n\n"))
+    self.assertIn("French", context)
+
+  def test_falls_back_to_output_language_env_var(self):
+    parser = argparse.ArgumentParser()
+    runner_utils.add_additional_context_args(parser)
+    args = parser.parse_args([])
+    with patch.dict(os.environ, {"OUTPUT_LANGUAGE": "Portuguese"}, clear=True):
+      context = runner_utils.get_additional_context(args)
+    self.assertIn("Portuguese", context)
+
+  def test_cli_flag_overrides_env_var(self):
+    parser = argparse.ArgumentParser()
+    runner_utils.add_additional_context_args(parser)
+    args = parser.parse_args(["--output_language", "German"])
+    with patch.dict(os.environ, {"OUTPUT_LANGUAGE": "Portuguese"}, clear=True):
+      context = runner_utils.get_additional_context(args)
+    self.assertIn("German", context)
+    self.assertNotIn("Portuguese", context)
+
+
 if __name__ == "__main__":
   unittest.main()

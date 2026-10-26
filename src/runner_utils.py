@@ -147,12 +147,37 @@ def filter_large_statements(
   return valid_statements, skipped_statements
 
 
+def format_output_language_instruction(output_language: str) -> str:
+  """Formats a prompt instruction directing the LLM to generate text in output_language.
+
+  Args:
+    output_language: Target language name or code (e.g., 'Spanish', 'French').
+
+  Returns:
+    An instruction string to include in the prompt's additional context.
+  """
+  return (
+      "**Output Language Requirement:** Write all generated human-facing text"
+      " (including topic names, opinion statements, propositions, summaries,"
+      " reasoning, and bracketed quote clarifications) in"
+      f" {output_language}. Keep all JSON keys, XML tags, and the reserved"
+      ' fallback category name "Other" in English.'
+  )
+
+
 def get_additional_context(
     args: argparse.Namespace, default_context: Optional[str] = None
 ) -> Optional[str]:
-  """
-  Extracts additional context from argparse arguments, handling both string
-  and file inputs, and applying a default if neither is provided.
+  """Extracts additional context from argparse arguments and appends output language instructions if specified.
+
+  Args:
+    args: Parsed command-line arguments.
+    default_context: Default context string if neither --additional_context nor
+      --additional_context_file is provided.
+
+  Returns:
+    The combined additional context string, or None if no context or output
+    language is specified.
   """
   additional_context = getattr(args, "additional_context", None)
   additional_context_file = getattr(args, "additional_context_file", None)
@@ -163,11 +188,24 @@ def get_additional_context(
     )
 
   if additional_context_file:
-    with open(additional_context_file, "r") as f:
+    with open(additional_context_file, "r", encoding="utf-8") as f:
       additional_context = f.read().strip()
 
   if not additional_context and default_context:
     additional_context = default_context
+
+  raw_output_language = getattr(args, "output_language", None)
+  if not isinstance(raw_output_language, str):
+    raw_output_language = None
+  output_language = raw_output_language or os.getenv("OUTPUT_LANGUAGE")
+  if output_language and output_language.strip():
+    lang_instruction = format_output_language_instruction(
+        output_language.strip()
+    )
+    if additional_context:
+      additional_context = f"{additional_context}\n\n{lang_instruction}"
+    else:
+      additional_context = lang_instruction
 
   return additional_context
 
@@ -176,8 +214,7 @@ def add_additional_context_args(
     parser: argparse.ArgumentParser,
     help_str: str = "Optional additional context to be added to the prompt.",
 ) -> None:
-  """
-  Adds standard flags for additional context to an argparse parser.
+  """Adds standard flags for additional context and output language to an argparse parser.
 
   Args:
       parser: The ArgumentParser instance to add arguments to.
@@ -192,6 +229,15 @@ def add_additional_context_args(
       "--additional_context_file",
       type=str,
       help="Path to a file containing additional context.",
+  )
+  parser.add_argument(
+      "--output_language",
+      type=str,
+      help=(
+          "Language for generated human-facing outputs (e.g., 'Spanish',"
+          " 'French'). If not provided, falls back to the OUTPUT_LANGUAGE"
+          " environment variable."
+      ),
   )
 
 

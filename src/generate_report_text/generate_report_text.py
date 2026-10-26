@@ -35,12 +35,13 @@ import os
 import pandas as pd
 
 from src import runner_utils
-from src.models import genai_model
+from src.models import base_model
+from src.models import model_factory
 from src.generate_report_text import generate_report_text_prompts
 
 
 async def generate_text_in_parallel(
-    model: genai_model.GenaiModel, prompt_obj_list: list[dict]
+    model: base_model.BaseModel, prompt_obj_list: list[dict]
 ) -> pd.DataFrame:
   # prompt_obj_list members should have prompt, optional topic, opinion fields
   # lambda function extracts text field from response
@@ -50,7 +51,7 @@ async def generate_text_in_parallel(
   return response_df.sort_values('job_id', ascending=True)
 
 
-async def generate_text(model: genai_model.GenaiModel, prompt: str) -> str:
+async def generate_text(model: base_model.BaseModel, prompt: str) -> str:
   """Utility function to run a single prompt through the model."""
   # lambda function extracts text field from response
   response_df, _, _, _ = await model.process_prompts_concurrently(
@@ -86,7 +87,7 @@ def get_summary_for_opinion(
 
 
 async def generate_topic_summaries(
-    model: genai_model.GenaiModel,
+    model: base_model.BaseModel,
     categorized_quotes_df: pd.DataFrame,
     opinion_summaries_df: pd.DataFrame,
     additional_context: str,
@@ -120,7 +121,7 @@ async def generate_topic_summaries(
 
 
 async def generate_opinion_summaries(
-    model: genai_model.GenaiModel,
+    model: base_model.BaseModel,
     categorized_quotes_df: pd.DataFrame,
     additional_context: str,
 ) -> pd.DataFrame:
@@ -145,7 +146,7 @@ async def generate_opinion_summaries(
 
 
 async def generate_overview_summary(
-    model: genai_model.GenaiModel,
+    model: base_model.BaseModel,
     topic_summaries_df: pd.DataFrame,
     additional_context: str,
 ) -> str:
@@ -230,13 +231,15 @@ async def main():
   )
   args = parser.parse_args()
 
-  model = genai_model.GenaiModel(
+  model = model_factory.get_model(
       model_name=args.model_name,
-      gemini_api_key=args.gemini_api_key
+      gemini_api_key=args.gemini_api_key,
   )
 
   # Load data and additional context
-  categorized_quotes_df = pd.read_csv(args.input_csv)
+  categorized_quotes_df = pd.read_csv(
+      args.input_csv, dtype=str, keep_default_na=False
+  )
   additional_context = runner_utils.get_additional_context(args)
 
   # Drop Other from both topics and opinions

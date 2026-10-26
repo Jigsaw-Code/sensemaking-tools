@@ -157,16 +157,27 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
     flags.get("summary") || path.join(inputDir, "summary.json"),
   );
 
-  const predictedExplicit = flags.has("predicted");
+  const propositionsFlag = flags.get("propositions");
+  const predictedFlag = flags.get("predicted");
+  if (propositionsFlag && predictedFlag) {
+    const propositionsResolved = path.resolve(cwd, propositionsFlag);
+    const predictedResolved = path.resolve(cwd, predictedFlag);
+    if (propositionsResolved !== predictedResolved) {
+      throw new Error(
+        "--propositions and --predicted both set to different paths; use only one.",
+      );
+    }
+  }
+  const propositionsExplicit = Boolean(propositionsFlag || predictedFlag);
   const configExplicit = flags.has("config");
 
-  let predictedPath = null;
-  if (predictedExplicit) {
-    predictedPath = path.resolve(cwd, flags.get("predicted"));
+  let propositionsPath = null;
+  if (propositionsExplicit) {
+    propositionsPath = path.resolve(cwd, propositionsFlag || predictedFlag);
   } else {
-    const defaultPredicted = path.join(inputDir, "predicted.json");
-    if (fs.existsSync(defaultPredicted)) {
-      predictedPath = defaultPredicted;
+    const defaultPropositions = path.join(inputDir, "propositions.csv");
+    if (fs.existsSync(defaultPropositions)) {
+      propositionsPath = defaultPropositions;
     }
   }
 
@@ -185,7 +196,7 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
       opinionsFlag ||
       bridgingFlag ||
       flags.has("summary") ||
-      predictedExplicit ||
+      propositionsExplicit ||
       configExplicit,
   );
   const hasExplicitOutputPaths = hasOutput || hasOutputDir;
@@ -197,8 +208,8 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
     if (!fs.existsSync(summaryPath)) {
       throw new Error(`Summary JSON not found: ${summaryPath}`);
     }
-    if (predictedExplicit && !fs.existsSync(predictedPath)) {
-      throw new Error(`Predicted JSON not found: ${predictedPath}`);
+    if (propositionsExplicit && !fs.existsSync(propositionsPath)) {
+      throw new Error(`Propositions CSV not found: ${propositionsPath}`);
     }
     if (configExplicit && !fs.existsSync(configPath)) {
       throw new Error(`Config JSON not found: ${configPath}`);
@@ -213,9 +224,9 @@ export function resolveBuildOptions(argv = process.argv, cwd = process.cwd()) {
     outputDir,
     opinionsPath,
     summaryPath,
-    predictedPath,
+    propositionsPath,
     configPath,
-    predictedExplicit,
+    propositionsExplicit,
     configExplicit,
     hasExplicitInputPaths,
     hasExplicitOutputPaths,
@@ -251,9 +262,9 @@ function deepMerge(target, source) {
  *
  * @param {Object} params
  * @param {RawOpinion[]} params.opinionsRaw
+ * @param {Object[]} [params.propositionsRaw]
  * @param {string} params.summaryPath
  * @param {string|null} [params.configPath]
- * @param {string|null} [params.predictedPath]
  * @param {string} params.inputDir - Dir for translations / relative logo paths.
  * @param {string} params.packageRoot - Package root (for default-translations).
  * @param {string} params.workDir - Directory to write quotes + data JSON files.
@@ -261,9 +272,9 @@ function deepMerge(target, source) {
  */
 export function processReportData({
   opinionsRaw,
+  propositionsRaw = [],
   summaryPath,
   configPath = null,
-  predictedPath = null,
   inputDir,
   packageRoot,
   workDir,
@@ -285,11 +296,6 @@ export function processReportData({
     : {};
 
   const summary = JSON.parse(fs.readFileSync(summaryPath, "utf-8"));
-
-  const predictedRaw =
-    predictedPath && fs.existsSync(predictedPath)
-      ? JSON.parse(fs.readFileSync(predictedPath, "utf-8"))
-      : [];
 
   const defaultI18n = JSON.parse(
     fs.readFileSync(
@@ -317,6 +323,11 @@ export function processReportData({
   const i18n = deepMerge(defaultI18n, userI18n);
   i18n.locale = i18n.locale || "en";
   i18n.direction = i18n.direction || "ltr";
+  const otherCategory = i18n.chart?.otherCategory || "Other";
+  const isOtherLabel = (label) =>
+    typeof label === "string" &&
+    (label.toLowerCase() === "other" ||
+      label.localeCompare(otherCategory, undefined, { sensitivity: "base" }) === 0);
 
   const numberFormatter = new Intl.NumberFormat(i18n.locale);
   const percentFormatter = new Intl.NumberFormat(i18n.locale, {
@@ -338,28 +349,34 @@ export function processReportData({
   }
 
   const overviewChart = config.overview_chart || "toggle";
+  const excludedTopics = new Set(
+    config.excluded_topics ?? config.excludedTopics ?? [],
+  );
+  const excludedOpinions = new Set(
+    config.excluded_opinions ?? config.excludedOpinions ?? [],
+  );
   const options = {
     logo: config.logo || "",
     overviewChart,
     hasToggle: overviewChart === "toggle",
-    lowSampleThreshold: config.low_sample_warning_threshold || 30,
+    lowSampleThreshold: config.low_sample_warning_threshold ?? 30,
     sampleQuoteCount: Math.min(
-      Math.max(config.number_of_sample_quotes || 4, 2),
+      Math.max(config.number_of_sample_quotes ?? 4, 2),
       10,
     ), // between 2 and 10 sample quotes per opinion
     topOpinionCount: Math.min(
-      Math.max(config.number_of_top_opinions || 10, 2),
+      Math.max(config.number_of_top_opinions ?? 10, 2),
       20,
     ), // between 2 and 20 top opinions
     topicColors: config.chart_colors || [
-      "#DA3D2E",
-      "#F2A50C",
-      "#80CD57",
-      "#00885F",
-      "#11C2CE",
-      "#1233A6",
-      "#8A2FE4",
-      "#F388D2",
+      "#0072B2",
+      "#009E73",
+      "#D55E00",
+      "#CC79A7",
+      "#56B4E9",
+      "#E69F00",
+      "#2B3E50",
+      "#8C564B",
     ],
     demographicColors: resolveDemographicColors(config.demographic_colors),
   };
@@ -387,6 +404,21 @@ export function processReportData({
   function stripMarkdownHeader(text) {
     if (!text) return "";
     return text.replace(/^#+\s*/, "");
+  }
+
+  /**
+   * Filters out rows matching excluded topics or excluded opinions/propositions.
+   * @param {Object[]} rows
+   * @returns {Object[]}
+   */
+  function filterExcludedRows(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(
+      (row) =>
+        !excludedTopics.has(stripMarkdownHeader(row.topic)) &&
+        !excludedOpinions.has(row.opinion) &&
+        !excludedOpinions.has(row.proposition),
+    );
   }
 
   /**
@@ -486,41 +518,53 @@ export function processReportData({
     // 1. Group by high-level Topic
     const byTopic = groupBy(opinionsList, "topic");
 
-    const o = byTopic.map(([topicText, topicOpinions]) => {
-      // 2. Find matching AI summary (stripping markdown headers)
-      const topicMatch = summary.sub_contents.find(
-        (t) => stripMarkdownHeader(t.title) === topicText,
-      );
+    const o = byTopic
+      .map(([topicText, topicOpinions]) => {
+        const isOtherTopic = isOtherLabel(topicText);
+        const displayTopicText = isOtherTopic ? otherCategory : topicText;
 
-      const topicId = generateId(topicText, true);
+        // 2. Find matching AI summary (stripping markdown headers)
+        const topicMatch = summary.sub_contents.find((t) => {
+          const stripped = stripMarkdownHeader(t.title);
+          return stripped === topicText || stripped === displayTopicText;
+        });
 
-      // 3. Group by specific Opinion within the Topic
-      const byOpinion = groupBy(topicOpinions, "opinion").map(
-        ([_, values]) => ({
-          opinionID: generateId(values[0].opinion),
-          // fullID is crucial: it links the UI chart to the specific quotes list
-          fullID: `${topicId}-${generateId(values[0].opinion)}`,
-          text: values[0].opinion,
-          count: values.length,
-          quotes: sortAndExtractQuotes(values),
-        }),
-      );
+        const topicId = generateId(topicText, true);
 
-      // 4. Sort opinions: "Other" always last, otherwise by count descending
-      byOpinion.sort((a, b) => {
-        if (a.text === "Other") return 1;
-        if (b.text === "Other") return -1;
-        return b.count - a.count;
-      });
+        // 3. Group by specific Opinion within the Topic
+        const byOpinion = groupBy(topicOpinions, "opinion").map(
+          ([_, values]) => {
+            const rawOpinion = values[0].opinion;
+            const isOtherOpinion = isOtherLabel(rawOpinion);
+            return {
+              opinionID: generateId(rawOpinion),
+              // fullID is crucial: it links the UI chart to the specific quotes list
+              fullID: `${topicId}-${generateId(rawOpinion)}`,
+              text: isOtherOpinion ? otherCategory : rawOpinion,
+              isOther: isOtherOpinion,
+              count: values.length,
+              quotes: sortAndExtractQuotes(values),
+            };
+          },
+        );
 
-      return {
-        topicID: topicId,
-        summary: cleanMarkdown(topicMatch?.text),
-        text: topicText,
-        count: topicOpinions.length,
-        opinions: byOpinion,
-      };
-    });
+        // 4. Sort opinions: "Other" always last, otherwise by count descending
+        byOpinion.sort((a, b) => {
+          if (a.isOther) return 1;
+          if (b.isOther) return -1;
+          return b.count - a.count;
+        });
+
+        return {
+          topicID: topicId,
+          summary: cleanMarkdown(topicMatch?.text),
+          text: displayTopicText,
+          isOther: isOtherTopic,
+          count: topicOpinions.length,
+          opinions: byOpinion,
+        };
+      })
+      .filter((topic) => topic.opinions.length > 0);
 
     return o;
   }
@@ -646,43 +690,57 @@ export function processReportData({
   }
 
   /**
-   * Cleans and shapes raw predicted data for the mustache template.
-   * @param {Object|Object[]} raw - Predicted topic objects from predicted.json.
+   * Cleans and shapes raw propositions CSV rows for the mustache template.
+   * @param {Object[]} raw - Proposition rows from propositions.csv.
    * @returns {Object} Cleaned predicted topic objects.
    */
   function processPredicted(raw) {
-    const data = Array.isArray(raw) ? raw[0] : raw;
-    if (!data || !data.sub_contents) return { text: "", topics: [] };
+    if (!Array.isArray(raw) || raw.length === 0) return { topics: [] };
+    const byTopic = groupBy(raw, "topic");
+    const topics = byTopic
+      .filter(([topic]) => topic)
+      .map(([topic, rows]) => {
+        const rawTitle = stripMarkdownHeader(topic);
+        const isOtherTopic = isOtherLabel(rawTitle);
+        const title = isOtherTopic ? otherCategory : rawTitle;
+        const statements = rows
+          .filter((row) => row.proposition)
+          .map((row) => ({
+            text: row.proposition,
+            predictedAgreement: formatPercent(row.approval_rate),
+            hasPredictedAgreement:
+              row.approval_rate != null && row.approval_rate !== "",
+          }));
+        return {
+          topicID: generateId(rawTitle || "", true),
+          title,
+          statements,
+        };
+      })
+      .filter((t) => t.statements.length > 0);
     return {
-      text: data.text,
-      topics: data.sub_contents.map((s) => ({
-        topicID: generateId(s.title || "", true),
-        title: stripMarkdownHeader(s.title),
-        text: s.text,
-        statements: (s.statements || []).map((stmt) => ({
-          text: stmt.text,
-          predictedAgreement: formatPercent(stmt.predicted_agreement),
-          hasPredictedAgreement: stmt.predicted_agreement != null,
-        })),
-      })),
+      topics,
     };
   }
 
   // --- Main Execution ---
 
+  // 0. Pre-filter excluded topics and opinions
+  const filteredOpinions = filterExcludedRows(opinions);
+  const filteredPropositions = filterExcludedRows(propositionsRaw);
+
   // 1. Calculate aggregate statistics
-  const byParticipant = groupBy(opinions, "participant_id");
+  const byParticipant = groupBy(filteredOpinions, "participant_id");
   const totalParticipants = formatNumber(byParticipant.length);
   const totalParticipantsFormatted = formatNumber(byParticipant.length);
-  const propositionsGenerated = 0; // Placeholder / Todo
 
   // 2. Perform transformations
-  const opinionsGrouped = groupOpinions(opinions);
+  const opinionsGrouped = groupOpinions(filteredOpinions);
   const quotes = flattenQuotes(opinionsGrouped);
-  const predicted = processPredicted(predictedRaw);
+  const predicted = processPredicted(filteredPropositions);
 
   // 3. Calculate high-level counts
-  const topicsIdentified = summary.sub_contents.length;
+  const topicsIdentified = opinionsGrouped.length;
   const topicsIdentifiedFormatted = formatNumber(topicsIdentified);
   const opinionsIdentified = opinionsGrouped
     .map((t) => t.opinions.length)
@@ -697,6 +755,7 @@ export function processReportData({
     return {
       topicID: topic.topicID,
       text: topic.text,
+      isOther: topic.isOther,
       topicCount: topic.count,
       topicCountFormatted: formatNumber(topic.count),
       opinionCount: topic.opinions.length,
@@ -710,6 +769,7 @@ export function processReportData({
       // Map opinions to frontend structure (only sample quotes included)
       opinions: topic.opinions.map((o) => ({
         text: o.text,
+        isOther: o.isOther,
         count: o.count,
         countFormatted: formatNumber(o.count),
         quotesCountFormatted: (
@@ -724,8 +784,12 @@ export function processReportData({
     };
   });
 
-  // Sort topics by unique quote count (most popular topics first)
-  topics.sort((a, b) => b.quoteCount - a.quoteCount);
+  // Sort topics: "Other" always last, otherwise by unique quote count descending
+  topics.sort((a, b) => {
+    if (a.isOther) return 1;
+    if (b.isOther) return -1;
+    return b.quoteCount - a.quoteCount;
+  });
 
   // Construct participant overview data for chart of demographics
   const uniqueParticipants = byParticipant.map(([, rows]) => rows[0]);
@@ -750,7 +814,6 @@ export function processReportData({
 
     if (values.length > 6) {
       const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
-      const otherCategory = i18n.chart?.otherCategory || "Other";
       values = [
         ...values.slice(0, 5),
         { value: otherCategory, count: otherCount },
@@ -767,7 +830,7 @@ export function processReportData({
 
   // 7. Prepare outputs
   const executiveSummary = parseSummary(cleanMarkdown(summary.text || ""));
-  const title = stripMarkdownHeader(summary.title);
+  const title = stripMarkdownHeader(config.title || summary.title);
 
   // Dynamic sentence interpolation
   const conversationOverviewLead = (
@@ -793,7 +856,6 @@ export function processReportData({
     topicsIdentifiedBadge,
     opinionsIdentified,
     opinionsIdentifiedFormatted,
-    propositionsGenerated,
     topics,
     demographics,
     hasDemographics,
@@ -856,12 +918,15 @@ if (isMain) {
   const opinionsRaw = JSON.parse(
     fs.readFileSync("./temp/opinions.json", "utf-8"),
   );
-  const predictedDefault = "./input/predicted.json";
+  const propositionsDefault = "./temp/propositions.json";
+  const propositionsRaw = fs.existsSync(propositionsDefault)
+    ? JSON.parse(fs.readFileSync(propositionsDefault, "utf-8"))
+    : [];
   processReportData({
     opinionsRaw,
+    propositionsRaw,
     summaryPath: "./input/summary.json",
     configPath: "./input/config.json",
-    predictedPath: fs.existsSync(predictedDefault) ? predictedDefault : null,
     inputDir: "./input",
     packageRoot: ".",
     workDir: "./temp",

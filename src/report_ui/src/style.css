@@ -479,10 +479,7 @@ article.topic {
 	display: flex;
 	align-items: flex-start;
 	border-radius: 0;
-}
-
-.sidebar li a .text {
-	padding-top: 0.25rem;
+	padding: 1.25rem 1rem;
 }
 
 .sidebar a.is-active {
@@ -545,6 +542,10 @@ article.topic {
 	justify-content: space-between;
 	align-items: center;
 	margin: 1rem auto;
+}
+
+#conversation-overview .toggle-container:empty {
+	display: none;
 }
 
 #conversation-overview fieldset {

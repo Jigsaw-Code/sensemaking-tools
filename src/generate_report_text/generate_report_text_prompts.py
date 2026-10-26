@@ -119,7 +119,7 @@ def get_topic_summary_prompt(
   **Cut the Fluff:** Remove all "reporting about the reporting."
   * *Bad:* "Discussions around defining equality revealed several distinct viewpoints."
   * *Good:* "Definitions of equality varied wildly."
-  **Use Plain English:** Ban multi-syllable corporate words where simple ones will do.
+  **Use Plain Language:** Ban multi-syllable corporate words where simple ones will do.
   * *Change* "Necessitates" $\\rightarrow$ "Requires"
   * *Change* "Instillation" $\\rightarrow$ "Teaching"
   * *Change* "Paramount" $\\rightarrow$ "Key"
