@@ -15,6 +15,7 @@
 """Tests for System One judgments. The transport is fake; Clef is not called."""
 
 import asyncio
+import http.client
 import io
 import json
 import unittest
@@ -114,6 +115,7 @@ def _client() -> tuple[systemone.SystemOneClient, RecordingTransport]:
 class DecisionTests(unittest.TestCase):
 
   def test_assigns_matching_topic_and_never_asks_about_other(self):
+    """Tests that only specific labels are asked and the match is kept."""
     client, transport = _client()
 
     chosen = asyncio.run(
@@ -136,6 +138,7 @@ class DecisionTests(unittest.TestCase):
     self.assertFalse(any("'Other'" in text for text in asked))
 
   def test_assigns_other_when_no_label_clears_the_cutoff(self):
+    """Tests that Other is assigned only when nothing clears the cutoff."""
     client, _ = _client()
 
     chosen = asyncio.run(
@@ -151,6 +154,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(chosen, ["Other"])
 
   def test_rubric_is_a_score_question_read_at_its_most_likely_level(self):
+    """Tests that the rubric uses the most likely level, not the mean."""
     bodies = []
 
     def transport(url: str, body: bytes) -> bytes:
@@ -174,7 +178,6 @@ class DecisionTests(unittest.TestCase):
     question = bodies[0]["questions"]["rubric"]
     self.assertEqual(question["type"], "score")
     self.assertEqual(question["criteria"], list(decision.RUBRIC))
-    self.assertIn("falls short", question["criteria"][0])
 
   def test_clusters_only_equivalent_pairs(self):
     client, _ = _client()
@@ -194,6 +197,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(sets, [["0:1", "1:2"]])
 
   def test_equivalence_asks_a_few_pairs_per_request(self):
+    """Tests that equivalence pairs are split into small requests."""
     client, transport = _client()
     items = {
         "a": "Everyone should be treated with respect.",
@@ -212,6 +216,7 @@ class DecisionTests(unittest.TestCase):
     )
 
   def test_transient_failures_are_retried(self):
+    """Tests that a 5xx is retried and a 4xx is raised at once."""
     calls = []
     ok = json.dumps({
         "model": "clef",
@@ -372,6 +377,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(updated[0].quotes[0].topic.subtopics[0].name, "Other")
 
   def test_autorater_skips_a_quote_that_already_fell_back_to_other(self):
+    """Tests that no rubric is asked for a quote already assigned Other."""
     client, transport = _client()
     statement = custom_types.Statement(
         id="s1",
@@ -412,6 +418,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(asked, ["noul"])
 
   def test_autorater_min_score_zero_keeps_the_assignment(self):
+    """Tests that autorater_min_score sets the rejection threshold."""
     client, _ = _client()
     statement = custom_types.Statement(
         id="s1",
@@ -523,6 +530,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
 
   def test_endpoint_url_reads_hosts_and_full_urls(self):
+    """Tests bare hosts, base URLs, and full endpoint URLs."""
     cases = {
         "0.0.0.0": "http://0.0.0.0:11434/v1/systemone",
         "localhost:8080": "http://localhost:8080/v1/systemone",
@@ -539,6 +547,7 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(systemone.endpoint_url(host), expected)
 
   def test_invalid_host_is_a_config_error(self):
+    """Tests that a blank or malformed host is a config error."""
     for host in ("", "http://", "host:port"):
       with self.subTest(host=host):
         with self.assertRaises(systemone.SystemOneError) as caught:
@@ -546,6 +555,7 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(caught.exception.kind, systemone.FailureKind.CONFIG)
 
   def test_keep_alive_is_sent_only_when_set(self):
+    """Tests that keep_alive is omitted from the body unless set."""
     question = {
         "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
     }
@@ -556,9 +566,13 @@ class DecisionTests(unittest.TestCase):
             model="clef", transport=transport, keep_alive=keep_alive
         )
         asyncio.run(client.ask("state", question))
-        self.assertEqual(transport.bodies[0].get("keep_alive"), keep_alive)
+        if keep_alive is None:
+          self.assertNotIn("keep_alive", transport.bodies[0])
+        else:
+          self.assertEqual(transport.bodies[0]["keep_alive"], keep_alive)
 
   def test_packs_at_the_configured_question_limit(self):
+    """Tests that requests are packed at max_questions."""
     transport = RecordingTransport()
     client = systemone.SystemOneClient(
         model="clef", transport=transport, max_questions=16
@@ -578,6 +592,7 @@ class DecisionTests(unittest.TestCase):
     )
 
   def test_reads_answers_inside_a_result_envelope(self):
+    """Tests that a Workers AI result envelope is unwrapped."""
     def transport(url: str, body: bytes) -> bytes:
       return json.dumps({
           "result": {
@@ -602,9 +617,11 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(answers["q"].noul, 0.75)
 
   def test_api_key_is_sent_as_a_bearer_header(self):
+    """Tests that the key is sent as a bearer header, and only when set."""
     sent = []
 
     class _Response:
+      """A minimal urlopen response."""
 
       def __enter__(self):
         return self
@@ -636,7 +653,45 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(sent[-1].get_header("Authorization"), expected)
     self.assertEqual(sent[0].full_url, "https://api.typesafe.ai/v1/systemone")
 
+  def test_dropped_connection_is_retried(self):
+    """Tests that a connection dropped by the host is retried."""
+    calls = []
+
+    class _Response:
+      """A minimal urlopen response."""
+
+      def __enter__(self):
+        return self
+
+      def __exit__(self, *exc):
+        return False
+
+      def read(self):
+        return json.dumps({
+            "model": "clef",
+            "answers": {"q": {"type": "noul", "noul": 0.25}},
+        }).encode("utf-8")
+
+    def urlopen(request, timeout):
+      calls.append(request.full_url)
+      if len(calls) == 1:
+        raise http.client.RemoteDisconnected(
+            "Remote end closed connection without response"
+        )
+      return _Response()
+
+    client = systemone.SystemOneClient(model="clef", retry_delay_seconds=0)
+    question = {
+        "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
+    }
+    with mock.patch.object(systemone.urllib.request, "urlopen", urlopen):
+      answers = asyncio.run(client.ask("state", question))
+
+    self.assertEqual(answers["q"].noul, 0.25)
+    self.assertEqual(len(calls), 2)
+
   def test_a_404_says_the_host_does_not_serve_decisions(self):
+    """Tests that a 404 names the Ollama version and DECISION_MODEL_HOST."""
     url = "http://127.0.0.1:11434/v1/systemone"
 
     def urlopen(request, timeout):

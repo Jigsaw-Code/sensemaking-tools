@@ -364,6 +364,18 @@ def _choice_label(
 def _score_probabilities(
     answer: systemone.Answer, name: str
 ) -> dict[str, float]:
+  """Returns the per-level probabilities of a score answer.
+
+  Args:
+    answer: The parsed answer.
+    name: Question id, for the error message.
+
+  Returns:
+    Probabilities keyed by level index as returned by the host.
+
+  Raises:
+    SystemOneError: If the answer is not a score answer.
+  """
   match answer:
     case systemone.ScoreAnswer(probabilities=probabilities):
       return probabilities

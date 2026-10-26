@@ -142,6 +142,18 @@ def get_decision_model() -> systemone.SystemOneClient | None:
 
 
 def _positive_int_env(name: str, default: int) -> int:
+  """Reads a positive integer setting from the environment.
+
+  Args:
+    name: Environment variable name.
+    default: Value used when the variable is unset or empty.
+
+  Returns:
+    The parsed value, or default.
+
+  Raises:
+    SystemOneError: If the value is not an integer or is below 1.
+  """
   raw = os.getenv(name)
   if not raw:
     return default

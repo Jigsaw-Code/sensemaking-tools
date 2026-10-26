@@ -28,6 +28,7 @@ import asyncio  # noqa: ANYIO_OK
 import dataclasses
 import enum
 import functools
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -262,6 +263,20 @@ def _parse_answer(raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer) -> Answer:
 def _urllib_transport(
     url: str, body: bytes, api_key: str | None = None
 ) -> bytes:
+  """Posts one JSON body and returns the raw response.
+
+  Args:
+    url: Endpoint URL.
+    body: Encoded JSON request.
+    api_key: Optional bearer key.
+
+  Returns:
+    The response body.
+
+  Raises:
+    SystemOneError: On an HTTP error status, or with no status when the
+      connection fails or drops before a response arrives.
+  """
   headers = {"Content-Type": "application/json"}
   if api_key:
     headers["Authorization"] = f"Bearer {api_key}"
@@ -291,6 +306,12 @@ def _urllib_transport(
     ) from exc
   except urllib.error.URLError as exc:
     raise SystemOneError(FailureKind.HTTP, str(exc.reason)) from exc
+  except (http.client.HTTPException, ConnectionError) as exc:
+    # urlopen lets a connection that drops before or during the response
+    # escape unwrapped (for example http.client.RemoteDisconnected).
+    raise SystemOneError(
+        FailureKind.HTTP, f"connection to {url} failed: {exc!r}"
+    ) from exc
 
 
 def endpoint_url(host: str) -> str:
