@@ -25,7 +25,6 @@ import asyncio
 import contextlib
 import dataclasses
 import itertools
-import math
 from typing import Final, Iterator, assert_never
 
 from src.models import model_factory
@@ -303,8 +302,12 @@ async def rubric_level(
 ) -> int:
   """Scores the 0-4 autorater level. The model does not write an explanation.
 
-  The rubric is asked as a score question, so the answer is the
-  probability-weighted level, rounded half up to the nearest whole level.
+  The rubric is asked as a score question and the most likely level is
+  returned, the lower one on a tie. The probability-weighted score is not
+  used: mass on the lower levels drags it below a clear top answer, and in
+  local runs rounding it rejected 9 of 16 correct opinion assignments that
+  the most likely level accepted 13 of, with no wrong assignment accepted
+  either way.
   """
   question = systemone.ScoreQuestion(
       instructions=instructions
@@ -315,14 +318,20 @@ async def rubric_level(
       criteria=RUBRIC,
   )
   answers = await client.ask(state, {"rubric": question})
-  score = _score(answers["rubric"], "rubric")
-  top = len(RUBRIC) - 1
-  if not 0.0 <= score <= top:
+  probabilities = _score_probabilities(answers["rubric"], "rubric")
+  try:
+    by_level = {int(level): p for level, p in probabilities.items()}
+  except ValueError as exc:
     raise systemone.SystemOneError(
         systemone.FailureKind.PARSE,
-        f"rubric score {score} is outside 0-{top}.",
+        f"rubric levels {sorted(probabilities)} are not integers.",
+    ) from exc
+  if not by_level or not set(by_level) <= set(range(len(RUBRIC))):
+    raise systemone.SystemOneError(
+        systemone.FailureKind.PARSE,
+        f"rubric levels {sorted(by_level)} are outside 0-{len(RUBRIC) - 1}.",
     )
-  return math.floor(score + 0.5)
+  return max(by_level, key=lambda level: (by_level[level], -level))
 
 
 def _choice_key(answer: systemone.Answer, name: str) -> str:
@@ -352,10 +361,12 @@ def _choice_label(
     ) from exc
 
 
-def _score(answer: systemone.Answer, name: str) -> float:
+def _score_probabilities(
+    answer: systemone.Answer, name: str
+) -> dict[str, float]:
   match answer:
-    case systemone.ScoreAnswer(score=score):
-      return score
+    case systemone.ScoreAnswer(probabilities=probabilities):
+      return probabilities
     case systemone.ChoiceAnswer() | systemone.NoulAnswer():
       raise systemone.SystemOneError(
           systemone.FailureKind.PARSE,

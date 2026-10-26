@@ -150,7 +150,7 @@ class DecisionTests(unittest.TestCase):
 
     self.assertEqual(chosen, ["Other"])
 
-  def test_rubric_is_a_score_question_rounded_to_a_level(self):
+  def test_rubric_is_a_score_question_read_at_its_most_likely_level(self):
     bodies = []
 
     def transport(url: str, body: bytes) -> bytes:
@@ -160,8 +160,8 @@ class DecisionTests(unittest.TestCase):
           "answers": {
               "rubric": {
                   "type": "score",
-                  "score": 2.5,
-                  "probabilities": {"2": 0.5, "3": 0.5},
+                  "score": 2.4,
+                  "probabilities": {"0": 0.4, "4": 0.6},
                   "confidence": 0.5,
               }
           },
@@ -170,7 +170,7 @@ class DecisionTests(unittest.TestCase):
     client = systemone.SystemOneClient(model="clef", transport=transport)
     level = asyncio.run(decision.rubric_level(client, "An answer to rate."))
 
-    self.assertEqual(level, 3)
+    self.assertEqual(level, 4)
     question = bodies[0]["questions"]["rubric"]
     self.assertEqual(question["type"], "score")
     self.assertEqual(question["criteria"], list(decision.RUBRIC))

@@ -167,7 +167,7 @@ Locally, Clef and `pplx-decider:27b-q4_K_M` have been tested on Ollama 0.40.11. 
 | TypeSafe Jev | `https://api.typesafe.ai` | `jev-latest` |
 | Inception Mercury Decide | `https://api.inceptionlabs.ai/v1/decisions` | `mercury-decide` |
 
-Assignment asks one yes/no question per label, and Other is not asked: it is assigned only when no other label clears the threshold. Labels beyond the question limit are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts are a score on the 0-4 rubric, rounded to a level, with no written explanation; a level below `autorater_min_score` is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
+Assignment asks one yes/no question per label, and Other is not asked: it is assigned only when no other label clears the threshold. Labels beyond the question limit are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts are a score question on the 0-4 rubric, read at its most likely level, with no written explanation; a level below `autorater_min_score` is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
 
 ##### Understanding the Outputs:
 
