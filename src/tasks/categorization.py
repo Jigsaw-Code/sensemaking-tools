@@ -449,6 +449,7 @@ async def categorize_opinions(
         additional_context,
         run_autoraters,
         decision_model,
+        autorater_min_score=autorater_min_score,
     )
 
   # Pre-compute valid input statements map for O(1) lookups and O(1) in-place updates
@@ -1086,11 +1087,13 @@ async def _categorize_opinions_with_decision(
     additional_context: str | None,
     run_autoraters: bool,
     client: systemone.SystemOneClient,
+    autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
 ) -> Iterable[Statement]:
   """Assigns opinions per quote. A failing autorater becomes Other once.
 
   System One answers are deterministic, so repeating the same judgment cannot
-  change the verdict. A score below 4 is finalized as Other immediately.
+  change the verdict. A score below autorater_min_score is finalized as Other
+  immediately, without the retries the generative path uses.
   """
   input_statements_map = {
       statement.id: statement.model_copy(deep=True)
@@ -1125,12 +1128,13 @@ async def _categorize_opinions_with_decision(
                   f"Available opinions: {', '.join(opinion_names)}"
               ),
               instructions=(
-                  "Does this opinion assignment perform well on correctness"
-                  " and minimality? Choose 4 only when every assigned opinion"
-                  " is a correct match and the set is minimal."
+                  "How well does this opinion assignment perform on"
+                  " correctness and minimality? The top level means every"
+                  " assigned opinion is a correct match and the set is"
+                  " minimal."
               ),
           )
-          if level < 4:
+          if level < autorater_min_score:
             logging.info(
                 "Opinion assignment for %s/%s scored %s; using Other.",
                 statement.id,

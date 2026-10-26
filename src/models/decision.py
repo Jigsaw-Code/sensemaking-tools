@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import itertools
+import math
 from typing import Final, Iterator, assert_never
 
 from src.models import model_factory
@@ -39,13 +40,17 @@ _NO_OVERRIDE = _NoOverride()
 _override: systemone.SystemOneClient | None | _NoOverride = _NO_OVERRIDE
 _cached: systemone.SystemOneClient | None = None
 
-RUBRIC: Final[dict[str, str]] = {
-    "4": "The response performs well on all criteria.",
-    "3": "The response performs well on most criteria.",
-    "2": "The response performs well on some criteria.",
-    "1": "The response is somewhat aligned with the criteria.",
-    "0": "The response falls short on all criteria.",
-}
+# The 0-4 autorater rubric, lowest level first, as score questions expect.
+RUBRIC: Final[tuple[str, ...]] = (
+    "The response falls short on all criteria.",
+    "The response is somewhat aligned with the criteria.",
+    "The response performs well on some criteria.",
+    "The response performs well on most criteria.",
+    "The response performs well on all criteria.",
+)
+
+# The fallback label when no specific label applies.
+OTHER: Final = "Other"
 
 _EQUIVALENCE_STATE: Final = (
     "Two propositions are effectively equivalent when a survey participant"
@@ -120,13 +125,12 @@ async def assign_labels(
 ) -> list[str]:
   """Assigns every label whose yes-probability meets the cutoff.
 
-  A text with no label above the cutoff gets the single highest label, so the
-  caller still receives an assignment. ``Other`` is dropped when any specific
-  label was selected.
+  ``Other`` is never asked about. It is assigned only when no other label
+  meets the cutoff, so the caller always receives an assignment.
   """
-  ordered = list(dict.fromkeys(labels))
+  ordered = [label for label in dict.fromkeys(labels) if label != OTHER]
   if not ordered:
-    return []
+    return [OTHER]
   cutoff = model_factory.get_decision_threshold() if cutoff is None else cutoff
   questions = {
       f"q{index}": systemone.NoulQuestion(
@@ -141,7 +145,8 @@ async def assign_labels(
       label: _noul(answers[f"q{index}"], label)
       for index, label in enumerate(ordered)
   }
-  return _select_labels(ordered, probabilities, cutoff)
+  chosen = [label for label in ordered if probabilities[label] >= cutoff]
+  return chosen or [OTHER]
 
 
 async def score_attributes(
@@ -280,43 +285,28 @@ async def rubric_level(
     state: str,
     instructions: str | None = None,
 ) -> int:
-  """Picks the 0-4 autorater level. Clef does not write the explanation."""
-  question = systemone.ChoiceQuestion(
+  """Scores the 0-4 autorater level. The model does not write an explanation.
+
+  The rubric is asked as a score question, so the answer is the
+  probability-weighted level, rounded half up to the nearest whole level.
+  """
+  question = systemone.ScoreQuestion(
       instructions=instructions
       or (
-          "Which rubric level best describes the evaluation target in the"
-          " state? Choose 4 only when the target performs well on all"
-          " criteria."
+          "How well does the evaluation target in the state perform on the"
+          " criteria? The top level means it performs well on all criteria."
       ),
-      criteria=dict(RUBRIC),
+      criteria=RUBRIC,
   )
   answers = await client.ask(state, {"rubric": question})
-  choice = _choice_key(answers["rubric"], "rubric")
-  try:
-    return int(choice)
-  except ValueError as exc:
+  score = _score(answers["rubric"], "rubric")
+  top = len(RUBRIC) - 1
+  if not 0.0 <= score <= top:
     raise systemone.SystemOneError(
         systemone.FailureKind.PARSE,
-        f"rubric choice {choice!r} is not a level.",
-    ) from exc
-
-
-def _select_labels(
-    labels: list[str],
-    probabilities: dict[str, float],
-    cutoff: float,
-) -> list[str]:
-  above = [label for label in labels if probabilities[label] >= cutoff]
-  specific = [label for label in above if label != "Other"]
-  if specific:
-    return specific
-  if above:
-    return above
-  return [
-      max(
-          labels, key=lambda label: (probabilities[label], -labels.index(label))
-      )
-  ]
+        f"rubric score {score} is outside 0-{top}.",
+    )
+  return math.floor(score + 0.5)
 
 
 def _choice_key(answer: systemone.Answer, name: str) -> str:
@@ -344,6 +334,19 @@ def _choice_label(
         systemone.FailureKind.PARSE,
         f"approval choice {choice!r} is not a scale option.",
     ) from exc
+
+
+def _score(answer: systemone.Answer, name: str) -> float:
+  match answer:
+    case systemone.ScoreAnswer(score=score):
+      return score
+    case systemone.ChoiceAnswer() | systemone.NoulAnswer():
+      raise systemone.SystemOneError(
+          systemone.FailureKind.PARSE,
+          f"question {name} did not return a score.",
+      )
+    case unreachable:
+      assert_never(unreachable)
 
 
 def _noul(answer: systemone.Answer, name: str) -> float:

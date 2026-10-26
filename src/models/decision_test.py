@@ -57,8 +57,6 @@ def _answers_for(payload: dict) -> dict:
           ),
           next(iter(question["criteria"])),
       )
-      if "minimality" in question["instructions"]:
-        chosen = "0"
       probabilities = {
           option: 1.0 if option == chosen else 0.0
           for option in question["criteria"]
@@ -70,10 +68,16 @@ def _answers_for(payload: dict) -> dict:
           "confidence": 0.8,
       }
     else:
+      level = 0 if "minimality" in question["instructions"] else len(
+          question["criteria"]
+      ) - 1
       answers[key] = {
           "type": "score",
-          "score": 1.0,
-          "probabilities": {"0": 0.0, "1": 1.0},
+          "score": float(level),
+          "probabilities": {
+              str(index): 1.0 if index == level else 0.0
+              for index in range(len(question["criteria"]))
+          },
           "confidence": 1.0,
       }
   return answers
@@ -107,8 +111,8 @@ def _client() -> tuple[systemone.SystemOneClient, RecordingTransport]:
 
 class DecisionTests(unittest.TestCase):
 
-  def test_assigns_matching_topic_and_drops_other_when_specific(self):
-    client, _ = _client()
+  def test_assigns_matching_topic_and_never_asks_about_other(self):
+    client, transport = _client()
 
     chosen = asyncio.run(
         decision.assign_labels(
@@ -121,8 +125,15 @@ class DecisionTests(unittest.TestCase):
     )
 
     self.assertEqual(chosen, ["Buses"])
+    asked = [
+        question["instructions"]
+        for body in transport.bodies
+        for question in body["questions"].values()
+    ]
+    self.assertEqual(len(asked), 2)
+    self.assertFalse(any("'Other'" in text for text in asked))
 
-  def test_assigns_highest_label_when_none_clear_the_cutoff(self):
+  def test_assigns_other_when_no_label_clears_the_cutoff(self):
     client, _ = _client()
 
     chosen = asyncio.run(
@@ -135,7 +146,33 @@ class DecisionTests(unittest.TestCase):
         )
     )
 
-    self.assertEqual(chosen, ["Parking"])
+    self.assertEqual(chosen, ["Other"])
+
+  def test_rubric_is_a_score_question_rounded_to_a_level(self):
+    bodies = []
+
+    def transport(url: str, body: bytes) -> bytes:
+      bodies.append(json.loads(body))
+      return json.dumps({
+          "model": "clef",
+          "answers": {
+              "rubric": {
+                  "type": "score",
+                  "score": 2.5,
+                  "probabilities": {"2": 0.5, "3": 0.5},
+                  "confidence": 0.5,
+              }
+          },
+      }).encode("utf-8")
+
+    client = systemone.SystemOneClient(model="clef", transport=transport)
+    level = asyncio.run(decision.rubric_level(client, "An answer to rate."))
+
+    self.assertEqual(level, 3)
+    question = bodies[0]["questions"]["rubric"]
+    self.assertEqual(question["type"], "score")
+    self.assertEqual(question["criteria"], list(decision.RUBRIC))
+    self.assertIn("falls short", question["criteria"][0])
 
   def test_clusters_only_equivalent_pairs(self):
     client, _ = _client()
@@ -281,6 +318,43 @@ class DecisionTests(unittest.TestCase):
       )
 
     self.assertEqual(updated[0].quotes[0].topic.subtopics[0].name, "Other")
+
+  def test_autorater_min_score_zero_keeps_the_assignment(self):
+    client, _ = _client()
+    statement = custom_types.Statement(
+        id="s1",
+        text="Please add bus lanes.",
+        quotes=[
+            custom_types.Quote(
+                id="q1",
+                text="Please add bus lanes.",
+                topic=custom_types.FlatTopic(name="Transit"),
+            )
+        ],
+    )
+    learned = {
+        "Transit": custom_types.NestedTopic(
+            name="Transit",
+            subtopics=[custom_types.FlatTopic(name="More buses")],
+        )
+    }
+    updated = list(
+        asyncio.run(
+            categorization._categorize_opinions_with_decision(
+                [statement],
+                [custom_types.FlatTopic(name="Transit")],
+                learned,
+                None,
+                True,
+                client,
+                autorater_min_score=0,
+            )
+        )
+    )
+
+    self.assertEqual(
+        updated[0].quotes[0].topic.subtopics[0].name, "More buses"
+    )
 
   def test_content_scorer_uses_decision_client_without_gemini(self):
     client, transport = _client()
