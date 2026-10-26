@@ -17,6 +17,7 @@
 import os
 import unittest
 from unittest.mock import patch
+from src.models import extraction
 from src.models import model_factory
 from src.models import systemone
 from src.models.model_factory import get_model
@@ -162,8 +163,8 @@ class ModelFactoryTest(unittest.TestCase):
           client = model_factory.get_decision_model()
           self.assertEqual(client._keep_alive, expected)
 
-  def test_get_quote_model_reads_its_own_variables(self):
-    """Tests that QUOTE_* configure the quote client apart from DECISION_*."""
+  def test_get_extractor_systemone_reads_its_own_variables(self):
+    """Tests that QUOTE_* configure a System One extractor apart from DECISION_*."""
     env = {
         "DECISION_ENDPOINT_TYPE": "systemone",
         "DECISION_MODEL": "clef",
@@ -174,8 +175,10 @@ class ModelFactoryTest(unittest.TestCase):
         "QUOTE_MAX_CONCURRENT": "4",
     }
     with patch.dict(os.environ, env, clear=True):
-      quote = model_factory.get_quote_model()
+      extractor = model_factory.get_extractor("QUOTE")
       decision_client = model_factory.get_decision_model()
+    self.assertIsInstance(extractor, extraction.SystemOneExtractor)
+    quote = extractor._client
     self.assertEqual(quote.model, "mercury-decide")
     self.assertEqual(
         quote.endpoint, "https://api.inceptionlabs.ai/v1/decisions"
@@ -184,17 +187,49 @@ class ModelFactoryTest(unittest.TestCase):
     self.assertIsNone(quote._keep_alive)
     self.assertEqual(decision_client.model, "clef")
 
-  def test_get_quote_model_is_off_unless_quote_type_is_set(self):
-    """Tests that DECISION_* alone does not turn on span quotes."""
+  def test_get_extractor_is_off_unless_its_type_is_set(self):
+    """Tests that DECISION_* alone does not turn on an extractor."""
     env = {"DECISION_ENDPOINT_TYPE": "systemone", "DECISION_MODEL": "clef"}
     with patch.dict(os.environ, env, clear=True):
-      self.assertIsNone(model_factory.get_quote_model())
+      self.assertIsNone(model_factory.get_extractor("QUOTE"))
     with patch.dict(
         os.environ, {"QUOTE_ENDPOINT_TYPE": "systemone"}, clear=True
     ):
       with self.assertRaises(systemone.SystemOneError) as context:
-        model_factory.get_quote_model()
+        model_factory.get_extractor("QUOTE")
       self.assertIn("QUOTE_MODEL must be set", str(context.exception))
+    with patch.dict(os.environ, {"QUOTE_ENDPOINT_TYPE": "other"}, clear=True):
+      with self.assertRaises(systemone.SystemOneError) as context:
+        model_factory.get_extractor("QUOTE")
+      self.assertIn("Unknown QUOTE_ENDPOINT_TYPE", str(context.exception))
+
+  def test_get_extractor_clairic(self):
+    """Tests Clairic selection, its default endpoint, and an explicit host."""
+    env = {
+        "CONTEXT_ENDPOINT_TYPE": "clairic",
+        "CLOUDFLARE_ACCOUNT_ID": "acct123",
+        "CONTEXT_MODEL_API_KEY": "token",
+        "CONTEXT_MAX_CONCURRENT": "3",
+    }
+    with patch.dict(os.environ, env, clear=True):
+      extractor = model_factory.get_extractor("CONTEXT")
+    self.assertIsInstance(extractor, extraction.ClairicExtractor)
+    self.assertEqual(
+        extractor.endpoint,
+        "https://api.cloudflare.com/client/v4/accounts/acct123/ai/run/"
+        "@cf/cloudflare/clairic",
+    )
+    self.assertEqual(extractor._max_concurrent, 3)
+    with patch.dict(
+        os.environ,
+        {"CONTEXT_ENDPOINT_TYPE": "clairic", "CONTEXT_MODEL_HOST": "https://x/y"},
+        clear=True,
+    ):
+      self.assertEqual(model_factory.get_extractor("CONTEXT").endpoint, "https://x/y")
+    with patch.dict(os.environ, {"CONTEXT_ENDPOINT_TYPE": "clairic"}, clear=True):
+      with self.assertRaises(systemone.SystemOneError) as context:
+        model_factory.get_extractor("CONTEXT")
+      self.assertIn("CLOUDFLARE_ACCOUNT_ID", str(context.exception))
 
   def test_get_decision_model_rejects_bad_question_limits(self):
     """Tests that DECISION_MAX_QUESTIONS must be a positive integer."""

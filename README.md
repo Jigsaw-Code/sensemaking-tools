@@ -171,16 +171,22 @@ Assignment asks one yes/no question per label, and Other is not asked: it is ass
 
 ##### Extracting quotes as exact spans
 
-By default the generative model writes each quote, and it may lightly edit the participant's words in brackets. A System One model that answers `extract` questions can instead mark the participant's own sentences, so every quote is verbatim text from the response. Of the hosts above, Inception Mercury Decide answers `extract` questions; the others answer only choice, yes/no and score questions. Quote extraction therefore has its own settings, apart from `DECISION_*`:
+By default the generative model writes each quote, and it may lightly edit the participant's words in brackets. An extraction model can instead mark the participant's own sentences, so every quote is verbatim text from the response. Two kinds are supported: a System One host that answers `extract` questions (of the hosts above, Inception Mercury Decide does; the others answer only choice, yes/no and score questions), or Cloudflare's Clairic extraction model on Workers AI. Quote extraction therefore has its own settings, apart from `DECISION_*`:
 
 ```shell
+# Inception Mercury Decide
 export QUOTE_ENDPOINT_TYPE="systemone"
 export QUOTE_MODEL="mercury-decide"
 export QUOTE_MODEL_HOST="https://api.inceptionlabs.ai/v1/decisions"
 export QUOTE_MODEL_API_KEY="<INCEPTION_API_KEY>"
+
+# or Cloudflare Clairic (the host defaults to the Workers AI URL for CLOUDFLARE_ACCOUNT_ID)
+export QUOTE_ENDPOINT_TYPE="clairic"
+export CLOUDFLARE_ACCOUNT_ID="<ACCOUNT_ID>"
+export QUOTE_MODEL_API_KEY="<CLOUDFLARE_API_TOKEN>"
 ```
 
-`QUOTE_MODEL_KEEP_ALIVE`, `QUOTE_MAX_QUESTIONS` and `QUOTE_MAX_CONCURRENT` work like their `DECISION_*` counterparts. For each topic the model marks the sentences where the participant gives a view on it. Marked spans are widened to whole sentences, sentences that are not adjacent are joined with " ... ", and a topic with nothing marked gets the whole response. `<response>` segments are joined first, as `--skip_quote_extraction` does, and `--skip_quote_extraction` still takes precedence.
+`QUOTE_MAX_CONCURRENT` limits requests in flight for either kind; with `systemone`, `QUOTE_MODEL_KEEP_ALIVE` and `QUOTE_MAX_QUESTIONS` work like their `DECISION_*` counterparts. Every span either model returns is checked against the response before it is used. For each topic the model marks the sentences where the participant gives a view on it. Marked spans are widened to whole sentences, sentences that are not adjacent are joined with " ... ", and a topic with nothing marked gets the whole response. `<response>` segments are joined first, as `--skip_quote_extraction` does, and `--skip_quote_extraction` still takes precedence.
 
 ##### Understanding the Outputs:
 

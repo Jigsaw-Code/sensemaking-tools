@@ -16,12 +16,14 @@
 
 import os
 import logging
+from src.models import extraction
 from src.models import systemone
 from src.models.base_model import BaseModel
 from src.models.genai_model import GenaiModel
 from src.models.openai_compatible_model import OpenAICompatibleModel
 
 DECISION_ENDPOINT_SYSTEMONE = "systemone"
+EXTRACT_ENDPOINT_CLAIRIC = "clairic"
 _DEFAULT_DECISION_THRESHOLD = 0.5
 # Keeps the default local Ollama model loaded between pipeline stages.
 _OLLAMA_KEEP_ALIVE = "30m"
@@ -104,25 +106,67 @@ def get_decision_model() -> systemone.SystemOneClient | None:
   return _systemone_client_from_env("DECISION")
 
 
-def get_quote_model() -> systemone.SystemOneClient | None:
-  """Creates the System One client for span quote extraction, if configured.
+def get_extractor(prefix: str) -> extraction.Extractor | None:
+  """Creates the extraction model configured under a prefix, if any.
 
-  The quote client asks extract questions, which judgment-only hosts do not
-  answer, so it is configured apart from the decision client. The variables
-  mirror the DECISION_* ones with a QUOTE_ prefix: QUOTE_ENDPOINT_TYPE
-  ('systemone' to extract quotes as exact spans; unset keeps quote
-  extraction on the generative model), QUOTE_MODEL (required, e.g.
-  'mercury-decide'), QUOTE_MODEL_HOST, QUOTE_MODEL_API_KEY,
-  QUOTE_MODEL_KEEP_ALIVE, QUOTE_MAX_QUESTIONS and QUOTE_MAX_CONCURRENT.
+  Extraction models mark exact spans of text, which judgment-only hosts do
+  not do, so each stage that extracts has its own prefix: QUOTE for span
+  quotes and CONTEXT for participant context.
+
+  Environment Variables (shown for the QUOTE prefix):
+      QUOTE_ENDPOINT_TYPE: 'systemone' for a System One host that answers
+        extract questions, such as Inception Mercury Decide, or 'clairic' for
+        Cloudflare's Clairic on Workers AI. Unset turns the stage's span path
+        off.
+      QUOTE_MODEL: Model name for 'systemone', e.g. 'mercury-decide'.
+      QUOTE_MODEL_HOST: Host or endpoint URL. For 'clairic' it defaults to the
+        Workers AI run URL for CLOUDFLARE_ACCOUNT_ID.
+      QUOTE_MODEL_API_KEY: Bearer key (a Cloudflare API token for 'clairic').
+      QUOTE_MAX_CONCURRENT: Maximum requests in flight (default 1).
+      QUOTE_MODEL_KEEP_ALIVE, QUOTE_MAX_QUESTIONS: As for DECISION_*, with
+        'systemone' only.
+
+  Args:
+      prefix: Variable prefix, e.g. 'QUOTE'.
 
   Returns:
-      A SystemOneClient, or None when QUOTE_ENDPOINT_TYPE is unset.
+      An Extractor, or None when {prefix}_ENDPOINT_TYPE is unset.
 
   Raises:
-      SystemOneError: If the QUOTE_* settings are invalid, as for
-        get_decision_model().
+      SystemOneError: If the settings under the prefix are invalid.
   """
-  return _systemone_client_from_env("QUOTE")
+  endpoint_type = os.getenv(f"{prefix}_ENDPOINT_TYPE")
+  if not endpoint_type:
+    return None
+  if endpoint_type == DECISION_ENDPOINT_SYSTEMONE:
+    client = _systemone_client_from_env(prefix)
+    return extraction.SystemOneExtractor(client) if client else None
+  if endpoint_type != EXTRACT_ENDPOINT_CLAIRIC:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"Unknown {prefix}_ENDPOINT_TYPE: {endpoint_type}",
+    )
+  host = os.getenv(f"{prefix}_MODEL_HOST")
+  if host and host.strip():
+    endpoint = host.strip()
+  else:
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    if not account:
+      raise systemone.SystemOneError(
+          systemone.FailureKind.CONFIG,
+          f"{prefix}_MODEL_HOST or CLOUDFLARE_ACCOUNT_ID must be set when"
+          f" {prefix}_ENDPOINT_TYPE is '{EXTRACT_ENDPOINT_CLAIRIC}'.",
+      )
+    endpoint = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        f"{account}/ai/run/{extraction.CLAIRIC_MODEL}"
+    )
+  logging.info(f"Creating ClairicExtractor with endpoint: {endpoint}")
+  return extraction.ClairicExtractor(
+      endpoint=endpoint,
+      api_key=os.getenv(f"{prefix}_MODEL_API_KEY") or None,
+      max_concurrent=_positive_int_env(f"{prefix}_MAX_CONCURRENT", 1),
+  )
 
 
 def _systemone_client_from_env(

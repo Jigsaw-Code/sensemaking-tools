@@ -20,6 +20,7 @@ from typing import List, Optional, cast
 from src.models.genai_model import GenaiModel
 from src import checkpoint_utils
 from src import prompts
+from src.models import extraction
 from src.models import model_factory
 from src.models import systemone
 from src.models.custom_types import FlatTopic, NestedTopic, Quote, Statement, Topic
@@ -88,13 +89,13 @@ async def extract_quotes_from_text(
       logging.info("Loaded statements with quotes from checkpoint.")
       return cached_statements
 
-  span_client = model_factory.get_quote_model()
-  if span_client is not None:
+  extractor = model_factory.get_extractor("QUOTE")
+  if extractor is not None:
     logging.info(
-        "Extracting quotes as exact spans with System One model %s.",
-        span_client.model,
+        "Extracting quotes as exact spans with extraction model %s.",
+        extractor.model,
     )
-    await extract_span_quotes(span_client, statements, additional_context)
+    await extract_span_quotes(extractor, statements, additional_context)
     checkpoint_utils.save_checkpoint(
         statements, quotes_checkpoint_filename, output_dir
     )
@@ -210,13 +211,13 @@ async def _get_quotes_realtime(
 
 
 async def extract_span_quotes(
-    client: systemone.SystemOneClient,
+    extractor: extraction.Extractor,
     statements: List[Statement],
     additional_context: Optional[str] = None,
 ) -> List[Statement]:
   """Extracts each topic's quote as exact sentences of the response.
 
-  One extract question per topic marks the participant's words on that
+  One extraction field per topic marks the participant's words on that
   topic. Each marked span is widened to its whole sentences, and sentences
   that are not adjacent are joined with an ellipsis, so every piece of the
   quote is verbatim text of the response (after <response> markup is
@@ -225,7 +226,7 @@ async def extract_span_quotes(
   support fails the stage instead of silently degrading it.
 
   Args:
-      client: A System One client whose host answers extract questions.
+      extractor: An extraction model, such as Mercury Decide or Clairic.
       statements: Statements with topics assigned; updated in place.
       additional_context: Optional survey context for the questions.
 
@@ -240,7 +241,7 @@ async def extract_span_quotes(
   if not with_topics:
     raise ValueError("No statement-topic pairs for quote extraction.")
   quotes = await asyncio.gather(*(
-      _span_quotes_for_statement(client, s, additional_context)
+      _span_quotes_for_statement(extractor, s, additional_context)
       for s in with_topics
   ))
   for statement, statement_quotes in zip(with_topics, quotes):
@@ -252,11 +253,11 @@ async def extract_span_quotes(
 
 
 async def _span_quotes_for_statement(
-    client: systemone.SystemOneClient,
+    extractor: extraction.Extractor,
     statement: Statement,
     additional_context: Optional[str],
 ) -> List[Quote]:
-  """Asks one extract question per topic and assembles the quotes."""
+  """Marks one field per topic and assembles the quotes."""
   text = join_response_text(statement.text)
   topics = statement.topics or []
   context = (
@@ -264,8 +265,8 @@ async def _span_quotes_for_statement(
       if additional_context and additional_context.strip()
       else ""
   )
-  questions = {
-      f"t{index}": systemone.ExtractQuestion(
+  fields = {
+      f"t{index}": extraction.Field(
           instructions=(
               f"{context}Mark every sentence in which the participant gives"
               f" their view on '{topic.name}': what they want done about it,"
@@ -275,16 +276,10 @@ async def _span_quotes_for_statement(
       )
       for index, topic in enumerate(topics)
   }
-  answers = await client.ask(text, questions)
+  extracted = await extractor.extract(text, fields)
   quotes = []
   for index, topic in enumerate(topics):
-    answer = answers[f"t{index}"]
-    if not isinstance(answer, systemone.ExtractAnswer):
-      raise systemone.SystemOneError(
-          systemone.FailureKind.PARSE,
-          f"question t{index} did not return an extract answer.",
-      )
-    quote_text = assemble_span_quote(text, answer.spans)
+    quote_text = assemble_span_quote(text, extracted[f"t{index}"].spans)
     if not quote_text:
       logging.info(
           "No span for statement %s, topic %s; using the whole response.",

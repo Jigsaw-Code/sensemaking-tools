@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 from src.models.genai_model import GenaiModel
 from src.models import custom_types
+from src.models import extraction
 from src.models import systemone
 from src.quote_extraction import quote_extraction_lib
 import pandas as pd
@@ -260,8 +261,8 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
 
     with patch.object(
         quote_extraction_lib.model_factory,
-        "get_quote_model",
-        return_value=client,
+        "get_extractor",
+        return_value=extraction.SystemOneExtractor(client),
     ):
       result = await quote_extraction_lib.extract_quotes_from_text(
           statements=[statement], model=model
@@ -284,6 +285,42 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
     )
     model.process_prompts_concurrently.assert_not_called()
 
+  async def test_span_quotes_work_with_any_extractor(self):
+    """Tests the span path over a non-System-One extractor, as for Clairic."""
+
+    class _FakeExtractor:
+      """Marks the phrase 'protected lanes' for every field."""
+
+      model = "fake-clairic"
+
+      async def extract(self, text, fields):
+        """Returns one span per field."""
+        start = text.index("protected lanes")
+        span = systemone.Span(
+            text="protected lanes", start=start, end=start + 15, confidence=0.5
+        )
+        return {
+            name: extraction.Extraction(spans=(span,)) for name in fields
+        }
+
+    statement = custom_types.Statement(
+        id="s1",
+        text="Cars park in the lanes. Please build protected lanes.",
+        topics=[custom_types.FlatTopic(name="Cycling")],
+    )
+    with patch.object(
+        quote_extraction_lib.model_factory,
+        "get_extractor",
+        return_value=_FakeExtractor(),
+    ):
+      result = await quote_extraction_lib.extract_quotes_from_text(
+          statements=[statement], model=MagicMock()
+      )
+    quotes = result[0].quotes or []
+    self.assertEqual(
+        [q.text for q in quotes], ["Please build protected lanes."]
+    )
+
   async def test_span_host_error_fails_the_stage(self):
     """Tests that a host rejecting extract questions is not papered over."""
 
@@ -299,8 +336,8 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
     statements, model = self._make_single_statement_and_mock_model()
     with patch.object(
         quote_extraction_lib.model_factory,
-        "get_quote_model",
-        return_value=client,
+        "get_extractor",
+        return_value=extraction.SystemOneExtractor(client),
     ):
       with self.assertRaises(systemone.SystemOneError):
         await quote_extraction_lib.extract_quotes_from_text(
