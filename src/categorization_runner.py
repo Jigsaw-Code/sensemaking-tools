@@ -43,6 +43,7 @@ from src.models import model_factory
 from src import runner_utils, sensemaker
 from src.tasks import categorization
 from src.models import custom_types
+from src.models import genai_model
 from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
 from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
 import pandas as pd
@@ -381,6 +382,16 @@ async def main() -> Optional[str]:
       help="Override the maximum LLM retries for API calls.",
   )
   parser.add_argument(
+      "--max_stall_minutes",
+      type=float,
+      default=genai_model.DEFAULT_MAX_STALL_MINUTES,
+      help=(
+          "Abort the run (ModelStalledError) if the Gemini model returns only"
+          " 429/503 errors with no successful call for this many minutes."
+          " 429/503 errors never consume the per-call retry budget."
+      ),
+  )
+  parser.add_argument(
       "--skip_quote_extraction",
       action="store_true",
       help=(
@@ -452,6 +463,10 @@ async def main() -> Optional[str]:
       gemini_api_key=args.gemini_api_key,
       max_llm_retries=args.max_llm_retries,
       stats_log_file=stats_log_file,
+      # Ignored by the OpenAI-compatible adapter (accepts **kwargs).
+      max_stall_minutes=getattr(
+          args, "max_stall_minutes", genai_model.DEFAULT_MAX_STALL_MINUTES
+      ),
   )
   decision_model = decision.decision_client()
   if decision_model is not None:

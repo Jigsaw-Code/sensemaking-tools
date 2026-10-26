@@ -40,6 +40,19 @@ class GenaiModelError(Exception):
   pass
 
 
+class ModelStalledError(GenaiModelError):
+  """Raised when the model has returned only infrastructure errors for too long.
+
+  Infrastructure errors (HTTP 429/503) never consume a job's standard retry
+  budget. Instead, if no call on a model instance has succeeded for
+  `max_stall_minutes` while infrastructure errors keep arriving, the model is
+  considered stalled: all workers stop and this error is raised so the run
+  fails loudly rather than silently degrading results.
+  """
+
+  pass
+
+
 class Job(TypedDict, total=False):
   """A TypedDict for representing a job to be processed by the LLM."""
 
@@ -64,6 +77,14 @@ MAX_LLM_RETRIES = 20
 WAIT_BETWEEN_SUCCESSFUL_CALLS_SECONDS = 0.1
 # How long in seconds to wait between failed LLM calls.
 FAIL_RETRY_DELAY_SECONDS = 60
+# Initial global-pause delay in seconds for infrastructure errors (429/503)
+# without a server-provided RetryInfo delay. Doubles on each new pause.
+INFRA_INITIAL_BACKOFF_SECONDS = 2
+# Cap in seconds for the infrastructure global-pause delay.
+INFRA_MAX_BACKOFF_SECONDS = 60.0
+# Minutes without any successful call (while infrastructure errors keep
+# arriving) after which a model instance is declared stalled.
+DEFAULT_MAX_STALL_MINUTES = 20
 # Maximum number of concurrent API calls. By default Genai limits to 10.
 MAX_CONCURRENT_CALLS = 100
 # Maximum delay in seconds for any retry attempt (1 hour).
@@ -92,6 +113,7 @@ class GenaiModel(BaseModel):
       safety_filters_on: bool = False,
       max_llm_retries: int | None = None,
       stats_log_file: str | None = None,
+      max_stall_minutes: float = DEFAULT_MAX_STALL_MINUTES,
   ):
     """Initializes the GenaiModel.
 
@@ -102,6 +124,10 @@ class GenaiModel(BaseModel):
       safety_filters_on: Whether to enable safety filters. Defaults to False.
       max_llm_retries: Override for maximum LLM retries.
       stats_log_file: Path to a file where exhausted retries will be logged.
+      max_stall_minutes: Minutes of continuous infrastructure errors (429/503)
+        without any successful call after which the model is declared stalled
+        and `ModelStalledError` is raised. Infrastructure errors never consume
+        the standard per-job retry budget.
     """
     if not isinstance(model_name, str):
       self.client = model_name
@@ -170,10 +196,22 @@ class GenaiModel(BaseModel):
     self.total_wall_delay = 0.0
 
     # --- Service Availability Backoff ---
-    # Constants for the exponential backoff delay
-    self._initial_backoff_delay = 2
-    self._max_backoff_delay = 64
+    # Global-pause delay for infrastructure errors: starts at 2 s, doubles on
+    # each new pause, capped at 60 s; reset on success.
+    self._initial_backoff_delay = INFRA_INITIAL_BACKOFF_SECONDS
+    self._max_backoff_delay = INFRA_MAX_BACKOFF_SECONDS
     self._backoff_delay = self._initial_backoff_delay
+
+    # --- Stall Detection ---
+    self.max_stall_minutes = max_stall_minutes
+    # Injectable monotonic clock so tests can simulate long stalls.
+    self._clock: Callable[[], float] = time.monotonic
+    # Clock time of the first infrastructure error since the last success.
+    self._infra_streak_start: float | None = None
+    self._infra_streak_503 = 0
+    self._infra_streak_429 = 0
+    self._stalled = False
+    self._stall_message = ""
 
   async def generate_content(
       self,
@@ -202,7 +240,7 @@ class GenaiModel(BaseModel):
     json_format.Parse(f'"{duration_str}"', duration_proto)
     return duration_proto.seconds
 
-  async def _handle_global_pause(self, delay: int):
+  async def _handle_global_pause(self, delay: float | int):
     """Sleeps for a specified duration and then resumes all workers."""
     logging.debug(f"   Global pause for {delay} seconds...")
     start_time = time.time()
@@ -213,7 +251,7 @@ class GenaiModel(BaseModel):
 
   async def _extract_error_details(
       self, e: Exception, log_prefix: str
-  ) -> Tuple[bool, bool, int]:
+  ) -> Tuple[bool, bool, float | None]:
     """Extracts error type and potential retry delay from an exception."""
     response = getattr(e, "response", None)
     realized_status = (
@@ -250,9 +288,8 @@ class GenaiModel(BaseModel):
         or realized_status == 503
     )
 
-    delay = max(FAIL_RETRY_DELAY_SECONDS, self._backoff_delay)
+    server_delay: float | None = None
     if is_quota_error:
-      found_delay = False
       try:
         error_details = getattr(e, "details", None)
         if not isinstance(error_details, dict) or not error_details:
@@ -265,37 +302,143 @@ class GenaiModel(BaseModel):
           for detail in error_details.get("error", {}).get("details", []):
             if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
               retry_delay_str = detail.get("retryDelay", "60s")
-              delay = self._parse_duration(retry_delay_str) + 1
-              found_delay = True
+              server_delay = self._parse_duration(retry_delay_str) + 1
               break
+            else:
+              logging.debug(
+                  f"{log_prefix} Error detail did not contain retry info, using"
+                  f" default. Detail: {detail}"
+              )
       except (ValueError, AttributeError, TypeError, IndexError) as parse_err:
         logging.debug(
-            f"{log_prefix} Error parsing retry info from response. Error: {parse_err}"
+            f"{log_prefix} Error parsing retry info. Did Gemini Response"
+            f" structure change? Error: {parse_err}"
         )
-      if not found_delay:
-        delay = self._backoff_delay
-        self._backoff_delay = min(self._backoff_delay * 2, self._max_backoff_delay)
-    elif is_service_unavailable:
-      delay = self._backoff_delay
-      self._backoff_delay = min(self._backoff_delay**2, self._max_backoff_delay)
-    return is_quota_error, is_service_unavailable, delay
+
+    return is_quota_error, is_service_unavailable, server_delay
+
+  def _next_infra_backoff(self) -> float:
+    """Returns the next infra pause delay and doubles the base delay.
+
+    Returns:
+      The delay in seconds for the global pause about to be initiated.
+    """
+    delay = self._backoff_delay
+    self._backoff_delay = min(self._backoff_delay * 2, self._max_backoff_delay)
+    return delay
+
+  def _record_infra_error(self, is_quota_error: bool) -> None:
+    """Tracks the current infra-error streak and detects a stall.
+
+    The streak starts at the first infrastructure error since the last
+    successful call. If it has lasted at least `max_stall_minutes`, the model
+    is marked stalled (logged loudly at ERROR) and paused workers are woken
+    so they can exit.
+
+    Args:
+      is_quota_error: True for a 429 (quota) error, False for a 503.
+    """
+    now = self._clock()
+    if self._infra_streak_start is None:
+      self._infra_streak_start = now
+    if is_quota_error:
+      self._infra_streak_429 += 1
+    else:
+      self._infra_streak_503 += 1
+
+    if self._stalled:
+      return
+    elapsed = now - self._infra_streak_start
+    if elapsed < self.max_stall_minutes * 60:
+      return
+
+    self._stalled = True
+    self._stall_message = (
+        f"Model '{self.model}' stalled: no successful call for"
+        f" {elapsed / 60:.1f} minutes (limit {self.max_stall_minutes:g} min)"
+        f" while receiving {self._infra_streak_503} x 503 and"
+        f" {self._infra_streak_429} x 429 errors. Aborting the run instead of"
+        " silently degrading results."
+    )
+    logging.error("!" * 80)
+    logging.error("MODEL STALLED: %s", self._stall_message)
+    logging.error("!" * 80)
+    # Wake any workers blocked on a global pause so they can exit promptly.
+    self._global_pause_event.set()
+
+  def _reset_infra_streak(self) -> None:
+    """Resets infra backoff and the stall streak after a successful call."""
+    self._backoff_delay = self._initial_backoff_delay
+    self._infra_streak_start = None
+    self._infra_streak_503 = 0
+    self._infra_streak_429 = 0
+
+  def raise_if_stalled(self) -> None:
+    """Raises `ModelStalledError` if this model instance has stalled.
+
+    Raises:
+      ModelStalledError: If a stall was detected on this model instance. The
+        stalled state is sticky for the lifetime of the instance.
+    """
+    if self._stalled:
+      raise ModelStalledError(self._stall_message)
+
+  def _exit_worker_for_stall(self, stop_event: asyncio.Event) -> None:
+    """Stops a worker pool after a stall.
+
+    The first worker of a pool to observe the stall sets the pool's
+    `stop_event` and raises, so exactly one `ModelStalledError` surfaces from
+    `asyncio.gather(*workers)`; the remaining workers exit quietly.
+
+    Args:
+      stop_event: The worker pool's stop event.
+
+    Raises:
+      ModelStalledError: If this is the first worker in the pool to stop.
+    """
+    if not stop_event.is_set():
+      stop_event.set()
+      raise ModelStalledError(self._stall_message)
 
   async def _handle_infrastructure_error(
       self,
       e: Exception,
       is_quota_error: bool,
       is_service_unavailable: bool,
-      delay: int,
+      server_delay: float | None,
       log_prefix: str,
   ):
-    """Triggers a global pause for infrastructure-level errors."""
+    """Triggers a global pause for infrastructure-level errors.
+
+    Only the first worker to hit an infra error while no pause is in effect
+    initiates a pause, so the exponential backoff advances once per pause
+    rather than once per concurrent failing request.
+
+    Args:
+      e: The exception raised by the API call.
+      is_quota_error: Whether the error is a 429 quota error.
+      is_service_unavailable: Whether the error is a 503 error.
+      server_delay: Server-provided RetryInfo delay (seconds) for 429s; when
+        present it is honored instead of the exponential backoff.
+      log_prefix: Prefix for log messages.
+    """
     async with self._global_pause_lock:
       # Event is set by default, so this means a pause is not yet in effect.
       if self._global_pause_event.is_set():
+        if server_delay is not None:
+          delay = server_delay
+        else:
+          delay = self._next_infra_backoff()
         self._global_pause_event.clear()
         reason = "Quota limit hit" if is_quota_error else "Service unavailable"
+        streak_min = 0.0
+        if self._infra_streak_start is not None:
+          streak_min = (self._clock() - self._infra_streak_start) / 60
         logging.warning(
-            f"{log_prefix} {reason}. Initiating global pause for {delay}s."
+            f"{log_prefix} {reason}. Initiating global pause for {delay:.1f}s"
+            f" (no success for {streak_min:.1f} of"
+            f" {self.max_stall_minutes:g} min; streak:"
+            f" {self._infra_streak_503} x 503, {self._infra_streak_429} x 429)."
         )
         asyncio.create_task(self._handle_global_pause(delay))
 
@@ -337,7 +480,7 @@ class GenaiModel(BaseModel):
     prompt = job.get("prompt")
     retry_attempts = job.get("retry_attempts")
 
-    is_quota_error, is_service_unavailable, delay = (
+    is_quota_error, is_service_unavailable, server_delay = (
         await self._extract_error_details(e, log_prefix)
     )
 
@@ -346,10 +489,15 @@ class GenaiModel(BaseModel):
     if is_service_unavailable:
       stats["503_errors"] = stats.get("503_errors", 0) + 1
 
-    # Infrastructure Errors: Global pause, do NOT increment attempt/temperature
+    # Infrastructure Errors: global pause; never consume a standard attempt.
+    # Tolerance is bounded by wall-clock time (max_stall_minutes) instead.
     if is_quota_error or is_service_unavailable:
+      job["infra_retries"] = job.get("infra_retries", 0) + 1
+      self._record_infra_error(is_quota_error)
+      if self._stalled:
+        return attempt, temperature
       await self._handle_infrastructure_error(
-          e, is_quota_error, is_service_unavailable, delay, log_prefix
+          e, is_quota_error, is_service_unavailable, server_delay, log_prefix
       )
       return attempt, temperature
 
@@ -456,12 +604,20 @@ class GenaiModel(BaseModel):
   ):
     """Consumes jobs from the queue, calls the Gemini API with retry logic,
     and appends results to shared lists.
+
+    Raises:
+      ModelStalledError: If the model stalls (see `max_stall_minutes`). Only
+        the first worker of a pool to observe the stall raises; the others
+        exit quietly.
     """
     # Stagger the initial start of workers to prevent a thundering herd.
     initial_jitter = random.uniform(0, 1)
     await asyncio.sleep(initial_jitter)
 
     while not stop_event.is_set():
+      if self._stalled:
+        self._exit_worker_for_stall(stop_event)
+        break
       try:
         # Use a timeout to periodically check the stop_event
         job: Job = await asyncio.wait_for(queue.get(), timeout=1.0)
@@ -542,7 +698,7 @@ class GenaiModel(BaseModel):
         stats["delay_seconds"] += time.time() - start_wait
 
         resp = None  # Initialize resp for this attempt
-        if stop_event.is_set():
+        if stop_event.is_set() or self._stalled:
           logging.debug(
               f"{log_prefix} {log_body} Stop event received, terminating."
           )
@@ -602,8 +758,8 @@ class GenaiModel(BaseModel):
           stats["is_success"] = True
           stats_list.append(stats)
 
-          # On success, reset the availability backoff delay
-          self._backoff_delay = self._initial_backoff_delay
+          # On success, reset the availability backoff and the stall streak.
+          self._reset_infra_streak()
 
           logging.debug(f"{log_prefix} {log_body} ✅ Successfully processed.")
 
@@ -625,6 +781,8 @@ class GenaiModel(BaseModel):
               results_list,
               resp,
           )
+          if self._stalled:
+            break
 
       # Always append the stats object to the list, regardless of success.
       stats_list.append(stats)
@@ -661,9 +819,13 @@ class GenaiModel(BaseModel):
         - stop_event: An event to signal workers to stop.
 
     Raises:
+        ModelStalledError: If this model instance has already stalled. Worker
+          tasks also raise it (one per pool) if a stall occurs while running,
+          so `await asyncio.gather(*workers)` surfaces the stall.
         TypeError: If `max_concurrent_calls` is not an integer.
         ValueError: If `max_concurrent_calls` is less than 1.
     """
+    self.raise_if_stalled()
     max_concurrent_calls = base_model.resolve_max_concurrent_calls(
         max_concurrent_calls, MAX_CONCURRENT_CALLS
     )
@@ -717,9 +879,13 @@ class GenaiModel(BaseModel):
         - duration: Total wall-clock duration of this execution.
 
     Raises:
+        ModelStalledError: If this model instance has already stalled. Worker
+          tasks also raise it (one per pool) if a stall occurs while running,
+          so `await asyncio.gather(*workers)` surfaces the stall.
         TypeError: If `max_concurrent_calls` is not an integer.
         ValueError: If `max_concurrent_calls` is less than 1.
     """
+    self.raise_if_stalled()
     max_concurrent_calls = base_model.resolve_max_concurrent_calls(
         max_concurrent_calls, MAX_CONCURRENT_CALLS
     )
@@ -766,6 +932,14 @@ class GenaiModel(BaseModel):
     # --- Wait for all workers to finish their tasks ---
     try:
       await asyncio.gather(*workers)
+    except ModelStalledError:
+      # One worker surfaced the stall; cancel the rest and re-raise so the
+      # caller crashes loudly instead of using partial/defaulted results.
+      stop_event.set()
+      for worker in workers:
+        worker.cancel()
+      await asyncio.gather(*workers, return_exceptions=True)
+      raise
     except KeyboardInterrupt:
       logging.info("KeyboardInterrupt received. Stopping workers...")
       stop_event.set()
@@ -774,6 +948,9 @@ class GenaiModel(BaseModel):
       logging.info("Workers stopped.")
     finally:
       pbar.close()
+
+    # Defensive: never return results computed by a stalled model.
+    self.raise_if_stalled()
 
     stage_duration = time.time() - stage_start_time
     wall_delay = self.total_wall_delay

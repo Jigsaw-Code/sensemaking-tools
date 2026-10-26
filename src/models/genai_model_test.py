@@ -521,11 +521,9 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
   def test_backoff_delay_is_capped(self, mock_call_gemini, mock_sleep):
     """Tests that the backoff delay does not exceed the maximum."""
 
-    # Setup: Fail enough times to hit the 64s cap, then succeed
-    # 1: 2s delay
-    # 2: 4s delay
-    # 3: 16s delay
-    # 4-16: 64s delay (capped)
+    # Setup: Fail enough times to hit the 60s cap, then succeed
+    # 1..5: 2, 4, 8, 16, 32
+    # 6..16: 60.0s delay (capped)
     mock_call_gemini.side_effect = [
         {'error': google_exceptions.ServiceUnavailable('Service is down')}
         for _ in range(16)
@@ -551,10 +549,10 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     )
 
     # Assertions
-    self.assertIn(mock.call(64), mock_sleep.call_args_list)
-    # Ensure it stays capped at 64
+    self.assertIn(mock.call(60.0), mock_sleep.call_args_list)
+    # Ensure it stays capped at 60 (attempts 6..16 = 11 times)
     self.assertEqual(
-        mock_sleep.call_args_list.count(mock.call(64)), 13
+        mock_sleep.call_args_list.count(mock.call(60.0)), 11
     )
 
   @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
@@ -967,6 +965,299 @@ class GenaiModelBackoffTest(unittest.IsolatedAsyncioTestCase):
     )
     self.assertFalse(is_quota)
     self.assertTrue(is_unavail)
+
+
+_SUCCESS_RESP = {
+    'text': 'Success',
+    'total_token_count': 10,
+    'prompt_token_count': 5,
+    'candidates_token_count': 5,
+    'tool_use_prompt_token_count': 0,
+    'thoughts_token_count': 0,
+    'error': None,
+}
+
+
+def _unavailable():
+  """Returns a call_gemini response carrying a 503 error."""
+  return {'error': google_exceptions.ServiceUnavailable('Service is down')}
+
+
+class GenaiModelInfraToleranceTest(unittest.IsolatedAsyncioTestCase):
+  """Tests time-based 429/503 tolerance, stall detection and retry delays."""
+
+  def setUp(self):
+    logging.disable(logging.NOTSET)
+    self.addCleanup(lambda: logging.disable(logging.CRITICAL))
+    self.model = genai_model.GenaiModel(
+        gemini_api_key='test_key', model_name='test_model'
+    )
+    # Simulated monotonic clock (seconds), advanced explicitly by tests.
+    self.now = 0.0
+    self.model._clock = lambda: self.now
+
+  def test_defaults(self):
+    """Tests the default stall budget and backoff constants."""
+    self.assertEqual(genai_model.DEFAULT_MAX_STALL_MINUTES, 20)
+    self.assertEqual(self.model.max_stall_minutes, 20)
+    self.assertEqual(genai_model.INFRA_INITIAL_BACKOFF_SECONDS, 2)
+    self.assertEqual(self.model._backoff_delay, 2)
+    self.assertEqual(self.model._max_backoff_delay, 60.0)
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_many_infra_errors_do_not_consume_attempts(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that >30 infra errors never burn standard attempts."""
+    mock_call_gemini.side_effect = [_unavailable() for _ in range(45)] + [
+        _SUCCESS_RESP
+    ]
+
+    results_df, _, _, _ = await self.model.process_prompts_concurrently(
+        [{'prompt': 'p'}], lambda resp, j: resp['text'], retry_attempts=3
+    )
+
+    self.assertEqual(results_df.iloc[0]['result'], 'Success')
+    self.assertEqual(len(results_df.iloc[0]['failed_tries']), 0)
+    self.assertEqual(results_df.iloc[0]['infra_retries'], 45)
+    self.assertEqual(mock_call_gemini.call_count, 46)
+    # Success resets the streak and the backoff.
+    self.assertIsNone(self.model._infra_streak_start)
+    self.assertEqual(self.model._backoff_delay, 2)
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_stall_raises_model_stalled_error(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that >= max_stall_minutes without success raises loudly."""
+
+    async def always_unavailable(**kwargs):
+      self.now += 61.0  # Each call takes ~1 simulated minute.
+      return _unavailable()
+
+    mock_call_gemini.side_effect = always_unavailable
+
+    with self.assertRaises(genai_model.ModelStalledError) as ctx:
+      await asyncio.wait_for(
+          self.model.process_prompts_concurrently(
+              [{'prompt': 'p1'}, {'prompt': 'p2'}],
+              lambda resp, j: resp['text'],
+              retry_attempts=3,
+              max_concurrent_calls=2,
+          ),
+          timeout=30,
+      )
+
+    self.assertIn("'test_model'", str(ctx.exception))
+    self.assertIn('x 503', str(ctx.exception))
+    # 20 min / 61 s per call => stall detected on the 21st error (~20.3 min).
+    self.assertGreaterEqual(mock_call_gemini.call_count, 20)
+    self.assertTrue(self.model._stalled)
+    # Sticky across subsequent attempts on the same model.
+    with self.assertRaises(genai_model.ModelStalledError):
+      self.model.raise_if_stalled()
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_stall_stops_all_workers_and_surfaces_one_error(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that a stall halts the worker pool and raises once."""
+
+    async def always_unavailable(**kwargs):
+      self.now += 600.0  # 10 min each, trips in 3 calls.
+      return _unavailable()
+
+    mock_call_gemini.side_effect = always_unavailable
+    queue, workers, results, _, stop_event = (
+        self.model.start_concurrent_workers(
+            lambda resp, j: resp['text'], max_concurrent_calls=3
+        )
+    )
+    for i in range(3):
+      queue.put_nowait({'prompt': f'p{i}', 'stats': {}, 'retry_attempts': 3})
+    for _ in workers:
+      queue.put_nowait(None)
+
+    with self.assertRaises(genai_model.ModelStalledError):
+      await asyncio.wait_for(asyncio.gather(*workers), timeout=30)
+
+    outcomes = await asyncio.wait_for(
+        asyncio.gather(*workers, return_exceptions=True), timeout=30
+    )
+    stalled = [
+        o for o in outcomes if isinstance(o, genai_model.ModelStalledError)
+    ]
+    self.assertEqual(len(stalled), 1)
+    self.assertTrue(stop_event.is_set())
+    self.assertEqual(results, [])
+
+  def test_infra_backoff_exact_sequence(self):
+    """Tests the doubling sequence from 2s capped at 60s."""
+    delays = [round(self.model._next_infra_backoff(), 4) for _ in range(7)]
+    self.assertEqual(
+        delays,
+        [2, 4, 8, 16, 32, 60.0, 60.0],
+    )
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_non_infra_errors_exhaust_attempts_with_fast_retry(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests generic errors still exhaust retry_attempts, with 0.1s fast retry."""
+    mock_call_gemini.side_effect = lambda **kwargs: {
+        'error': Exception('boom')
+    }
+
+    results_df, stats_df, _, _ = await self.model.process_prompts_concurrently(
+        [{'prompt': 'p'}], lambda resp, j: resp['text'], retry_attempts=3
+    )
+
+    self.assertEqual(mock_call_gemini.call_count, 3)
+    self.assertEqual(
+        results_df.iloc[0]['result'], {'error': 'Failed after 3 attempts'}
+    )
+    self.assertEqual(len(results_df.iloc[0]['failed_tries']), 3)
+    self.assertTrue(stats_df.iloc[0]['is_complete_failure'])
+    sleeps = [c.args[0] for c in mock_sleep.call_args_list]
+    self.assertIn(0.1, sleeps)
+    # Non-infra errors never start an infra streak.
+    self.assertIsNone(self.model._infra_streak_start)
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_partial_outage_reset_prevents_false_stall(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that a single mid-outage success resets the wall-clock stall timer."""
+    # 15 minutes of 503s (3 calls * 300s = 600s elapsed from first error),
+    # then 1 success (resets streak), then another 15 minutes of 503s,
+    # then final success. Total elapsed time is 30 min (> 20 min limit),
+    # but neither streak exceeds 20 minutes.
+    events = [
+        (0.0, _unavailable()),
+        (300.0, _unavailable()),
+        (900.0, _unavailable()),
+        (910.0, _SUCCESS_RESP),
+        (1000.0, _unavailable()),
+        (1400.0, _unavailable()),
+        (1850.0, _unavailable()),
+        (1860.0, _SUCCESS_RESP),
+    ]
+    idx = 0
+
+    async def scripted_call(**kwargs):
+      nonlocal idx
+      t, resp = events[idx]
+      idx += 1
+      self.now = t
+      return resp
+
+    mock_call_gemini.side_effect = scripted_call
+
+    results_df, _, _, _ = await self.model.process_prompts_concurrently(
+        [{'prompt': 'p1'}, {'prompt': 'p2'}],
+        lambda resp, j: resp['text'],
+        retry_attempts=3,
+        max_concurrent_calls=1,
+    )
+
+    self.assertEqual(len(results_df), 2)
+    self.assertEqual(list(results_df['result']), ['Success', 'Success'])
+    self.assertFalse(self.model._stalled)
+    self.assertIsNone(self.model._infra_streak_start)
+    self.assertEqual(
+        self.model._backoff_delay, genai_model.INFRA_INITIAL_BACKOFF_SECONDS
+    )
+
+  @mock.patch('asyncio.sleep', new_callable=mock.AsyncMock)
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_429_without_retry_info_uses_exponential_backoff_and_stalls(
+      self, mock_call_gemini, mock_sleep
+  ):
+    """Tests that 429s with response=None use exponential backoff and count toward stall."""
+
+    async def always_429(**kwargs):
+      self.now += 61.0
+      return {'error': MockClientError(429)}
+
+    mock_call_gemini.side_effect = always_429
+
+    with self.assertRaises(genai_model.ModelStalledError) as ctx:
+      await asyncio.wait_for(
+          self.model.process_prompts_concurrently(
+              [{'prompt': 'p1'}],
+              lambda resp, j: resp['text'],
+              retry_attempts=3,
+              max_concurrent_calls=1,
+          ),
+          timeout=30,
+      )
+
+    self.assertIn('x 429', str(ctx.exception))
+    self.assertIn('0 x 503', str(ctx.exception))
+    sleeps = [c.args[0] for c in mock_sleep.call_args_list]
+    self.assertIn(genai_model.INFRA_INITIAL_BACKOFF_SECONDS, sleeps)
+    self.assertIn(genai_model.INFRA_INITIAL_BACKOFF_SECONDS * 2, sleeps)
+
+  @mock.patch('src.models.genai_model.GenaiModel.call_gemini')
+  async def test_stall_wakes_workers_blocked_on_global_pause(
+      self, mock_call_gemini
+  ):
+    """Tests that a worker blocked on _global_pause_event.wait() is woken early on stall."""
+    both_in_flight = asyncio.Event()
+    pause_started = asyncio.Event()
+    never_finish_pause = asyncio.Event()
+    call_num = 0
+
+    async def controlled_sleep(delay):
+      # Initial worker startup jitter (0 <= delay <= 1, not equal to 60.0)
+      if delay == 60.0:
+        pause_started.set()
+        # Simulate a long 60s global pause that never finishes on its own;
+        # the worker must be woken by _record_infra_error setting
+        # _global_pause_event directly.
+        await never_finish_pause.wait()
+      else:
+        await real_sleep(0)
+
+    async def coordinated_calls(**kwargs):
+      nonlocal call_num
+      call_num += 1
+      if call_num == 1:
+        # Wait until Worker 2 is also inside call_gemini before triggering
+        # the global pause, so Worker 2 isn't blocked prior to calling.
+        await both_in_flight.wait()
+        self.now = 0.0
+        self.model._backoff_delay = 60.0
+        return _unavailable()
+      # Worker 2 signals that both workers are in flight, then waits until
+      # Worker 1 is blocked on _global_pause_event.wait() before tripping stall.
+      both_in_flight.set()
+      await pause_started.wait()
+      await real_sleep(0)
+      self.now = 21 * 60.0
+      return _unavailable()
+
+    mock_call_gemini.side_effect = coordinated_calls
+
+    with mock.patch('asyncio.sleep', side_effect=controlled_sleep):
+      with self.assertRaises(genai_model.ModelStalledError):
+        await asyncio.wait_for(
+            self.model.process_prompts_concurrently(
+                [{'prompt': 'p1'}, {'prompt': 'p2'}],
+                lambda resp, j: resp['text'],
+                retry_attempts=3,
+                max_concurrent_calls=2,
+            ),
+            timeout=5,
+        )
+      # Unblock the background _handle_global_pause task so it cleans up.
+      never_finish_pause.set()
+      await real_sleep(0)
 
 
 if __name__ == '__main__':

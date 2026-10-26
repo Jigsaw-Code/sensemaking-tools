@@ -14,6 +14,9 @@
 
 """Tests for sensemaker_utils."""
 
+import asyncio
+import pytest
+
 from src import sensemaker_utils
 
 
@@ -91,3 +94,20 @@ def test_get_prompt_with_additional_context():
   assert "<additionalContext>" in prompt_with_context
   assert "Some extra background info." in prompt_with_context
   assert "</additionalContext>" in prompt_with_context
+
+
+def test_retry_call_does_not_retry_model_stalled_error():
+  """Tests that retry_call re-raises ModelStalledError without retrying."""
+  calls = []
+
+  async def stalled():
+    calls.append(1)
+    raise sensemaker_utils.ModelStalledError("stalled")
+
+  with pytest.raises(sensemaker_utils.ModelStalledError):
+    asyncio.run(
+        sensemaker_utils.retry_call(
+            stalled, lambda r: True, 5, "msg", retry_delay_sec=0
+        )
+    )
+  assert len(calls) == 1

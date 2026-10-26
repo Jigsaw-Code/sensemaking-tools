@@ -21,6 +21,8 @@ import random
 import re
 from typing import List, Callable, TypeVar, Any, Coroutine, Optional
 
+from src.models.genai_model import ModelStalledError
+
 RETRY_DELAY_SEC = 10
 
 
@@ -140,6 +142,9 @@ async def retry_call(
       logging.warning(
           f"Attempt {attempt} failed validation. Invalid response: {response}"
       )
+    except ModelStalledError:
+      # A stalled model fails every subsequent call; abort the run loudly.
+      raise
     except Exception as e:
       error_str = str(e).lower()
       if (

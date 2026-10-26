@@ -547,6 +547,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         max_concurrent_calls=None,
         max_autorater_retries=5,
         autorater_min_score=3,
+        max_stall_minutes=7.5,
     )
     mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
     mock_statement = custom_types.Statement(
@@ -575,6 +576,9 @@ class CategorizationRunnerTest(unittest.TestCase):
         max_concurrent_calls=None,
         max_autorater_retries=5,
         autorater_min_score=3,
+    )
+    self.assertEqual(
+        mock_get_model.call_args.kwargs['max_stall_minutes'], 7.5
     )
 
 
