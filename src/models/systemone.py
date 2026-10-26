@@ -276,6 +276,12 @@ def _urllib_transport(
       return response.read()
   except urllib.error.HTTPError as exc:
     detail = exc.read().decode("utf-8", errors="replace")
+    if exc.code == 404:
+      detail = (
+          f"{url} does not serve System One decisions ({detail.strip()})."
+          " Ollama serves them from version 0.35.1; for another host, set"
+          " DECISION_MODEL_HOST to its full endpoint URL."
+      )
     raise SystemOneError(
         FailureKind.HTTP,
         detail or str(exc.reason),

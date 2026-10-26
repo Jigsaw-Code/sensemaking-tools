@@ -15,6 +15,7 @@
 """Tests for System One judgments. The transport is fake; Clef is not called."""
 
 import asyncio
+import io
 import json
 import unittest
 from unittest import mock
@@ -544,6 +545,25 @@ class DecisionTests(unittest.TestCase):
         asyncio.run(client.ask("state", question))
         self.assertEqual(sent[-1].get_header("Authorization"), expected)
     self.assertEqual(sent[0].full_url, "https://api.typesafe.ai/v1/systemone")
+
+  def test_a_404_says_the_host_does_not_serve_decisions(self):
+    url = "http://127.0.0.1:11434/v1/systemone"
+
+    def urlopen(request, timeout):
+      raise systemone.urllib.error.HTTPError(
+          url, 404, "Not Found", {}, io.BytesIO(b"404 page not found")
+      )
+
+    client = systemone.SystemOneClient(model="clef", endpoint=url)
+    question = {
+        "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
+    }
+    with mock.patch.object(systemone.urllib.request, "urlopen", urlopen):
+      with self.assertRaises(systemone.SystemOneError) as caught:
+        asyncio.run(client.ask("state", question))
+    self.assertEqual(caught.exception.status, 404)
+    self.assertIn("0.35.1", str(caught.exception))
+    self.assertIn("DECISION_MODEL_HOST", str(caught.exception))
 
   def test_installed_client_enables_the_decision_path(self):
     client, _ = _client()
