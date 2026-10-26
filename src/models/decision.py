@@ -351,6 +351,7 @@ def _choice_key(answer: systemone.Answer, name: str) -> str:
 def _choice_label(
     answer: systemone.Answer, options: list[str], name: str
 ) -> str:
+  """Maps an approval choice key such as 'o1' back to its scale label."""
   choice = _choice_key(answer, name)
   try:
     opt_index = int(choice.removeprefix("o"))
@@ -409,6 +410,7 @@ async def _choose_pack(
     options: list[tuple[str, str]],
     instructions: str,
 ) -> str:
+  """Picks the winning option id among at most 26 options."""
   criteria = {
       f"k{index}": description for index, (_, description) in enumerate(options)
   }
@@ -441,6 +443,7 @@ def _clusters(
     ids: list[str],
     links: list[tuple[str, str]],
 ) -> list[list[str]]:
+  """Joins linked pairs with union-find and returns sets of two or more."""
   parent = {item: item for item in ids}
 
   def find(item: str) -> str:

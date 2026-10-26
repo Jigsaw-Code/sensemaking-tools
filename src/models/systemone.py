@@ -531,6 +531,7 @@ def _body(
     keep_alive: str | None,
     pack: list[tuple[str, dict[str, object]]],
 ) -> dict[str, object]:
+  """Builds one request body; keep_alive is included only when set."""
   body: dict[str, object] = {
       "model": model,
       "state": state,
@@ -547,6 +548,7 @@ def _nbytes(
     keep_alive: str | None,
     pack: list[tuple[str, dict[str, object]]],
 ) -> int:
+  """Returns the encoded size of the request body for a pack."""
   return len(json.dumps(_body(state, model, keep_alive, pack)).encode("utf-8"))
 
 
