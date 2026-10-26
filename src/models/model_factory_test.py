@@ -101,27 +101,59 @@ class ModelFactoryTest(unittest.TestCase):
     """Tests the client defaults when only the required variables are set."""
     client = model_factory.get_decision_model()
     self.assertEqual(client.model, "clef")
-    self.assertEqual(
-        client.endpoint,
-        f"{systemone.OLLAMA_DEFAULT_BASE_URL}/v1/systemone",
-    )
+    self.assertEqual(client.endpoint, "http://127.0.0.1:11434/v1/systemone")
     self.assertEqual(client._max_concurrent, 1)
+    self.assertEqual(client._max_questions, 64)
+    self.assertEqual(client._keep_alive, "30m")
 
   @patch.dict(
       os.environ,
       {
           "DECISION_ENDPOINT_TYPE": "systemone",
           "DECISION_MODEL": "clef",
-          "OLLAMA_HOST": "gpu-box",
+          "DECISION_MODEL_HOST": "gpu-box",
           "DECISION_MAX_CONCURRENT": "2",
       },
       clear=True,
   )
   def test_get_decision_model_reads_host_and_concurrency(self):
-    """Tests that OLLAMA_HOST is read like the Ollama CLI reads it."""
+    """Tests that a bare host is read like the Ollama CLI reads it."""
     client = model_factory.get_decision_model()
     self.assertEqual(client.endpoint, "http://gpu-box:11434/v1/systemone")
     self.assertEqual(client._max_concurrent, 2)
+
+  @patch.dict(
+      os.environ,
+      {
+          "DECISION_ENDPOINT_TYPE": "systemone",
+          "DECISION_MODEL": "mercury-decide",
+          "DECISION_MODEL_HOST": "https://api.inceptionlabs.ai/v1/decisions",
+          "DECISION_MODEL_API_KEY": "secret",
+          "DECISION_MAX_QUESTIONS": "16",
+      },
+      clear=True,
+  )
+  def test_get_decision_model_for_a_hosted_endpoint(self):
+    """Tests a hosted endpoint: path kept, key used, no Ollama keep_alive."""
+    client = model_factory.get_decision_model()
+    self.assertEqual(
+        client.endpoint, "https://api.inceptionlabs.ai/v1/decisions"
+    )
+    self.assertEqual(client._max_questions, 16)
+    self.assertIsNone(client._keep_alive)
+
+  def test_get_decision_model_rejects_bad_question_limits(self):
+    """Tests that DECISION_MAX_QUESTIONS must be a positive integer."""
+    for raw in ("0", "lots"):
+      env = {
+          "DECISION_ENDPOINT_TYPE": "systemone",
+          "DECISION_MODEL": "clef",
+          "DECISION_MAX_QUESTIONS": raw,
+      }
+      with patch.dict(os.environ, env, clear=True):
+        with self.assertRaises(systemone.SystemOneError) as context:
+          model_factory.get_decision_model()
+        self.assertEqual(context.exception.kind, systemone.FailureKind.CONFIG)
 
   @patch.dict(
       os.environ,

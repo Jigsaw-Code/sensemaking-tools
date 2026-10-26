@@ -12,10 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Client for Ollama System One decision models such as Clef.
+"""Client for System One decision models.
 
-Clef does not implement chat or completion. Judgments go to
-``POST /v1/systemone`` and come back as choice, noul, or score answers.
+System One decision models do not implement chat or completion. A request
+sends one state and a set of questions; the answers come back as choice, noul,
+or score answers. Hosts share this request shape and differ in path and auth:
+Ollama serves ``POST /v1/systemone`` locally, and hosted services take a
+bearer key at their own endpoint. Tested with Clef on Ollama and Workers AI,
+TypeSafe Jev, and Inception Mercury Decide.
 """
 
 from __future__ import annotations
@@ -23,23 +27,30 @@ from __future__ import annotations
 import asyncio  # noqa: ANYIO_OK
 import dataclasses
 import enum
+import functools
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Annotated, Callable, Final, Literal, assert_never
+from typing import Annotated, Callable, Final, Literal, Mapping, assert_never
 
 import pydantic
 
+# Questions per request that Ollama accepts. Other hosts may allow more or
+# fewer, so the client takes its own limit.
 MAX_QUESTIONS: Final = 64
 MAX_CHOICE_OPTIONS: Final = 26
 MAX_BODY_BYTES: Final = 64 * 1024
 # Leave headroom under the server's 64 KiB text limit while packing.
 PACK_BODY_BYTES: Final = 60 * 1024
 DEFAULT_TIMEOUT_SECONDS: Final = 600
-# Where the Ollama CLI connects when OLLAMA_HOST is unset.
+# Ollama's port, assumed for a bare host as the Ollama CLI does.
 OLLAMA_DEFAULT_PORT: Final = 11434
-OLLAMA_DEFAULT_BASE_URL: Final = f"http://127.0.0.1:{OLLAMA_DEFAULT_PORT}"
+SYSTEMONE_PATH: Final = "/v1/systemone"
+# A local Ollama server, used when no host is configured.
+DEFAULT_ENDPOINT: Final = (
+    f"http://127.0.0.1:{OLLAMA_DEFAULT_PORT}{SYSTEMONE_PATH}"
+)
 
 
 class FailureKind(enum.Enum):
@@ -246,11 +257,16 @@ def _parse_answer(raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer) -> Answer:
       assert_never(unreachable)
 
 
-def _urllib_transport(url: str, body: bytes) -> bytes:
+def _urllib_transport(
+    url: str, body: bytes, api_key: str | None = None
+) -> bytes:
+  headers = {"Content-Type": "application/json"}
+  if api_key:
+    headers["Authorization"] = f"Bearer {api_key}"
   request = urllib.request.Request(
       url,
       data=body,
-      headers={"Content-Type": "application/json"},
+      headers=headers,
       method="POST",
   )
   try:
@@ -269,24 +285,25 @@ def _urllib_transport(url: str, body: bytes) -> bytes:
     raise SystemOneError(FailureKind.HTTP, str(exc.reason)) from exc
 
 
-def ollama_base_url(host: str) -> str:
-  """Turns an OLLAMA_HOST value into a base URL, as the Ollama CLI does.
+def endpoint_url(host: str) -> str:
+  """Turns a decision model host into the URL that requests are posted to.
 
-  OLLAMA_HOST is shared with the Ollama server, so it is often a bare
-  ``host`` or ``host:port`` such as ``0.0.0.0:11434``. Without a scheme, the
-  CLI assumes http and, without a port, 11434. With an explicit scheme the
-  scheme's own default port applies.
+  A bare ``host`` or ``host:port`` is read as the Ollama CLI reads
+  OLLAMA_HOST: http, and port 11434 when none is given. With an explicit
+  scheme the scheme's own default port applies. A URL without a path gets
+  ``/v1/systemone``; a URL with a path is used as given, for hosts that serve
+  decisions elsewhere.
 
   Args:
-    host: The OLLAMA_HOST value.
+    host: A host, ``host:port``, base URL, or full endpoint URL.
 
   Returns:
-    A base URL without a trailing slash, for SystemOneClient.
+    The endpoint URL, without a trailing slash.
 
   Raises:
     SystemOneError: If host is blank or not a valid host.
   """
-  host = _require_text(host, "OLLAMA_HOST").strip()
+  host = _require_text(host, "host").strip()
   if "://" in host:
     url = host
   else:
@@ -296,65 +313,79 @@ def ollama_base_url(host: str) -> str:
     port = parts.port
   except ValueError as exc:
     raise SystemOneError(
-        FailureKind.CONFIG, f"OLLAMA_HOST {host!r} is not a valid host."
+        FailureKind.CONFIG, f"host {host!r} is not a valid host."
     ) from exc
   if not parts.hostname:
     raise SystemOneError(
-        FailureKind.CONFIG, f"OLLAMA_HOST {host!r} is not a valid host."
+        FailureKind.CONFIG, f"host {host!r} is not a valid host."
     )
   if "://" not in host and port is None:
     parts = parts._replace(netloc=f"{parts.netloc}:{OLLAMA_DEFAULT_PORT}")
+  if parts.path in ("", "/"):
+    parts = parts._replace(path=SYSTEMONE_PATH)
   return parts.geturl().rstrip("/")
 
 
 class SystemOneClient:
-  """Calls one local System One model."""
+  """Calls one System One decision model."""
 
   def __init__(
       self,
       model: str,
-      base_url: str = OLLAMA_DEFAULT_BASE_URL,
+      endpoint: str = DEFAULT_ENDPOINT,
       transport: Transport | None = None,
       max_concurrent: int = 1,
-      keep_alive: str = "30m",
+      keep_alive: str | None = None,
+      api_key: str | None = None,
+      max_questions: int = MAX_QUESTIONS,
   ):
     """Initializes the client.
 
     Args:
-      model: Local model name, for example ``clef``.
-      base_url: Ollama host, without a path.
+      model: Model name, for example ``clef``.
+      endpoint: URL that requests are posted to; see endpoint_url().
       transport: Optional byte transport. Tests inject this. Production uses
-        urllib against ``/v1/systemone``.
-      max_concurrent: How many requests may be in flight. A local Clef runner
-        has one slot; the default is 1.
-      keep_alive: How long Ollama should keep the model loaded.
+        urllib.
+      max_concurrent: How many requests may be in flight. A local runner has
+        one slot; the default is 1.
+      keep_alive: How long Ollama should keep the model loaded. Only Ollama
+        accepts this field, so it is sent only when set.
+      api_key: Optional bearer key for hosted endpoints.
+      max_questions: Most questions the host accepts in one request.
     """
     if max_concurrent < 1:
       raise SystemOneError(
           FailureKind.CONFIG,
           f"max_concurrent must be >= 1, got {max_concurrent}.",
       )
+    if max_questions < 1:
+      raise SystemOneError(
+          FailureKind.CONFIG,
+          f"max_questions must be >= 1, got {max_questions}.",
+      )
     self.model = _require_text(model, "model")
-    self.base_url = base_url.rstrip("/")
-    self._transport = transport or _urllib_transport
+    self._endpoint = _require_text(endpoint, "endpoint").rstrip("/")
+    self._transport = transport or functools.partial(
+        _urllib_transport, api_key=api_key
+    )
     self._max_concurrent = max_concurrent
     self._keep_alive = keep_alive
+    self._max_questions = max_questions
     self._limiter: asyncio.Semaphore | None = None
 
   @property
   def endpoint(self) -> str:
-    return f"{self.base_url}/v1/systemone"
+    return self._endpoint
 
   async def ask(
       self,
       state: str,
-      questions: dict[str, Question],
+      questions: Mapping[str, Question],
   ) -> dict[str, Answer]:
     """Asks every question about the same state.
 
-    Questions are packed into requests of at most 64, and under 60 KiB, because
-    that is what ``/v1/systemone`` accepts. Answers are keyed by the caller's
-    question ids.
+    Questions are packed into requests of at most max_questions, and under
+    60 KiB. Answers are keyed by the caller's question ids.
     """
     _require_text(state, "state")
     if not questions:
@@ -372,7 +403,9 @@ class SystemOneClient:
         key: _dump_question(question) for key, question in questions.items()
     }
     answers: dict[str, Answer] = {}
-    for pack in _packs(state, self.model, self._keep_alive, dumped):
+    for pack in _packs(
+        state, self.model, self._keep_alive, dumped, self._max_questions
+    ):
       body = json.dumps(pack).encode("utf-8")
       if len(body) > MAX_BODY_BYTES:
         raise SystemOneError(
@@ -402,8 +435,9 @@ class SystemOneClient:
 def _packs(
     state: str,
     model: str,
-    keep_alive: str,
+    keep_alive: str | None,
     questions: dict[str, dict[str, object]],
+    max_questions: int,
 ) -> list[dict[str, object]]:
   """Splits questions so each request fits the server limits."""
   items = list(questions.items())
@@ -412,7 +446,7 @@ def _packs(
   for item in items:
     trial = current + [item]
     if (
-        len(trial) > MAX_QUESTIONS
+        len(trial) > max_questions
         or _nbytes(state, model, keep_alive, trial) > PACK_BODY_BYTES
     ):
       if not current:
@@ -437,21 +471,23 @@ def _packs(
 def _body(
     state: str,
     model: str,
-    keep_alive: str,
+    keep_alive: str | None,
     pack: list[tuple[str, dict[str, object]]],
 ) -> dict[str, object]:
-  return {
+  body: dict[str, object] = {
       "model": model,
       "state": state,
       "questions": {key: question for key, question in pack},
-      "keep_alive": keep_alive,
   }
+  if keep_alive is not None:
+    body["keep_alive"] = keep_alive
+  return body
 
 
 def _nbytes(
     state: str,
     model: str,
-    keep_alive: str,
+    keep_alive: str | None,
     pack: list[tuple[str, dict[str, object]]],
 ) -> int:
   return len(json.dumps(_body(state, model, keep_alive, pack)).encode("utf-8"))
@@ -464,6 +500,9 @@ def _parse_response(raw: bytes) -> dict[str, Answer]:
     raise SystemOneError(FailureKind.PARSE, "response was not JSON.") from exc
   if not isinstance(payload, dict):
     raise SystemOneError(FailureKind.PARSE, "response was not a JSON object.")
+  # Workers AI wraps the answers in a result envelope.
+  if "answers" not in payload and isinstance(payload.get("result"), dict):
+    payload = payload["result"]
   if "error" in payload and "answers" not in payload:
     message = payload["error"]
     raise SystemOneError(FailureKind.HTTP, str(message))

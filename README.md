@@ -139,9 +139,9 @@ python3 -m src.categorization_runner \
   --model_name "google/gemma-4-26b-it" # Or the absolute path to your local model weights
 ```
 
-##### Running judgments on Ollama Clef
+##### Running judgments on a System One decision model
 
-Clef is a System One decision model. It does not implement chat, so `MODEL_ENDPOINT_TYPE=openai_api_compatible` cannot point at it. When the variables below are set, judgment stages call `POST /v1/systemone` on a local Ollama 0.35.1+ server. Generative stages stay on Gemini or the OpenAI-compatible model: topic and opinion names, quote extraction, report text, proposition writing, translation, and jury ranking.
+System One decision models answer typed questions (yes/no, a choice among options, or a position on an ordered scale) with probabilities, in one pass, instead of generating text. They do not implement chat, so `MODEL_ENDPOINT_TYPE=openai_api_compatible` cannot point at them. When the variables below are set, judgment stages send their questions to a decision model. Generative stages stay on Gemini or the OpenAI-compatible model: topic and opinion names, quote extraction, report text, proposition writing, translation, and jury ranking.
 
 Judgment stages that move: topic assignment, opinion assignment, moderation and bridging scores, opinion autorater verdicts, other eval verdicts, jury approval votes, proposition equivalence clustering, and the dedup winner / topic-home pick.
 
@@ -150,13 +150,23 @@ export DECISION_ENDPOINT_TYPE="systemone"
 export DECISION_MODEL="clef"
 ```
 
-Optional settings, which only need to be set to change the default:
+With only these two set, requests go to `POST /v1/systemone` on a local Ollama 0.35.1+ server running Clef. Optional settings, which only need to be set to change the default:
 
-* `OLLAMA_HOST`: the Ollama server, read the same way as the Ollama CLI (for example `gpu-box` or `gpu-box:11434`). Unset means the local server.
+* `DECISION_MODEL_HOST`: where the model is served. A bare host such as `gpu-box` or `gpu-box:11434` is read the way the Ollama CLI reads `OLLAMA_HOST`. A URL without a path gets `/v1/systemone`. A URL with a path is used as given.
+* `DECISION_MODEL_API_KEY`: bearer key for a hosted endpoint. Without a key, requests ask Ollama to keep the model loaded between stages.
+* `DECISION_MAX_QUESTIONS`: most questions per request (default `64`, Ollama's limit). Lower it for hosts with a smaller limit.
 * `DECISION_THRESHOLD`: probability cutoff for labels and equivalence, between 0 and 1 (default `0.5`).
 * `DECISION_MAX_CONCURRENT`: requests in flight (default `1`, because a local runner has one slot).
 
-Assignment asks one yes/no question per label. More than 64 labels are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts return a 0-4 level and no written explanation; a level below 4 is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
+Hosted endpoints that have been tested with the same request shape:
+
+| Model | `DECISION_MODEL_HOST` | `DECISION_MODEL` |
+| --- | --- | --- |
+| Clef on Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/run/@cf/cloudflare/clef` | `clef` |
+| TypeSafe Jev | `https://api.typesafe.ai` | `jev-latest` |
+| Inception Mercury Decide | `https://api.inceptionlabs.ai/v1/decisions` | `mercury-decide` |
+
+Assignment asks one yes/no question per label, and Other is not asked: it is assigned only when no other label clears the threshold. Labels beyond the question limit are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts are a score on the 0-4 rubric, rounded to a level, with no written explanation; a level below `autorater_min_score` is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
 
 ##### Understanding the Outputs:
 

@@ -17,6 +17,7 @@
 import asyncio
 import json
 import unittest
+from unittest import mock
 
 import pandas as pd
 
@@ -430,25 +431,119 @@ class DecisionTests(unittest.TestCase):
       )
     self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
 
-  def test_ollama_base_url_matches_the_ollama_cli(self):
+  def test_endpoint_url_reads_hosts_and_full_urls(self):
     cases = {
-        "0.0.0.0": "http://0.0.0.0:11434",
-        "localhost:8080": "http://localhost:8080",
-        " 127.0.0.1 ": "http://127.0.0.1:11434",
-        "[::1]": "http://[::1]:11434",
-        "http://gpu-box:11434/": "http://gpu-box:11434",
-        "https://ollama.example.com": "https://ollama.example.com",
+        "0.0.0.0": "http://0.0.0.0:11434/v1/systemone",
+        "localhost:8080": "http://localhost:8080/v1/systemone",
+        " 127.0.0.1 ": "http://127.0.0.1:11434/v1/systemone",
+        "[::1]": "http://[::1]:11434/v1/systemone",
+        "http://gpu-box:11434/": "http://gpu-box:11434/v1/systemone",
+        "https://api.typesafe.ai": "https://api.typesafe.ai/v1/systemone",
+        "https://api.inceptionlabs.ai/v1/decisions/": (
+            "https://api.inceptionlabs.ai/v1/decisions"
+        ),
     }
     for host, expected in cases.items():
       with self.subTest(host=host):
-        self.assertEqual(systemone.ollama_base_url(host), expected)
+        self.assertEqual(systemone.endpoint_url(host), expected)
 
-  def test_invalid_ollama_host_is_a_config_error(self):
+  def test_invalid_host_is_a_config_error(self):
     for host in ("", "http://", "host:port"):
       with self.subTest(host=host):
         with self.assertRaises(systemone.SystemOneError) as caught:
-          systemone.ollama_base_url(host)
+          systemone.endpoint_url(host)
         self.assertEqual(caught.exception.kind, systemone.FailureKind.CONFIG)
+
+  def test_keep_alive_is_sent_only_when_set(self):
+    question = {
+        "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
+    }
+    for keep_alive in (None, "30m"):
+      with self.subTest(keep_alive=keep_alive):
+        transport = RecordingTransport()
+        client = systemone.SystemOneClient(
+            model="clef", transport=transport, keep_alive=keep_alive
+        )
+        asyncio.run(client.ask("state", question))
+        self.assertEqual(transport.bodies[0].get("keep_alive"), keep_alive)
+
+  def test_packs_at_the_configured_question_limit(self):
+    transport = RecordingTransport()
+    client = systemone.SystemOneClient(
+        model="clef", transport=transport, max_questions=16
+    )
+    questions = {
+        f"q{index}": systemone.NoulQuestion(
+            instructions=f"Is this item {index}?", true="Yes", false="No"
+        )
+        for index in range(17)
+    }
+
+    answers = asyncio.run(client.ask("a short state", questions))
+
+    self.assertEqual(len(answers), 17)
+    self.assertEqual(
+        [len(body["questions"]) for body in transport.bodies], [16, 1]
+    )
+
+  def test_reads_answers_inside_a_result_envelope(self):
+    def transport(url: str, body: bytes) -> bytes:
+      return json.dumps({
+          "result": {
+              "model": "clef",
+              "answers": {"q": {"type": "noul", "noul": 0.75}},
+          },
+          "success": True,
+          "errors": [],
+      }).encode("utf-8")
+
+    client = systemone.SystemOneClient(model="clef", transport=transport)
+    answers = asyncio.run(
+        client.ask(
+            "state",
+            {
+                "q": systemone.NoulQuestion(
+                    instructions="Yes?", true="Yes", false="No"
+                )
+            },
+        )
+    )
+    self.assertEqual(answers["q"].noul, 0.75)
+
+  def test_api_key_is_sent_as_a_bearer_header(self):
+    sent = []
+
+    class _Response:
+
+      def __enter__(self):
+        return self
+
+      def __exit__(self, *exc):
+        return False
+
+      def read(self):
+        return json.dumps({
+            "model": "jev",
+            "answers": {"q": {"type": "noul", "noul": 0.5}},
+        }).encode("utf-8")
+
+    def urlopen(request, timeout):
+      sent.append(request)
+      return _Response()
+
+    question = {
+        "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
+    }
+    with mock.patch.object(systemone.urllib.request, "urlopen", urlopen):
+      for api_key, expected in (("secret", "Bearer secret"), (None, None)):
+        client = systemone.SystemOneClient(
+            model="jev",
+            endpoint="https://api.typesafe.ai/v1/systemone",
+            api_key=api_key,
+        )
+        asyncio.run(client.ask("state", question))
+        self.assertEqual(sent[-1].get_header("Authorization"), expected)
+    self.assertEqual(sent[0].full_url, "https://api.typesafe.ai/v1/systemone")
 
   def test_installed_client_enables_the_decision_path(self):
     client, _ = _client()

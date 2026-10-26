@@ -23,6 +23,8 @@ from src.models.openai_compatible_model import OpenAICompatibleModel
 
 DECISION_ENDPOINT_SYSTEMONE = "systemone"
 _DEFAULT_DECISION_THRESHOLD = 0.5
+# Keeps a local Ollama model loaded between pipeline stages.
+_OLLAMA_KEEP_ALIVE = "30m"
 
 
 def get_model(model_name: str, **kwargs) -> BaseModel:
@@ -75,12 +77,16 @@ def get_decision_model() -> systemone.SystemOneClient | None:
   """Creates the System One client for judgment stages, if one is configured.
 
   Environment Variables:
-      DECISION_ENDPOINT_TYPE: 'systemone' to send judgment stages to a local
-        System One model. Unset keeps them on the generative model.
-      DECISION_MODEL: Ollama model name, e.g. 'clef'. Required when
+      DECISION_ENDPOINT_TYPE: 'systemone' to send judgment stages to a System
+        One decision model. Unset keeps them on the generative model.
+      DECISION_MODEL: Model name, e.g. 'clef'. Required when
         DECISION_ENDPOINT_TYPE is 'systemone'.
-      OLLAMA_HOST: Ollama server, read the same way as the Ollama CLI. Unset
-        means the local server.
+      DECISION_MODEL_HOST: Host, base URL, or full endpoint URL (optional;
+        see systemone.endpoint_url). Unset means a local Ollama server.
+      DECISION_MODEL_API_KEY: Bearer key for hosted endpoints (optional).
+        Without a key the client asks Ollama to keep the model loaded.
+      DECISION_MAX_QUESTIONS: Most questions per request (optional, default
+        64, Ollama's limit).
       DECISION_MAX_CONCURRENT: Maximum requests in flight (optional, default
         1, since a local runner has one slot).
 
@@ -89,7 +95,8 @@ def get_decision_model() -> systemone.SystemOneClient | None:
 
   Raises:
       SystemOneError: If DECISION_ENDPOINT_TYPE is unknown, DECISION_MODEL is
-        missing, or DECISION_MAX_CONCURRENT is not a positive integer.
+        missing, DECISION_MODEL_HOST is not a valid host, or a numeric
+        setting is not a positive integer.
   """
   endpoint_type = os.getenv("DECISION_ENDPOINT_TYPE")
   if not endpoint_type:
@@ -106,21 +113,44 @@ def get_decision_model() -> systemone.SystemOneClient | None:
         "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
         f" '{DECISION_ENDPOINT_SYSTEMONE}'.",
     )
-  kwargs = {}
-  host = os.getenv("OLLAMA_HOST")
-  if host and host.strip():
-    kwargs["base_url"] = systemone.ollama_base_url(host)
-  raw_limit = os.getenv("DECISION_MAX_CONCURRENT")
-  if raw_limit:
-    try:
-      kwargs["max_concurrent"] = int(raw_limit)
-    except ValueError as exc:
-      raise systemone.SystemOneError(
-          systemone.FailureKind.CONFIG,
-          f"DECISION_MAX_CONCURRENT must be an integer, got {raw_limit!r}.",
-      ) from exc
-  logging.info(f"Creating SystemOneClient with model: {model}")
-  return systemone.SystemOneClient(model=model, **kwargs)
+  host = os.getenv("DECISION_MODEL_HOST")
+  endpoint = (
+      systemone.endpoint_url(host)
+      if host and host.strip()
+      else systemone.DEFAULT_ENDPOINT
+  )
+  api_key = os.getenv("DECISION_MODEL_API_KEY") or None
+  logging.info(
+      f"Creating SystemOneClient with model: {model}, endpoint: {endpoint}"
+  )
+  return systemone.SystemOneClient(
+      model=model,
+      endpoint=endpoint,
+      api_key=api_key,
+      keep_alive=None if api_key else _OLLAMA_KEEP_ALIVE,
+      max_questions=_positive_int_env(
+          "DECISION_MAX_QUESTIONS", systemone.MAX_QUESTIONS
+      ),
+      max_concurrent=_positive_int_env("DECISION_MAX_CONCURRENT", 1),
+  )
+
+
+def _positive_int_env(name: str, default: int) -> int:
+  raw = os.getenv(name)
+  if not raw:
+    return default
+  try:
+    value = int(raw)
+  except ValueError as exc:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"{name} must be an integer, got {raw!r}.",
+    ) from exc
+  if value < 1:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG, f"{name} must be >= 1, got {value}."
+    )
+  return value
 
 
 def get_decision_threshold() -> float:
