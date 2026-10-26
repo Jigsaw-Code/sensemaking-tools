@@ -335,6 +335,7 @@ async def rubric_level(
 
 
 def _choice_key(answer: systemone.Answer, name: str) -> str:
+  """Returns the chosen option key, or raises if the answer is not a choice."""
   match answer:
     case systemone.ChoiceAnswer(choice=choice):
       return choice
@@ -389,6 +390,7 @@ def _score_probabilities(
 
 
 def _noul(answer: systemone.Answer, name: str) -> float:
+  """Returns the yes-probability, or raises if the answer is not a noul."""
   match answer:
     case systemone.NoulAnswer(noul=noul):
       return noul
@@ -442,6 +444,7 @@ def _clusters(
   parent = {item: item for item in ids}
 
   def find(item: str) -> str:
+    """Returns the root of item, compressing the path as it goes."""
     while parent[item] != item:
       parent[item] = parent[parent[item]]
       item = parent[item]

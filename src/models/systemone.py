@@ -74,6 +74,7 @@ class SystemOneError(Exception):
   status: int | None = None
 
   def __str__(self) -> str:
+    """Returns the message, prefixed with the HTTP status when known."""
     if self.status is None:
       return self.message
     return f"{self.status}: {self.message}"
@@ -108,6 +109,7 @@ Question = ChoiceQuestion | NoulQuestion | ScoreQuestion
 
 
 class _ChoiceAnswer(pydantic.BaseModel):
+  """Wire shape of a choice answer."""
   model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   type: Literal["choice"]
@@ -117,6 +119,7 @@ class _ChoiceAnswer(pydantic.BaseModel):
 
 
 class _NoulAnswer(pydantic.BaseModel):
+  """Wire shape of a noul answer."""
   model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   type: Literal["noul"]
@@ -124,6 +127,7 @@ class _NoulAnswer(pydantic.BaseModel):
 
 
 class _ScoreAnswer(pydantic.BaseModel):
+  """Wire shape of a score answer."""
   model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   type: Literal["score"]
@@ -169,6 +173,7 @@ _RawAnswer = Annotated[
 
 
 class _Usage(pydantic.BaseModel):
+  """Wire shape of token usage."""
   model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   input_tokens: int = 0
@@ -176,6 +181,7 @@ class _Usage(pydantic.BaseModel):
 
 
 class _Response(pydantic.BaseModel):
+  """Wire shape of a System One response."""
   model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
   model: str
@@ -187,6 +193,7 @@ Transport = Callable[[str, bytes], bytes]
 
 
 def _require_text(value: str, what: str) -> str:
+  """Returns value, or raises a config error when it is blank."""
   if not value or value.isspace():
     raise SystemOneError(
         FailureKind.CONFIG,
@@ -237,6 +244,7 @@ def _dump_question(question: Question) -> dict[str, object]:  # noqa: DICT_OK
 
 
 def _parse_answer(raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer) -> Answer:
+  """Converts a wire answer into its public answer type."""
   match raw:
     case _ChoiceAnswer(
         choice=choice, probabilities=probabilities, confidence=confidence
@@ -408,6 +416,7 @@ class SystemOneClient:
 
   @property
   def endpoint(self) -> str:
+    """The URL that requests are posted to."""
     return self._endpoint
 
   async def ask(
@@ -542,6 +551,7 @@ def _nbytes(
 
 
 def _parse_response(raw: bytes) -> dict[str, Answer]:
+  """Parses a response body into answers keyed by question id."""
   try:
     payload = json.loads(raw)
   except json.JSONDecodeError as exc:

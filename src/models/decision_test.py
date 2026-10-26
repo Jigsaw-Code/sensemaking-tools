@@ -32,6 +32,7 @@ from src.tasks import categorization
 
 
 def _answers_for(payload: dict) -> dict:
+  """Builds deterministic fake answers for a request payload."""
   answers = {}
   state = payload["state"]
   state_text = state if isinstance(state, str) else json.dumps(state)
@@ -87,11 +88,14 @@ def _answers_for(payload: dict) -> dict:
 
 
 class RecordingTransport:
+  """Fake transport that records request bodies and answers them."""
 
   def __init__(self):
+    """Starts with no recorded bodies."""
     self.bodies = []
 
   def __call__(self, url: str, body: bytes) -> bytes:
+    """Records the body and returns fake answers for it."""
     payload = json.loads(body)
     self.bodies.append(payload)
     encoded = {
@@ -103,6 +107,7 @@ class RecordingTransport:
 
 
 def _client() -> tuple[systemone.SystemOneClient, RecordingTransport]:
+  """Returns a client wired to a recording fake transport."""
   transport = RecordingTransport()
   return (
       systemone.SystemOneClient(
@@ -113,6 +118,7 @@ def _client() -> tuple[systemone.SystemOneClient, RecordingTransport]:
 
 
 class DecisionTests(unittest.TestCase):
+  """Tests for System One judgments and the client."""
 
   def test_assigns_matching_topic_and_never_asks_about_other(self):
     """Tests that only specific labels are asked and the match is kept."""
@@ -158,6 +164,7 @@ class DecisionTests(unittest.TestCase):
     bodies = []
 
     def transport(url: str, body: bytes) -> bytes:
+      """Returns a canned System One response."""
       bodies.append(json.loads(body))
       return json.dumps({
           "model": "clef",
@@ -180,6 +187,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(question["criteria"], list(decision.RUBRIC))
 
   def test_clusters_only_equivalent_pairs(self):
+    """Tests that only equivalent propositions are clustered."""
     client, _ = _client()
 
     sets = asyncio.run(
@@ -230,6 +238,7 @@ class DecisionTests(unittest.TestCase):
         calls.clear()
 
         def transport(url: str, body: bytes, status=status) -> bytes:
+          """Returns a canned System One response."""
           calls.append(url)
           if len(calls) == 1:
             raise systemone.SystemOneError(
@@ -249,6 +258,7 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(len(calls), expected_calls)
 
   def test_tournament_selects_marked_option_past_26(self):
+    """Tests the choice tournament beyond 26 options."""
     client, transport = _client()
     options = [(f"id-{index}", f"option {index}") for index in range(27)]
     options[20] = ("id-20", "WIN option")
@@ -266,6 +276,7 @@ class DecisionTests(unittest.TestCase):
     self.assertGreaterEqual(len(transport.bodies), 2)
 
   def test_packs_questions_past_the_64_limit(self):
+    """Tests packing at the default 64-question limit."""
     client, transport = _client()
     questions = {
         f"q{index}": systemone.NoulQuestion(
@@ -283,7 +294,9 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(len(transport.bodies[0]["questions"]), 64)
 
   def test_rejects_an_error_payload(self):
+    """Tests that an error payload raises an HTTP failure."""
     def transport(url: str, body: bytes) -> bytes:
+      """Returns a canned System One response."""
       return b'{"error": "clef does not support chat"}'
 
     client = systemone.SystemOneClient(model="clef", transport=transport)
@@ -301,6 +314,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(caught.exception.kind, systemone.FailureKind.HTTP)
 
   def test_scores_attribute_as_probability(self):
+    """Tests that attributes are scored as probabilities."""
     client, _ = _client()
 
     scores = asyncio.run(
@@ -320,6 +334,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(scores, {"TOXICITY": 0.08})
 
   def test_topic_assignment_does_not_call_the_generative_model(self):
+    """Tests that topic assignment uses only the decision model."""
     client, transport = _client()
     statement = custom_types.Statement(id="s1", text="Please add bus lanes.")
     with decision.use_decision_client(client):
@@ -339,6 +354,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(transport.bodies[0]["model"], "clef")
 
   def test_failing_opinion_autorater_becomes_other(self):
+    """Tests that a failing autorater finalizes the quote as Other."""
     client, _ = _client()
     statement = custom_types.Statement(
         id="s1",
@@ -456,6 +472,7 @@ class DecisionTests(unittest.TestCase):
     )
 
   def test_content_scorer_uses_decision_client_without_gemini(self):
+    """Tests that ContentScorer scores without a Gemini client."""
     client, transport = _client()
     with decision.use_decision_client(client):
       scorer = ContentScorer(gemini_api_key="", model_name="unused")
@@ -471,6 +488,7 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(transport.bodies[0]["model"], "clef")
 
   def test_approval_votes_map_to_positive_labels(self):
+    """Tests that approval votes map to positive labels."""
     client, _ = _client()
     frame = pd.DataFrame(
         [{"participant_id": "p1", "survey_text": "I want more buses."}]
@@ -492,6 +510,7 @@ class DecisionTests(unittest.TestCase):
     self.assertIn("participant_id", results.iloc[0]["data_row"])
 
   def test_choice_question_round_trips(self):
+    """Tests a choice question round trip."""
     client, _ = _client()
     answers = asyncio.run(
         client.ask(
@@ -507,7 +526,9 @@ class DecisionTests(unittest.TestCase):
     self.assertEqual(answers["winner"].choice, "a")
 
   def test_out_of_range_choice_is_a_parse_error(self):
+    """Tests that an unknown choice key is a parse error."""
     def transport(url: str, body: bytes) -> bytes:
+      """Returns a canned System One response."""
       return json.dumps({
           "model": "clef",
           "answers": {
@@ -594,6 +615,7 @@ class DecisionTests(unittest.TestCase):
   def test_reads_answers_inside_a_result_envelope(self):
     """Tests that a Workers AI result envelope is unwrapped."""
     def transport(url: str, body: bytes) -> bytes:
+      """Returns a canned System One response."""
       return json.dumps({
           "result": {
               "model": "clef",
@@ -624,18 +646,22 @@ class DecisionTests(unittest.TestCase):
       """A minimal urlopen response."""
 
       def __enter__(self):
+        """Enters the response context."""
         return self
 
       def __exit__(self, *exc):
+        """Leaves the response context without suppressing errors."""
         return False
 
       def read(self):
+        """Returns the canned response body."""
         return json.dumps({
             "model": "jev",
             "answers": {"q": {"type": "noul", "noul": 0.5}},
         }).encode("utf-8")
 
     def urlopen(request, timeout):
+      """Stands in for urllib.request.urlopen."""
       sent.append(request)
       return _Response()
 
@@ -661,18 +687,22 @@ class DecisionTests(unittest.TestCase):
       """A minimal urlopen response."""
 
       def __enter__(self):
+        """Enters the response context."""
         return self
 
       def __exit__(self, *exc):
+        """Leaves the response context without suppressing errors."""
         return False
 
       def read(self):
+        """Returns the canned response body."""
         return json.dumps({
             "model": "clef",
             "answers": {"q": {"type": "noul", "noul": 0.25}},
         }).encode("utf-8")
 
     def urlopen(request, timeout):
+      """Stands in for urllib.request.urlopen."""
       calls.append(request.full_url)
       if len(calls) == 1:
         raise http.client.RemoteDisconnected(
@@ -695,6 +725,7 @@ class DecisionTests(unittest.TestCase):
     url = "http://127.0.0.1:11434/v1/systemone"
 
     def urlopen(request, timeout):
+      """Stands in for urllib.request.urlopen."""
       raise systemone.urllib.error.HTTPError(
           url, 404, "Not Found", {}, io.BytesIO(b"404 page not found")
       )
@@ -711,6 +742,7 @@ class DecisionTests(unittest.TestCase):
     self.assertIn("DECISION_MODEL_HOST", str(caught.exception))
 
   def test_installed_client_enables_the_decision_path(self):
+    """Tests that an installed client turns the decision path on and off."""
     client, _ = _client()
     with decision.use_decision_client(client):
       self.assertTrue(decision.decision_enabled())
