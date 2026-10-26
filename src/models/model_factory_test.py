@@ -162,6 +162,40 @@ class ModelFactoryTest(unittest.TestCase):
           client = model_factory.get_decision_model()
           self.assertEqual(client._keep_alive, expected)
 
+  def test_get_quote_model_reads_its_own_variables(self):
+    """Tests that QUOTE_* configure the quote client apart from DECISION_*."""
+    env = {
+        "DECISION_ENDPOINT_TYPE": "systemone",
+        "DECISION_MODEL": "clef",
+        "QUOTE_ENDPOINT_TYPE": "systemone",
+        "QUOTE_MODEL": "mercury-decide",
+        "QUOTE_MODEL_HOST": "https://api.inceptionlabs.ai/v1/decisions",
+        "QUOTE_MODEL_API_KEY": "secret",
+        "QUOTE_MAX_CONCURRENT": "4",
+    }
+    with patch.dict(os.environ, env, clear=True):
+      quote = model_factory.get_quote_model()
+      decision_client = model_factory.get_decision_model()
+    self.assertEqual(quote.model, "mercury-decide")
+    self.assertEqual(
+        quote.endpoint, "https://api.inceptionlabs.ai/v1/decisions"
+    )
+    self.assertEqual(quote._max_concurrent, 4)
+    self.assertIsNone(quote._keep_alive)
+    self.assertEqual(decision_client.model, "clef")
+
+  def test_get_quote_model_is_off_unless_quote_type_is_set(self):
+    """Tests that DECISION_* alone does not turn on span quotes."""
+    env = {"DECISION_ENDPOINT_TYPE": "systemone", "DECISION_MODEL": "clef"}
+    with patch.dict(os.environ, env, clear=True):
+      self.assertIsNone(model_factory.get_quote_model())
+    with patch.dict(
+        os.environ, {"QUOTE_ENDPOINT_TYPE": "systemone"}, clear=True
+    ):
+      with self.assertRaises(systemone.SystemOneError) as context:
+        model_factory.get_quote_model()
+      self.assertIn("QUOTE_MODEL must be set", str(context.exception))
+
   def test_get_decision_model_rejects_bad_question_limits(self):
     """Tests that DECISION_MAX_QUESTIONS must be a positive integer."""
     for raw in ("0", "lots"):

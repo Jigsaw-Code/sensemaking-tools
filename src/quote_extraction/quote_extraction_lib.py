@@ -20,7 +20,15 @@ from typing import List, Optional, cast
 from src.models.genai_model import GenaiModel
 from src import checkpoint_utils
 from src import prompts
+from src.models import model_factory
+from src.models import systemone
 from src.models.custom_types import FlatTopic, NestedTopic, Quote, Statement, Topic
+
+# Joins non-adjacent sentences of a span quote, as an ellipsis would in print.
+SPAN_QUOTE_SEPARATOR = " ... "
+# A sentence ends at ., ! or ? (optionally followed by closing quotes or
+# brackets) before whitespace, or at a line break.
+_SENTENCE_END = re.compile(r"[.!?][\"')\]]*(?=\s)|\n")
 
 
 def _create_quote_extraction_prompt(text: str, context: str, topic: str) -> str:
@@ -79,6 +87,18 @@ async def extract_quotes_from_text(
     if cached_statements:
       logging.info("Loaded statements with quotes from checkpoint.")
       return cached_statements
+
+  span_client = model_factory.get_quote_model()
+  if span_client is not None:
+    logging.info(
+        "Extracting quotes as exact spans with System One model %s.",
+        span_client.model,
+    )
+    await extract_span_quotes(span_client, statements, additional_context)
+    checkpoint_utils.save_checkpoint(
+        statements, quotes_checkpoint_filename, output_dir
+    )
+    return statements
 
   # Create quote extraction prompts
   prompts_with_metadata = _prepare_prompts(statements, additional_context)
@@ -187,6 +207,162 @@ async def _get_quotes_realtime(
       )
   logging.info("Quote extraction complete.")
   return
+
+
+async def extract_span_quotes(
+    client: systemone.SystemOneClient,
+    statements: List[Statement],
+    additional_context: Optional[str] = None,
+) -> List[Statement]:
+  """Extracts each topic's quote as exact sentences of the response.
+
+  One extract question per topic marks the participant's words on that
+  topic. Each marked span is widened to its whole sentences, and sentences
+  that are not adjacent are joined with an ellipsis, so every piece of the
+  quote is verbatim text of the response (after <response> markup is
+  joined, as skip_quote_extraction does). A topic with no marked span gets
+  the whole response. Host errors propagate, so a host without extract
+  support fails the stage instead of silently degrading it.
+
+  Args:
+      client: A System One client whose host answers extract questions.
+      statements: Statements with topics assigned; updated in place.
+      additional_context: Optional survey context for the questions.
+
+  Returns:
+      The statements, updated with quotes.
+
+  Raises:
+      ValueError: If no statement has a topic.
+      SystemOneError: If the host rejects or cannot answer a request.
+  """
+  with_topics = [s for s in statements if s.topics]
+  if not with_topics:
+    raise ValueError("No statement-topic pairs for quote extraction.")
+  quotes = await asyncio.gather(*(
+      _span_quotes_for_statement(client, s, additional_context)
+      for s in with_topics
+  ))
+  for statement, statement_quotes in zip(with_topics, quotes):
+    if statement.quotes is None:
+      statement.quotes = []
+    statement.quotes.extend(statement_quotes)
+  logging.info("Span quote extraction complete.")
+  return statements
+
+
+async def _span_quotes_for_statement(
+    client: systemone.SystemOneClient,
+    statement: Statement,
+    additional_context: Optional[str],
+) -> List[Quote]:
+  """Asks one extract question per topic and assembles the quotes."""
+  text = join_response_text(statement.text)
+  topics = statement.topics or []
+  context = (
+      f"Survey context: {additional_context.strip()}\n"
+      if additional_context and additional_context.strip()
+      else ""
+  )
+  questions = {
+      f"t{index}": systemone.ExtractQuestion(
+          instructions=(
+              f"{context}Mark every sentence in which the participant gives"
+              f" their view on '{topic.name}': what they want done about it,"
+              " why, and any personal experience or story behind it. Do not"
+              " mark text about other topics."
+          )
+      )
+      for index, topic in enumerate(topics)
+  }
+  answers = await client.ask(text, questions)
+  quotes = []
+  for index, topic in enumerate(topics):
+    answer = answers[f"t{index}"]
+    if not isinstance(answer, systemone.ExtractAnswer):
+      raise systemone.SystemOneError(
+          systemone.FailureKind.PARSE,
+          f"question t{index} did not return an extract answer.",
+      )
+    quote_text = assemble_span_quote(text, answer.spans)
+    if not quote_text:
+      logging.info(
+          "No span for statement %s, topic %s; using the whole response.",
+          statement.id,
+          topic.name,
+      )
+      quote_text = text
+    quotes.append(
+        Quote(
+            id=f"{statement.id}-{topic.name}",
+            text=quote_text,
+            topic=(
+                NestedTopic(name=topic.name, subtopics=topic.subtopics)
+                if isinstance(topic, NestedTopic)
+                else FlatTopic(name=topic.name)
+            ),
+        )
+    )
+  return quotes
+
+
+def sentence_bounds(text: str) -> List[tuple[int, int]]:
+  """Returns the [start, end) offsets of each sentence, whitespace trimmed.
+
+  Args:
+      text: The text to split.
+
+  Returns:
+      Sentence offsets in order; together they cover every non-space
+      character of text.
+  """
+  bounds = []
+  start = 0
+  for match in _SENTENCE_END.finditer(text):
+    bounds.append((start, match.end()))
+    start = match.end()
+  bounds.append((start, len(text)))
+  trimmed = []
+  for begin, end in bounds:
+    segment = text[begin:end]
+    left = len(segment) - len(segment.lstrip())
+    right = len(segment.rstrip())
+    if right > left:
+      trimmed.append((begin + left, begin + right))
+  return trimmed
+
+
+def assemble_span_quote(
+    text: str, spans: tuple[systemone.Span, ...] | List[systemone.Span]
+) -> str:
+  """Widens spans to whole sentences and joins them into one quote.
+
+  Args:
+      text: The text the spans index into.
+      spans: Marked spans, as returned by an extract question.
+
+  Returns:
+      The selected sentences in order: adjacent ones as they appear in text,
+      others joined with SPAN_QUOTE_SEPARATOR. Empty when no span overlaps
+      a sentence.
+  """
+  sentences = sentence_bounds(text)
+  chosen = sorted({
+      index
+      for span in spans
+      for index, (begin, end) in enumerate(sentences)
+      if span.start < end and begin < span.end
+  })
+  pieces = []
+  run_start = None
+  for position, index in enumerate(chosen):
+    if run_start is None:
+      run_start = index
+    next_index = chosen[position + 1] if position + 1 < len(chosen) else None
+    if next_index != index + 1:
+      pieces.append(text[sentences[run_start][0] : sentences[index][1]])
+      run_start = None
+  return SPAN_QUOTE_SEPARATOR.join(pieces)
 
 
 def skip_quote_extraction(statements: List[Statement]) -> List[Statement]:

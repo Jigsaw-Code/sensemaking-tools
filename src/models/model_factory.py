@@ -101,29 +101,67 @@ def get_decision_model() -> systemone.SystemOneClient | None:
         missing, DECISION_MODEL_HOST is not a valid host, or a numeric
         setting is not a positive integer.
   """
-  endpoint_type = os.getenv("DECISION_ENDPOINT_TYPE")
+  return _systemone_client_from_env("DECISION")
+
+
+def get_quote_model() -> systemone.SystemOneClient | None:
+  """Creates the System One client for span quote extraction, if configured.
+
+  The quote client asks extract questions, which judgment-only hosts do not
+  answer, so it is configured apart from the decision client. The variables
+  mirror the DECISION_* ones with a QUOTE_ prefix: QUOTE_ENDPOINT_TYPE
+  ('systemone' to extract quotes as exact spans; unset keeps quote
+  extraction on the generative model), QUOTE_MODEL (required, e.g.
+  'mercury-decide'), QUOTE_MODEL_HOST, QUOTE_MODEL_API_KEY,
+  QUOTE_MODEL_KEEP_ALIVE, QUOTE_MAX_QUESTIONS and QUOTE_MAX_CONCURRENT.
+
+  Returns:
+      A SystemOneClient, or None when QUOTE_ENDPOINT_TYPE is unset.
+
+  Raises:
+      SystemOneError: If the QUOTE_* settings are invalid, as for
+        get_decision_model().
+  """
+  return _systemone_client_from_env("QUOTE")
+
+
+def _systemone_client_from_env(
+    prefix: str,
+) -> systemone.SystemOneClient | None:
+  """Builds a System One client from the variables under one prefix.
+
+  Args:
+    prefix: Variable prefix, e.g. 'DECISION' for DECISION_ENDPOINT_TYPE.
+
+  Returns:
+    A SystemOneClient, or None when {prefix}_ENDPOINT_TYPE is unset.
+
+  Raises:
+    SystemOneError: If a setting under the prefix is invalid.
+  """
+  endpoint_type = os.getenv(f"{prefix}_ENDPOINT_TYPE")
   if not endpoint_type:
     return None
   if endpoint_type != DECISION_ENDPOINT_SYSTEMONE:
     raise systemone.SystemOneError(
         systemone.FailureKind.CONFIG,
-        f"Unknown DECISION_ENDPOINT_TYPE: {endpoint_type}",
+        f"Unknown {prefix}_ENDPOINT_TYPE: {endpoint_type}",
     )
-  model = os.getenv("DECISION_MODEL")
+  model = os.getenv(f"{prefix}_MODEL")
   if not model:
     raise systemone.SystemOneError(
         systemone.FailureKind.CONFIG,
-        "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
+        f"{prefix}_MODEL must be set when {prefix}_ENDPOINT_TYPE is"
         f" '{DECISION_ENDPOINT_SYSTEMONE}'.",
     )
-  host = os.getenv("DECISION_MODEL_HOST")
+  host = os.getenv(f"{prefix}_MODEL_HOST")
   endpoint = (
       systemone.endpoint_url(host)
       if host and host.strip()
       else systemone.DEFAULT_ENDPOINT
   )
-  api_key = os.getenv("DECISION_MODEL_API_KEY") or None
-  keep_alive = os.getenv("DECISION_MODEL_KEEP_ALIVE") or (
+  api_key = os.getenv(f"{prefix}_MODEL_API_KEY") or None
+  keep_alive = os.getenv(f"{prefix}_MODEL_KEEP_ALIVE") or (
       None if host and host.strip() else _OLLAMA_KEEP_ALIVE
   )
   logging.info(
@@ -135,9 +173,9 @@ def get_decision_model() -> systemone.SystemOneClient | None:
       api_key=api_key,
       keep_alive=keep_alive,
       max_questions=_positive_int_env(
-          "DECISION_MAX_QUESTIONS", systemone.MAX_QUESTIONS
+          f"{prefix}_MAX_QUESTIONS", systemone.MAX_QUESTIONS
       ),
-      max_concurrent=_positive_int_env("DECISION_MAX_CONCURRENT", 1),
+      max_concurrent=_positive_int_env(f"{prefix}_MAX_CONCURRENT", 1),
   )
 
 

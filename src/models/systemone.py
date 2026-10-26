@@ -105,7 +105,18 @@ class ScoreQuestion:
   criteria: tuple[str, ...]
 
 
-Question = ChoiceQuestion | NoulQuestion | ScoreQuestion
+@dataclasses.dataclass(frozen=True, slots=True)
+class ExtractQuestion:
+  """Marks exact spans of the state that match a described field.
+
+  The field is named after the question id. Not every host supports
+  extraction; Inception Mercury Decide does.
+  """
+
+  instructions: str
+
+
+Question = ChoiceQuestion | NoulQuestion | ScoreQuestion | ExtractQuestion
 
 
 class _ChoiceAnswer(pydantic.BaseModel):
@@ -136,6 +147,25 @@ class _ScoreAnswer(pydantic.BaseModel):
   confidence: float
 
 
+class _Span(pydantic.BaseModel):
+  """Wire shape of one extracted span."""
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
+
+  text: str
+  start: int
+  end: int
+  confidence: float
+
+
+class _ExtractAnswer(pydantic.BaseModel):
+  """Wire shape of an extract answer."""
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
+
+  type: Literal["extract"]
+  spans: dict[str, list[_Span]]
+  not_stated: dict[str, float] = {}
+
+
 class ChoiceAnswer(pydantic.BaseModel):
   """A parsed choice answer."""
 
@@ -164,10 +194,30 @@ class ScoreAnswer(pydantic.BaseModel):
   confidence: float
 
 
-Answer = ChoiceAnswer | NoulAnswer | ScoreAnswer
+class Span(pydantic.BaseModel):
+  """An exact substring of the state: ``state[start:end] == text``."""
+
+  model_config = pydantic.ConfigDict(frozen=True)
+
+  text: str
+  start: int
+  end: int
+  confidence: float
+
+
+class ExtractAnswer(pydantic.BaseModel):
+  """Spans marked for one extract question, in state order."""
+
+  model_config = pydantic.ConfigDict(frozen=True)
+
+  spans: tuple[Span, ...]
+  not_stated: float | None
+
+
+Answer = ChoiceAnswer | NoulAnswer | ScoreAnswer | ExtractAnswer
 
 _RawAnswer = Annotated[
-    _ChoiceAnswer | _NoulAnswer | _ScoreAnswer,
+    _ChoiceAnswer | _NoulAnswer | _ScoreAnswer | _ExtractAnswer,
     pydantic.Field(discriminator="type"),
 ]
 
@@ -239,13 +289,39 @@ def _dump_question(question: Question) -> dict[str, object]:  # noqa: DICT_OK
           "instructions": _require_text(instructions, "instructions"),
           "criteria": list(criteria),
       }
+    case ExtractQuestion(instructions=instructions):
+      return {
+          "type": "extract",
+          "instructions": _require_text(instructions, "instructions"),
+      }
     case unreachable:
       assert_never(unreachable)
 
 
-def _parse_answer(raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer) -> Answer:
-  """Converts a wire answer into its public answer type."""
+def _parse_answer(
+    raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer | _ExtractAnswer,
+    key: str,
+) -> Answer:
+  """Converts a wire answer into its public answer type.
+
+  An extract answer's field is named after its question id; a single field
+  under another name is accepted too.
+  """
   match raw:
+    case _ExtractAnswer(spans=spans, not_stated=not_stated):
+      field = key if key in spans or len(spans) != 1 else next(iter(spans))
+      return ExtractAnswer(
+          spans=tuple(
+              Span(
+                  text=span.text,
+                  start=span.start,
+                  end=span.end,
+                  confidence=span.confidence,
+              )
+              for span in sorted(spans.get(field, []), key=lambda s: s.start)
+          ),
+          not_stated=not_stated.get(field),
+      )
     case _ChoiceAnswer(
         choice=choice, probabilities=probabilities, confidence=confidence
     ):
@@ -458,6 +534,8 @@ class SystemOneClient:
       raw = await self._post(body)
       parsed = _parse_response(raw)
       for key, answer in parsed.items():
+        if isinstance(answer, ExtractAnswer):
+          _check_spans(state, key, answer)
         answers[key] = answer
     missing = [key for key in questions if key not in answers]
     if missing:
@@ -572,4 +650,22 @@ def _parse_response(raw: bytes) -> dict[str, Answer]:
     raise SystemOneError(
         FailureKind.PARSE, "response did not match System One."
     ) from exc
-  return {key: _parse_answer(answer) for key, answer in parsed.answers.items()}
+  return {
+      key: _parse_answer(answer, key) for key, answer in parsed.answers.items()
+  }
+
+
+def _check_spans(state: str, key: str, answer: ExtractAnswer) -> None:
+  """Raises unless every span is the exact text at its offsets in state.
+
+  Offsets count Unicode code points, as Python string indexing does.
+  """
+  for span in answer.spans:
+    if not 0 <= span.start <= span.end <= len(state) or (
+        state[span.start : span.end] != span.text
+    ):
+      raise SystemOneError(
+          FailureKind.PARSE,
+          f"question {key}: span {span.start}-{span.end} {span.text!r} is"
+          " not the text at those offsets.",
+      )
