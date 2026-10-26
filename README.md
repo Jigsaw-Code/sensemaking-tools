@@ -186,7 +186,26 @@ export CLOUDFLARE_ACCOUNT_ID="<ACCOUNT_ID>"
 export QUOTE_MODEL_API_KEY="<CLOUDFLARE_API_TOKEN>"
 ```
 
-`QUOTE_MAX_CONCURRENT` limits requests in flight for either kind; with `systemone`, `QUOTE_MODEL_KEEP_ALIVE` and `QUOTE_MAX_QUESTIONS` work like their `DECISION_*` counterparts. Every span either model returns is checked against the response before it is used. For each topic the model marks the sentences where the participant gives a view on it. Marked spans are widened to whole sentences, sentences that are not adjacent are joined with " ... ", and a topic with nothing marked gets the whole response. `<response>` segments are joined first, as `--skip_quote_extraction` does, and `--skip_quote_extraction` still takes precedence.
+`QUOTE_MAX_CONCURRENT` limits requests in flight for either kind; with `systemone`, `QUOTE_MODEL_KEEP_ALIVE` and `QUOTE_MAX_QUESTIONS` work like their `DECISION_*` counterparts. Every span either model returns is checked against the response before it is used.
+
+##### Describing participants from what they say
+
+Surveys often collect few demographics, yet responses carry context such as "I run a bakery" or "my elderly mother relies on paratransit". `src.participant_context.participant_context_runner` adds that context as columns, so opinions can be compared across groups. For each attribute an extraction model marks the participant's own words as evidence, and the decision model, when `DECISION_*` is set, picks a label for that evidence or "none". A participant who says nothing for an attribute gets no evidence and the label "none"; nothing is inferred from silence.
+
+The extraction model is configured like the quote one, under the `CONTEXT_` prefix, with either `clairic` or `systemone`:
+
+```shell
+export CONTEXT_ENDPOINT_TYPE="clairic"
+export CLOUDFLARE_ACCOUNT_ID="<ACCOUNT_ID>"
+export CONTEXT_MODEL_API_KEY="<CLOUDFLARE_API_TOKEN>"
+
+python3 -m src.participant_context.participant_context_runner \
+  --input_csv <OUTPUT_DIR>/processed.csv \
+  --output_csv <OUTPUT_DIR>/processed_with_context.csv \
+  --additional_context_file src/default-additional-context.md
+```
+
+By default one attribute is described: `role`, with the labels `business_owner`, `parent_or_caregiver`, `shift_worker` and `remote_worker`. `--attributes_file` takes a JSON list of your own, each with a `name`, the `instructions` for what to mark, and optional `labels` mapping label keys to descriptions (no labels means evidence only). The output adds `<name>_evidence`, `<name>_not_stated`, `<name>_label` and `<name>_label_probability` for each attribute. For each topic the model marks the sentences where the participant gives a view on it. Marked spans are widened to whole sentences, sentences that are not adjacent are joined with " ... ", and a topic with nothing marked gets the whole response. `<response>` segments are joined first, as `--skip_quote_extraction` does, and `--skip_quote_extraction` still takes precedence.
 
 ##### Understanding the Outputs:
 
