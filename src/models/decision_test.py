@@ -193,6 +193,56 @@ class DecisionTests(unittest.TestCase):
 
     self.assertEqual(sets, [["0:1", "1:2"]])
 
+  def test_equivalence_asks_a_few_pairs_per_request(self):
+    client, transport = _client()
+    items = {
+        "a": "Everyone should be treated with respect.",
+        "b": "All people deserve respect.",
+        "c": "Add more bus lanes downtown.",
+        "d": "Lower property taxes.",
+        "e": "Fix the potholes on 5th Street.",
+    }
+
+    sets = asyncio.run(decision.equivalence_sets(client, items, cutoff=0.5))
+
+    self.assertEqual(sets, [["a", "b"]])
+    self.assertEqual(
+        sorted(len(body["questions"]) for body in transport.bodies),
+        [2, 4, 4],
+    )
+
+  def test_transient_failures_are_retried(self):
+    calls = []
+    ok = json.dumps({
+        "model": "clef",
+        "answers": {"q": {"type": "noul", "noul": 0.5}},
+    }).encode("utf-8")
+    question = {
+        "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
+    }
+    for status, expected_calls, succeeds in ((502, 2, True), (400, 1, False)):
+      with self.subTest(status=status):
+        calls.clear()
+
+        def transport(url: str, body: bytes, status=status) -> bytes:
+          calls.append(url)
+          if len(calls) == 1:
+            raise systemone.SystemOneError(
+                systemone.FailureKind.HTTP, "upstream", status=status
+            )
+          return ok
+
+        client = systemone.SystemOneClient(
+            model="clef", transport=transport, retry_delay_seconds=0
+        )
+        if succeeds:
+          answers = asyncio.run(client.ask("state", question))
+          self.assertEqual(answers["q"].noul, 0.5)
+        else:
+          with self.assertRaises(systemone.SystemOneError):
+            asyncio.run(client.ask("state", question))
+        self.assertEqual(len(calls), expected_calls)
+
   def test_tournament_selects_marked_option_past_26(self):
     client, transport = _client()
     options = [(f"id-{index}", f"option {index}") for index in range(27)]

@@ -23,7 +23,7 @@ from src.models.openai_compatible_model import OpenAICompatibleModel
 
 DECISION_ENDPOINT_SYSTEMONE = "systemone"
 _DEFAULT_DECISION_THRESHOLD = 0.5
-# Keeps a local Ollama model loaded between pipeline stages.
+# Keeps the default local Ollama model loaded between pipeline stages.
 _OLLAMA_KEEP_ALIVE = "30m"
 
 
@@ -84,7 +84,10 @@ def get_decision_model() -> systemone.SystemOneClient | None:
       DECISION_MODEL_HOST: Host, base URL, or full endpoint URL (optional;
         see systemone.endpoint_url). Unset means a local Ollama server.
       DECISION_MODEL_API_KEY: Bearer key for hosted endpoints (optional).
-        Without a key the client asks Ollama to keep the model loaded.
+      DECISION_MODEL_KEEP_ALIVE: How long Ollama keeps the model loaded, sent
+        as keep_alive (optional). Defaults to 30m for the default local Ollama
+        server. With DECISION_MODEL_HOST set it is sent only when given,
+        because other servers reject the field.
       DECISION_MAX_QUESTIONS: Most questions per request (optional, default
         64, Ollama's limit).
       DECISION_MAX_CONCURRENT: Maximum requests in flight (optional, default
@@ -120,6 +123,9 @@ def get_decision_model() -> systemone.SystemOneClient | None:
       else systemone.DEFAULT_ENDPOINT
   )
   api_key = os.getenv("DECISION_MODEL_API_KEY") or None
+  keep_alive = os.getenv("DECISION_MODEL_KEEP_ALIVE") or (
+      None if host and host.strip() else _OLLAMA_KEEP_ALIVE
+  )
   logging.info(
       f"Creating SystemOneClient with model: {model}, endpoint: {endpoint}"
   )
@@ -127,7 +133,7 @@ def get_decision_model() -> systemone.SystemOneClient | None:
       model=model,
       endpoint=endpoint,
       api_key=api_key,
-      keep_alive=None if api_key else _OLLAMA_KEEP_ALIVE,
+      keep_alive=keep_alive,
       max_questions=_positive_int_env(
           "DECISION_MAX_QUESTIONS", systemone.MAX_QUESTIONS
       ),

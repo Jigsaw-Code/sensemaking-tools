@@ -21,6 +21,7 @@ approval votes, dedup, and autorater verdicts.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 import itertools
@@ -51,6 +52,12 @@ RUBRIC: Final[tuple[str, ...]] = (
 
 # The fallback label when no specific label applies.
 OTHER: Final = "Other"
+
+# Pairs per equivalence request. With a short fixed state and many pair
+# questions in one request, Clef's yes-probabilities drift upward: in a local
+# run 16 or more pairs per request linked unrelated propositions that it
+# rejected when asked four at a time.
+_EQUIVALENCE_PAIRS_PER_REQUEST: Final = 4
 
 _EQUIVALENCE_STATE: Final = (
     "Two propositions are effectively equivalent when a survey participant"
@@ -183,8 +190,8 @@ async def equivalence_sets(
 ) -> list[list[str]]:
   """Clusters ids whose texts are effectively equivalent.
 
-  Pairs are judged independently, then joined with union-find. Sets of one
-  are omitted, matching the generative dedup prompt.
+  Pairs are judged independently, a few per request, then joined with
+  union-find. Sets of one are omitted, matching the generative dedup prompt.
   """
   ids = list(items)
   if len(ids) < 2:
@@ -208,7 +215,16 @@ async def equivalence_sets(
         ),
         false="These are distinct claims.",
     )
-  answers = await client.ask(_EQUIVALENCE_STATE, questions)
+  keys = list(questions)
+  step = _EQUIVALENCE_PAIRS_PER_REQUEST
+  chunks = await asyncio.gather(*(
+      client.ask(
+          _EQUIVALENCE_STATE,
+          {key: questions[key] for key in keys[start : start + step]},
+      )
+      for start in range(0, len(keys), step)
+  ))
+  answers = {key: answer for chunk in chunks for key, answer in chunk.items()}
   linked = [
       pair_by_key[key]
       for key, answer in answers.items()

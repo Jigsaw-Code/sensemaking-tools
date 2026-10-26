@@ -142,6 +142,26 @@ class ModelFactoryTest(unittest.TestCase):
     self.assertEqual(client._max_questions, 16)
     self.assertIsNone(client._keep_alive)
 
+  def test_get_decision_model_keep_alive(self):
+    """Tests that keep_alive defaults only for the default local Ollama."""
+    base = {"DECISION_ENDPOINT_TYPE": "systemone", "DECISION_MODEL": "clef"}
+    cases = (
+        ({}, "30m"),
+        ({"DECISION_MODEL_HOST": "127.0.0.1:11436"}, None),
+        (
+            {
+                "DECISION_MODEL_HOST": "gpu-box",
+                "DECISION_MODEL_KEEP_ALIVE": "10m",
+            },
+            "10m",
+        ),
+    )
+    for extra, expected in cases:
+      with self.subTest(extra=extra):
+        with patch.dict(os.environ, {**base, **extra}, clear=True):
+          client = model_factory.get_decision_model()
+          self.assertEqual(client._keep_alive, expected)
+
   def test_get_decision_model_rejects_bad_question_limits(self):
     """Tests that DECISION_MAX_QUESTIONS must be a positive integer."""
     for raw in ("0", "lots"):

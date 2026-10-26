@@ -44,6 +44,8 @@ MAX_BODY_BYTES: Final = 64 * 1024
 # Leave headroom under the server's 64 KiB text limit while packing.
 PACK_BODY_BYTES: Final = 60 * 1024
 DEFAULT_TIMEOUT_SECONDS: Final = 600
+# Attempts per request when the host fails transiently (429, 5xx, no answer).
+MAX_ATTEMPTS: Final = 3
 # Ollama's port, assumed for a bare host as the Ollama CLI does.
 OLLAMA_DEFAULT_PORT: Final = 11434
 SYSTEMONE_PATH: Final = "/v1/systemone"
@@ -344,6 +346,7 @@ class SystemOneClient:
       keep_alive: str | None = None,
       api_key: str | None = None,
       max_questions: int = MAX_QUESTIONS,
+      retry_delay_seconds: float = 1.0,
   ):
     """Initializes the client.
 
@@ -358,6 +361,8 @@ class SystemOneClient:
         accepts this field, so it is sent only when set.
       api_key: Optional bearer key for hosted endpoints.
       max_questions: Most questions the host accepts in one request.
+      retry_delay_seconds: Backoff unit between attempts after a transient
+        failure; the nth retry waits n units.
     """
     if max_concurrent < 1:
       raise SystemOneError(
@@ -377,6 +382,7 @@ class SystemOneClient:
     self._max_concurrent = max_concurrent
     self._keep_alive = keep_alive
     self._max_questions = max_questions
+    self._retry_delay_seconds = retry_delay_seconds
     self._limiter: asyncio.Semaphore | None = None
 
   @property
@@ -432,10 +438,25 @@ class SystemOneClient:
     return answers
 
   async def _post(self, body: bytes) -> bytes:
+    """Posts one request, retrying transient failures.
+
+    A rate limit, a server error, or a dropped connection is retried with
+    backoff; any other error is raised at once.
+    """
     if self._limiter is None:
       self._limiter = asyncio.Semaphore(self._max_concurrent)
-    async with self._limiter:
-      return await asyncio.to_thread(self._transport, self.endpoint, body)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+      try:
+        async with self._limiter:
+          return await asyncio.to_thread(self._transport, self.endpoint, body)
+      except SystemOneError as exc:
+        transient = exc.kind is FailureKind.HTTP and (
+            exc.status is None or exc.status == 429 or exc.status >= 500
+        )
+        if not transient or attempt == MAX_ATTEMPTS:
+          raise
+        await asyncio.sleep(self._retry_delay_seconds * attempt)
+    raise AssertionError("unreachable")
 
 
 def _packs(

@@ -153,12 +153,13 @@ export DECISION_MODEL="clef"
 With only these two set, requests go to `POST /v1/systemone` on a local Ollama 0.35.1+ server running Clef. Optional settings, which only need to be set to change the default:
 
 * `DECISION_MODEL_HOST`: where the model is served. A bare host such as `gpu-box` or `gpu-box:11434` is read the way the Ollama CLI reads `OLLAMA_HOST`. A URL without a path gets `/v1/systemone`. A URL with a path is used as given.
-* `DECISION_MODEL_API_KEY`: bearer key for a hosted endpoint. Without a key, requests ask Ollama to keep the model loaded between stages.
+* `DECISION_MODEL_API_KEY`: bearer key for a hosted endpoint.
+* `DECISION_MODEL_KEEP_ALIVE`: how long Ollama keeps the model loaded between stages (default `30m` for the default local server). Once `DECISION_MODEL_HOST` is set it is sent only when given, because other servers reject the field.
 * `DECISION_MAX_QUESTIONS`: most questions per request (default `64`, Ollama's limit). Lower it for hosts with a smaller limit.
 * `DECISION_THRESHOLD`: probability cutoff for labels and equivalence, between 0 and 1 (default `0.5`).
 * `DECISION_MAX_CONCURRENT`: requests in flight (default `1`, because a local runner has one slot).
 
-Hosted endpoints that have been tested with the same request shape:
+Locally, Clef and `pplx-decider:27b-q4_K_M` have been tested on Ollama 0.40.11. Hosted endpoints that have been tested with the same request shape:
 
 | Model | `DECISION_MODEL_HOST` | `DECISION_MODEL` |
 | --- | --- | --- |
