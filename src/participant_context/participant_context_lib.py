@@ -17,8 +17,9 @@
 Surveys often collect few demographics, yet responses carry context such as
 "I run a bakery" or "my elderly mother relies on paratransit". For each
 configured attribute, an extraction model marks the participant's own words
-as evidence. When it marks nothing, the attribute gets no evidence and the
-label "none" without a further question. Marked evidence is only a
+as evidence. When it marks nothing, the attribute gets no evidence and no
+further question is asked; an attribute with labels then gets the label
+"none" if a decision model is configured. Marked evidence is only a
 candidate, as extraction models sometimes mark unrelated words, so the
 decision model, when one is configured, checks it: for an attribute with
 labels it picks a label or "none", and for one without labels it answers
@@ -63,10 +64,13 @@ class AttributeResult:
   """What was learned about one participant for one attribute.
 
   Attributes:
-    evidence: The participant's own words, or None when they said nothing.
+    evidence: Words the extraction model marked and, when a decision model
+      is configured, the decision model kept; None when nothing was marked
+      or the marked words were rejected. Unchecked without a decision model.
     not_stated: The extraction model's probability that the response says
       nothing for the attribute, when it reports one.
-    label: A label key, NONE_LABEL, or None when no labels are asked.
+    label: A label key, NONE_LABEL, or None when the attribute has no labels
+      or no decision model is configured.
     label_probability: The decision model's probability for the label.
   """
 
