@@ -14,3 +14,5 @@ todo.md
 *.pkl
 **/.logs
 .gemini/**/*
+# Local pipeline config for experimental/staging (copy of config.json.example).
+experimental/staging/config.json
