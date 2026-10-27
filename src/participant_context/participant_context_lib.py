@@ -17,9 +17,13 @@
 Surveys often collect few demographics, yet responses carry context such as
 "I run a bakery" or "my elderly mother relies on paratransit". For each
 configured attribute, an extraction model marks the participant's own words
-as evidence, and a decision model, when one is configured, picks a label for
-that evidence. A participant who says nothing for an attribute gets no
-evidence and the label "none", so nothing is inferred from silence.
+as evidence. When it marks nothing, the attribute gets no evidence and the
+label "none" without a further question. Marked evidence is only a
+candidate, as extraction models sometimes mark unrelated words, so the
+decision model, when one is configured, checks it: for an attribute with
+labels it picks a label or "none", and for one without labels it answers
+whether the evidence states what the attribute asks, and rejected evidence
+is dropped. Without a decision model, evidence is unchecked.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ import json
 from typing import Final, Mapping, Sequence
 
 from src.models import extraction
+from src.models import model_factory
 from src.models import systemone
 from src.quote_extraction import quote_extraction_lib
 
@@ -44,7 +49,8 @@ class Attribute:
     name: Column prefix for the outputs; letters, digits and underscores.
     instructions: What the extraction model should mark as evidence.
     labels: Label keys (no spaces) and descriptions for the decision model.
-      Empty means evidence only.
+      Empty means evidence only, which the decision model checks with a
+      yes/no question when one is configured.
   """
 
   name: str
@@ -148,7 +154,8 @@ async def describe_participant(
 
   Args:
     extractor: Marks evidence spans; one request per response.
-    decision_client: Picks labels; None leaves labels unset.
+    decision_client: Picks labels, and checks the evidence of attributes
+      without labels; None leaves labels unset and evidence unchecked.
     text: The participant's response; <response> segments are joined.
     attributes: What to learn.
     additional_context: Optional survey context for both models.
@@ -178,6 +185,15 @@ async def describe_participant(
   for attribute in attributes:
     found = extracted[attribute.name]
     evidence = found.spans[0].text if found.spans else None
+    if (
+        decision_client is not None
+        and evidence is not None
+        and not attribute.labels
+        and not await _confirms(
+            decision_client, text, evidence, attribute, context
+        )
+    ):
+      evidence = None
     label, probability = None, None
     if decision_client is not None and attribute.labels:
       if evidence is None:
@@ -245,6 +261,38 @@ def result_columns(
           getattr(result[attribute.name], suffix) for result in results
       ]
   return columns
+
+
+async def _confirms(
+    client: systemone.SystemOneClient,
+    text: str,
+    evidence: str,
+    attribute: Attribute,
+    context: str,
+) -> bool:
+  """Asks the decision model whether evidence states what is asked."""
+  question = systemone.NoulQuestion(
+      instructions=(
+          f"{context}Does the evidence state the following about the"
+          f" participant themselves? {attribute.instructions}"
+      ),
+      true="The evidence states this about the participant.",
+      false=(
+          "The evidence does not state this about the participant; it only"
+          " shares words with it or is about something else."
+      ),
+  )
+  answers = await client.ask(
+      f"Participant response:\n{text}\n\nEvidence: {evidence}",
+      {"evidence": question},
+  )
+  answer = answers["evidence"]
+  if not isinstance(answer, systemone.NoulAnswer):
+    raise systemone.SystemOneError(
+        systemone.FailureKind.PARSE,
+        "evidence question did not return a yes/no answer.",
+    )
+  return answer.noul >= model_factory.get_decision_threshold()
 
 
 async def _label(

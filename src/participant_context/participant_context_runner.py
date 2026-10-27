@@ -22,8 +22,9 @@ Example:
       --input_csv processed.csv --output_csv with_context.csv
 
 The input needs "participant_id" and "survey_text" columns. The extraction
-model comes from CONTEXT_* (see model_factory.get_extractor) and labels come
-from the DECISION_* decision model; without one, only evidence is written.
+model comes from CONTEXT_* (see model_factory.get_extractor). The DECISION_*
+decision model picks labels and checks the evidence of attributes without
+labels; without one, evidence is written unchecked.
 """
 
 import argparse

@@ -87,6 +87,27 @@ def _decision_client(bodies: list[dict[str, object]]) -> systemone.SystemOneClie
   return systemone.SystemOneClient(model="clef", transport=transport)
 
 
+def _checking_client(bodies: list[dict[str, object]]) -> systemone.SystemOneClient:
+  """Returns a client that confirms only evidence about years lived here."""
+
+  def transport(url: str, body: bytes) -> bytes:
+    """Answers yes when the evidence mentions years, else no."""
+    payload = json.loads(body)
+    bodies.append(payload)
+    evidence = payload["state"].rsplit("Evidence: ", 1)[1]
+    return json.dumps({
+        "model": "clef",
+        "answers": {
+            "evidence": {
+                "type": "noul",
+                "noul": 0.9 if "years" in evidence else 0.1,
+            }
+        },
+    }).encode("utf-8")
+
+  return systemone.SystemOneClient(model="clef", transport=transport)
+
+
 class ParticipantContextTest(unittest.TestCase):
   """Tests for the participant context library and runner."""
 
@@ -127,6 +148,33 @@ class ParticipantContextTest(unittest.TestCase):
     )
     self.assertEqual(results[0]["role"].evidence, "my son")
     self.assertIsNone(results[0]["role"].label)
+
+  def test_decision_model_checks_evidence_without_labels(self):
+    """Tests that rejected evidence is dropped and silence is not asked."""
+    tenure = lib.Attribute("tenure", "How long they have lived here.")
+    bodies = []
+    with mock.patch.dict(os.environ, {"DECISION_THRESHOLD": "0.5"}):
+      results = asyncio.run(
+          lib.describe_participants(
+              _PhraseExtractor(["30 years", "older people"]),
+              _checking_client(bodies),
+              [
+                  "I have lived here 30 years.",
+                  "Removing spaces hurts older people.",
+                  "Fix the roads.",
+              ],
+              [tenure],
+          )
+      )
+
+    self.assertEqual(results[0]["tenure"].evidence, "30 years")
+    self.assertIsNone(results[1]["tenure"].evidence)
+    self.assertIsNone(results[2]["tenure"].evidence)
+    self.assertTrue(all(r["tenure"].label is None for r in results))
+    self.assertEqual(len(bodies), 2)
+    self.assertEqual(
+        bodies[0]["questions"]["evidence"]["type"], "noul"
+    )
 
   def test_load_attributes_validates(self):
     """Tests reading attributes and rejecting bad files."""
