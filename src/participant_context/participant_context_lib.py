@@ -64,9 +64,10 @@ class AttributeResult:
   """What was learned about one participant for one attribute.
 
   Attributes:
-    evidence: Words the extraction model marked and, when a decision model
-      is configured, the decision model kept; None when nothing was marked
-      or the marked words were rejected. Unchecked without a decision model.
+    evidence: Words the extraction model marked, or None when it marked
+      nothing. For an attribute without labels, evidence the decision model
+      rejects is also None. For one with labels, evidence is kept even when
+      the label is NONE_LABEL. Unchecked without a decision model.
     not_stated: The extraction model's probability that the response says
       nothing for the attribute, when it reports one.
     label: A label key, NONE_LABEL, or None when the attribute has no labels
