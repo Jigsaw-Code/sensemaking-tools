@@ -20,6 +20,7 @@ import json
 import random
 from typing import TypedDict, Any
 import pandas as pd
+from src.models import decision
 from src.models import genai_model
 
 # The maximum number of times an evaluation call should be retried.
@@ -84,25 +85,32 @@ class EvalRunner:
         try:
           logging.info(f"{log_prefix} (Attempt {attempt + 1})...")
 
-          # Call GenaiModel
-          response = await self.model.call_gemini(
-              prompt=prompt,
-              run_name=f"eval_job_{job_id}",
-              response_mime_type="application/json",
-          )
-
-          result_text = response.get("text", "")
-          score = 0.0
-          explanation = ""
-          try:
-            # The model is instructed to return JSON.
-            json_result = json.loads(result_text)
-            score = float(json_result.get("score", 0))
-            explanation = json_result.get("explanation", "")
-          except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(
-                f"Failed to parse JSON response: {result_text}. Error: {e}"
+          decision_model = decision.decision_client()
+          if decision_model is not None:
+            score = float(
+                await decision.rubric_level(decision_model, str(prompt or ""))
             )
+            explanation = ""
+          else:
+            # Call GenaiModel
+            response = await self.model.call_gemini(
+                prompt=prompt,
+                run_name=f"eval_job_{job_id}",
+                response_mime_type="application/json",
+            )
+
+            result_text = response.get("text", "")
+            score = 0.0
+            explanation = ""
+            try:
+              # The model is instructed to return JSON.
+              json_result = json.loads(result_text)
+              score = float(json_result.get("score", 0))
+              explanation = json_result.get("explanation", "")
+            except (json.JSONDecodeError, ValueError) as e:
+              raise ValueError(
+                  f"Failed to parse JSON response: {result_text}. Error: {e}"
+              )
 
           results_list.append({
               "job_id": job_id,

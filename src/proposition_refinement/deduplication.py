@@ -4,6 +4,7 @@ import pandas as pd
 import json
 import re
 import logging
+from src.models import decision
 from src.models.genai_model import GenaiModel
 
 
@@ -88,6 +89,11 @@ async def generate_equivalence_sets(processed_by_topic_df, model):
   if not propositions_map:
     return []
 
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    print('--- Equivalence sets via System One ---')
+    return await decision.equivalence_sets(decision_model, propositions_map)
+
   prompt = generate_equivalence_prompt(propositions_map)
   logging.debug('Equivalence prompt:\n%s', prompt)
 
@@ -139,6 +145,22 @@ async def _resolve_collision(collision_group, model):
   """
   Uses an LLM to select the best-framed proposition from a set of duplicates.
   """
+  decision_model = decision.decision_client()
+  if decision_model is not None:
+    options = [
+        (item['prop_id'], f"{item['prop_id']}: {item['text']}")
+        for item in collision_group
+    ]
+    if not options:
+      return None
+    return await decision.choose_one(
+        decision_model,
+        'Pick the best-framed proposition from equivalents.',
+        options,
+        'Which proposition is the best-framed and most representative of the'
+        ' core idea?',
+    )
+
   prompt = _generate_collision_prompt(collision_group)
 
   def parser(resp, job):

@@ -16,9 +16,15 @@
 
 import os
 import logging
+from src.models import systemone
 from src.models.base_model import BaseModel
 from src.models.genai_model import GenaiModel
 from src.models.openai_compatible_model import OpenAICompatibleModel
+
+DECISION_ENDPOINT_SYSTEMONE = "systemone"
+_DEFAULT_DECISION_THRESHOLD = 0.5
+# Keeps the default local Ollama model loaded between pipeline stages.
+_OLLAMA_KEEP_ALIVE = "30m"
 
 
 def get_model(model_name: str, **kwargs) -> BaseModel:
@@ -65,3 +71,128 @@ def get_model(model_name: str, **kwargs) -> BaseModel:
 
   else:
     raise ValueError(f"Unknown MODEL_ENDPOINT_TYPE: {endpoint_type}")
+
+
+def get_decision_model() -> systemone.SystemOneClient | None:
+  """Creates the System One client for judgment stages, if one is configured.
+
+  Environment Variables:
+      DECISION_ENDPOINT_TYPE: 'systemone' to send judgment stages to a System
+        One decision model. Unset keeps them on the generative model.
+      DECISION_MODEL: Model name, e.g. 'clef'. Required when
+        DECISION_ENDPOINT_TYPE is 'systemone'.
+      DECISION_MODEL_HOST: Host, base URL, or full endpoint URL (optional;
+        see systemone.endpoint_url). Unset means a local Ollama server.
+      DECISION_MODEL_API_KEY: Bearer key for hosted endpoints (optional).
+      DECISION_MODEL_KEEP_ALIVE: How long Ollama keeps the model loaded, sent
+        as keep_alive (optional). Defaults to 30m for the default local Ollama
+        server. With DECISION_MODEL_HOST set it is sent only when given,
+        because other servers reject the field.
+      DECISION_MAX_QUESTIONS: Most questions per request (optional, default
+        64, Ollama's limit).
+      DECISION_MAX_CONCURRENT: Maximum requests in flight (optional, default
+        1, since a local runner has one slot).
+
+  Returns:
+      A SystemOneClient, or None when DECISION_ENDPOINT_TYPE is unset.
+
+  Raises:
+      SystemOneError: If DECISION_ENDPOINT_TYPE is unknown, DECISION_MODEL is
+        missing, DECISION_MODEL_HOST is not a valid host, or a numeric
+        setting is not a positive integer.
+  """
+  endpoint_type = os.getenv("DECISION_ENDPOINT_TYPE")
+  if not endpoint_type:
+    return None
+  if endpoint_type != DECISION_ENDPOINT_SYSTEMONE:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"Unknown DECISION_ENDPOINT_TYPE: {endpoint_type}",
+    )
+  model = os.getenv("DECISION_MODEL")
+  if not model:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
+        f" '{DECISION_ENDPOINT_SYSTEMONE}'.",
+    )
+  host = os.getenv("DECISION_MODEL_HOST")
+  endpoint = (
+      systemone.endpoint_url(host)
+      if host and host.strip()
+      else systemone.DEFAULT_ENDPOINT
+  )
+  api_key = os.getenv("DECISION_MODEL_API_KEY") or None
+  keep_alive = os.getenv("DECISION_MODEL_KEEP_ALIVE") or (
+      None if host and host.strip() else _OLLAMA_KEEP_ALIVE
+  )
+  logging.info(
+      f"Creating SystemOneClient with model: {model}, endpoint: {endpoint}"
+  )
+  return systemone.SystemOneClient(
+      model=model,
+      endpoint=endpoint,
+      api_key=api_key,
+      keep_alive=keep_alive,
+      max_questions=_positive_int_env(
+          "DECISION_MAX_QUESTIONS", systemone.MAX_QUESTIONS
+      ),
+      max_concurrent=_positive_int_env("DECISION_MAX_CONCURRENT", 1),
+  )
+
+
+def _positive_int_env(name: str, default: int) -> int:
+  """Reads a positive integer setting from the environment.
+
+  Args:
+    name: Environment variable name.
+    default: Value used when the variable is unset or empty.
+
+  Returns:
+    The parsed value, or default.
+
+  Raises:
+    SystemOneError: If the value is not an integer or is below 1.
+  """
+  raw = os.getenv(name)
+  if not raw:
+    return default
+  try:
+    value = int(raw)
+  except ValueError as exc:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"{name} must be an integer, got {raw!r}.",
+    ) from exc
+  if value < 1:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG, f"{name} must be >= 1, got {value}."
+    )
+  return value
+
+
+def get_decision_threshold() -> float:
+  """Returns the probability cutoff for System One labels and equivalence.
+
+  Environment Variables:
+      DECISION_THRESHOLD: Cutoff in [0, 1] (optional, default 0.5).
+
+  Raises:
+      SystemOneError: If DECISION_THRESHOLD is not a float in [0, 1].
+  """
+  raw = os.getenv("DECISION_THRESHOLD")
+  if not raw:
+    return _DEFAULT_DECISION_THRESHOLD
+  try:
+    value = float(raw)
+  except ValueError as exc:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"DECISION_THRESHOLD must be a float, got {raw!r}.",
+    ) from exc
+  if not 0.0 <= value <= 1.0:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"DECISION_THRESHOLD must be between 0 and 1, got {value}.",
+    )
+  return value
