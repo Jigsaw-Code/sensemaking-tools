@@ -24,7 +24,8 @@ candidate, as extraction models sometimes mark unrelated words, so the
 decision model, when one is configured, checks it: for an attribute with
 labels it picks a label or "none", and for one without labels it answers
 whether the evidence states what the attribute asks, and rejected evidence
-is dropped. Without a decision model, evidence is unchecked.
+is dropped. Without a decision model, evidence is unchecked. A blank
+response is sent to no model and is treated as one where nothing is marked.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from __future__ import annotations
 import asyncio  # noqa: ANYIO_OK
 import dataclasses
 import json
+import re
 from typing import Final, Mapping, Sequence
 
 from src.models import extraction
@@ -177,15 +179,21 @@ async def describe_participant(
       if additional_context and additional_context.strip()
       else ""
   )
-  extracted = await extractor.extract(
-      text,
-      {
-          attribute.name: extraction.Field(
-              instructions=f"{context}{attribute.instructions}", many=False
-          )
-          for attribute in attributes
-      },
-  )
+  if re.sub(r"</?response>", "", text).strip():
+    extracted = await extractor.extract(
+        text,
+        {
+            attribute.name: extraction.Field(
+                instructions=f"{context}{attribute.instructions}", many=False
+            )
+            for attribute in attributes
+        },
+    )
+  else:
+    extracted = {
+        attribute.name: extraction.Extraction(spans=(), not_stated=None)
+        for attribute in attributes
+    }
   results = {}
   for attribute in attributes:
     found = extracted[attribute.name]

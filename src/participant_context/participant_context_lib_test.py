@@ -176,6 +176,35 @@ class ParticipantContextTest(unittest.TestCase):
         bodies[0]["questions"]["evidence"]["type"], "noul"
     )
 
+  def test_blank_responses_reach_no_model(self):
+    """Tests that blank responses are treated as saying nothing."""
+
+    class _RejectingExtractor:
+      """Fails like Mercury does on an empty state."""
+
+      model = "rejects-empty"
+
+      async def extract(self, text, fields):
+        """Raises, as no blank text should reach the extractor."""
+        raise systemone.SystemOneError(
+            systemone.FailureKind.HTTP, "state must be non-empty"
+        )
+
+    bodies = []
+    results = asyncio.run(
+        lib.describe_participants(
+            _RejectingExtractor(),
+            _decision_client(bodies),
+            ["", "   ", "<response> </response><response></response>"],
+        )
+    )
+
+    for result in results:
+      self.assertIsNone(result["role"].evidence)
+      self.assertIsNone(result["role"].not_stated)
+      self.assertEqual(result["role"].label, lib.NONE_LABEL)
+    self.assertEqual(bodies, [])
+
   def test_load_attributes_validates(self):
     """Tests reading attributes and rejecting bad files."""
     with tempfile.TemporaryDirectory() as tmp:
