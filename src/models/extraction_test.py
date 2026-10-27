@@ -119,6 +119,35 @@ class ClairicExtractorTest(unittest.TestCase):
       )
     self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
 
+  def test_missing_field_or_malformed_offsets_is_a_parse_error(self):
+    """Tests that an omitted field or a bad offset pair is not read as empty."""
+    cases = {
+        "omitted field": {"other": {"value": None}},
+        "list offsets": {
+            "role": {"type": "list", "value": ["My son"], "spans": [[26]]}
+        },
+        "text offsets": {
+            "role": {"type": "text", "value": "My son", "span": [26, 32, 1]}
+        },
+    }
+    for case, answers in cases.items():
+
+      def transport(url: str, body: bytes, answers=answers) -> bytes:
+        """Answers with the malformed case."""
+        return json.dumps({"answers": answers}).encode("utf-8")
+
+      extractor = extraction.ClairicExtractor(
+          endpoint="https://example/clairic", transport=transport
+      )
+      with self.subTest(case=case):
+        with self.assertRaises(systemone.SystemOneError) as caught:
+          asyncio.run(
+              extractor.extract(
+                  TEXT, {"role": extraction.Field("Role", many=False)}
+              )
+          )
+        self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
+
   def test_transient_failure_is_retried(self):
     """Tests that Clairic requests share the System One retry policy."""
     calls = []
@@ -130,7 +159,9 @@ class ClairicExtractorTest(unittest.TestCase):
         raise systemone.SystemOneError(
             systemone.FailureKind.HTTP, "upstream", status=502
         )
-      return json.dumps({"answers": {}}).encode("utf-8")
+      return json.dumps(
+          {"answers": {"role": {"type": "list", "value": []}}}
+      ).encode("utf-8")
 
     extractor = extraction.ClairicExtractor(
         endpoint="https://example/clairic",
