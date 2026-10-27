@@ -173,8 +173,10 @@ class ClairicExtractor:
   """Marks spans with Cloudflare's Clairic extraction model on Workers AI.
 
   A field that allows several spans is asked as a list of text, and a
-  single-span field as text. List items that come back without offsets are
-  dropped, as they cannot be checked against the text.
+  single-span field as text. Answers that come back without offsets are
+  dropped, as they cannot be checked against the text. A field missing from
+  the response, or offsets that are not a [start, end] pair, are parse
+  errors.
   """
 
   def __init__(
@@ -253,8 +255,13 @@ class ClairicExtractor:
     answers = _parse_clairic(raw)
     results = {}
     for name in fields:
-      answer = answers.get(name, _ClairicAnswer())
-      spans = _clairic_spans(answer)
+      if name not in answers:
+        raise systemone.SystemOneError(
+            systemone.FailureKind.PARSE,
+            f"response did not answer field {name}.",
+        )
+      answer = answers[name]
+      spans = _clairic_spans(name, answer)
       check_spans(text, name, spans)
       results[name] = Extraction(spans=spans, not_stated=answer.p_null)
     return results
@@ -286,27 +293,42 @@ def _parse_clairic(raw: bytes) -> dict[str, _ClairicAnswer]:
     ) from exc
 
 
-def _clairic_spans(answer: _ClairicAnswer) -> tuple[systemone.Span, ...]:
-  """Turns a Clairic text or list answer into spans in text order."""
+def _clairic_spans(
+    name: str, answer: _ClairicAnswer
+) -> tuple[systemone.Span, ...]:
+  """Turns a Clairic text or list answer into spans in text order.
+
+  Args:
+    name: The field name, for error messages.
+    answer: The parsed answer for the field.
+
+  Returns:
+    The answer's spans that have offsets, sorted by start.
+
+  Raises:
+    SystemOneError: If offsets are not a [start, end] pair.
+  """
   confidence = answer.confidence if answer.confidence is not None else 0.0
   if isinstance(answer.value, list):
-    pairs = zip(answer.value, answer.spans or [])
-    spans = [
-        systemone.Span(
-            text=value, start=offsets[0], end=offsets[1], confidence=confidence
-        )
-        for value, offsets in pairs
-        if offsets is not None and len(offsets) == 2
+    pairs = [
+        (value, offsets)
+        for value, offsets in zip(answer.value, answer.spans or [])
+        if offsets is not None
     ]
-  elif answer.value is not None and answer.span and len(answer.span) == 2:
-    spans = [
-        systemone.Span(
-            text=answer.value,
-            start=answer.span[0],
-            end=answer.span[1],
-            confidence=confidence,
-        )
-    ]
+  elif answer.value is not None and answer.span is not None:
+    pairs = [(answer.value, answer.span)]
   else:
-    spans = []
+    pairs = []
+  for _, offsets in pairs:
+    if len(offsets) != 2:
+      raise systemone.SystemOneError(
+          systemone.FailureKind.PARSE,
+          f"field {name} has offsets {offsets}, not [start, end].",
+      )
+  spans = [
+      systemone.Span(
+          text=value, start=offsets[0], end=offsets[1], confidence=confidence
+      )
+      for value, offsets in pairs
+  ]
   return tuple(sorted(spans, key=lambda span: span.start))
