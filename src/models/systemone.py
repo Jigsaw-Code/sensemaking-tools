@@ -105,7 +105,18 @@ class ScoreQuestion:
   criteria: tuple[str, ...]
 
 
-Question = ChoiceQuestion | NoulQuestion | ScoreQuestion
+@dataclasses.dataclass(frozen=True, slots=True)
+class ExtractQuestion:
+  """Marks exact spans of the state that match a described field.
+
+  The field is named after the question id. Not every host supports
+  extraction; Inception Mercury Decide does.
+  """
+
+  instructions: str
+
+
+Question = ChoiceQuestion | NoulQuestion | ScoreQuestion | ExtractQuestion
 
 
 class _ChoiceAnswer(pydantic.BaseModel):
@@ -136,6 +147,25 @@ class _ScoreAnswer(pydantic.BaseModel):
   confidence: float
 
 
+class _Span(pydantic.BaseModel):
+  """Wire shape of one extracted span."""
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
+
+  text: str
+  start: int
+  end: int
+  confidence: float
+
+
+class _ExtractAnswer(pydantic.BaseModel):
+  """Wire shape of an extract answer."""
+  model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
+
+  type: Literal["extract"]
+  spans: dict[str, list[_Span]]
+  not_stated: dict[str, float] = {}
+
+
 class ChoiceAnswer(pydantic.BaseModel):
   """A parsed choice answer."""
 
@@ -164,10 +194,30 @@ class ScoreAnswer(pydantic.BaseModel):
   confidence: float
 
 
-Answer = ChoiceAnswer | NoulAnswer | ScoreAnswer
+class Span(pydantic.BaseModel):
+  """An exact substring of the state: ``state[start:end] == text``."""
+
+  model_config = pydantic.ConfigDict(frozen=True)
+
+  text: str
+  start: int
+  end: int
+  confidence: float
+
+
+class ExtractAnswer(pydantic.BaseModel):
+  """Spans marked for one extract question, in state order."""
+
+  model_config = pydantic.ConfigDict(frozen=True)
+
+  spans: tuple[Span, ...]
+  not_stated: float | None
+
+
+Answer = ChoiceAnswer | NoulAnswer | ScoreAnswer | ExtractAnswer
 
 _RawAnswer = Annotated[
-    _ChoiceAnswer | _NoulAnswer | _ScoreAnswer,
+    _ChoiceAnswer | _NoulAnswer | _ScoreAnswer | _ExtractAnswer,
     pydantic.Field(discriminator="type"),
 ]
 
@@ -239,13 +289,39 @@ def _dump_question(question: Question) -> dict[str, object]:  # noqa: DICT_OK
           "instructions": _require_text(instructions, "instructions"),
           "criteria": list(criteria),
       }
+    case ExtractQuestion(instructions=instructions):
+      return {
+          "type": "extract",
+          "instructions": _require_text(instructions, "instructions"),
+      }
     case unreachable:
       assert_never(unreachable)
 
 
-def _parse_answer(raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer) -> Answer:
-  """Converts a wire answer into its public answer type."""
+def _parse_answer(
+    raw: _ChoiceAnswer | _NoulAnswer | _ScoreAnswer | _ExtractAnswer,
+    key: str,
+) -> Answer:
+  """Converts a wire answer into its public answer type.
+
+  An extract answer's field is named after its question id; a single field
+  under another name is accepted too.
+  """
   match raw:
+    case _ExtractAnswer(spans=spans, not_stated=not_stated):
+      field = key if key in spans or len(spans) != 1 else next(iter(spans))
+      return ExtractAnswer(
+          spans=tuple(
+              Span(
+                  text=span.text,
+                  start=span.start,
+                  end=span.end,
+                  confidence=span.confidence,
+              )
+              for span in sorted(spans.get(field, []), key=lambda s: s.start)
+          ),
+          not_stated=not_stated.get(field),
+      )
     case _ChoiceAnswer(
         choice=choice, probabilities=probabilities, confidence=confidence
     ):
@@ -405,9 +481,7 @@ class SystemOneClient:
       )
     self.model = _require_text(model, "model")
     self._endpoint = _require_text(endpoint, "endpoint").rstrip("/")
-    self._transport = transport or functools.partial(
-        _urllib_transport, api_key=api_key
-    )
+    self._transport = transport or make_transport(api_key)
     self._max_concurrent = max_concurrent
     self._keep_alive = keep_alive
     self._max_questions = max_questions
@@ -458,6 +532,8 @@ class SystemOneClient:
       raw = await self._post(body)
       parsed = _parse_response(raw)
       for key, answer in parsed.items():
+        if isinstance(answer, ExtractAnswer):
+          _check_spans(state, key, answer)
         answers[key] = answer
     missing = [key for key in questions if key not in answers]
     if missing:
@@ -475,18 +551,64 @@ class SystemOneClient:
     """
     if self._limiter is None:
       self._limiter = asyncio.Semaphore(self._max_concurrent)
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-      try:
-        async with self._limiter:
-          return await asyncio.to_thread(self._transport, self.endpoint, body)
-      except SystemOneError as exc:
-        transient = exc.kind is FailureKind.HTTP and (
-            exc.status is None or exc.status == 429 or exc.status >= 500
-        )
-        if not transient or attempt == MAX_ATTEMPTS:
-          raise
-        await asyncio.sleep(self._retry_delay_seconds * attempt)
-    raise AssertionError("unreachable")
+    return await post_with_retry(
+        self._transport,
+        self.endpoint,
+        body,
+        self._limiter,
+        self._retry_delay_seconds,
+    )
+
+
+def make_transport(api_key: str | None = None) -> Transport:
+  """Returns the production urllib transport, with an optional bearer key.
+
+  Args:
+    api_key: Optional bearer key sent with every request.
+
+  Returns:
+    A transport that posts JSON and raises SystemOneError on failure.
+  """
+  return functools.partial(_urllib_transport, api_key=api_key)
+
+
+async def post_with_retry(
+    transport: Transport,
+    url: str,
+    body: bytes,
+    limiter: asyncio.Semaphore,
+    retry_delay_seconds: float,
+) -> bytes:
+  """Posts one request through transport, retrying transient failures.
+
+  A rate limit, a server error, or a dropped connection is retried with
+  backoff, up to MAX_ATTEMPTS attempts; any other error is raised at once.
+
+  Args:
+    transport: Byte transport to call.
+    url: Endpoint URL.
+    body: Encoded request.
+    limiter: Bounds how many requests are in flight.
+    retry_delay_seconds: Backoff unit; the nth retry waits n units.
+
+  Returns:
+    The response body.
+
+  Raises:
+    SystemOneError: If the last attempt fails, or on a non-transient error.
+  """
+  for attempt in range(1, MAX_ATTEMPTS + 1):
+    try:
+      async with limiter:
+        return await asyncio.to_thread(transport, url, body)
+    except SystemOneError as exc:
+      transient = exc.kind is FailureKind.HTTP and (
+          exc.status is None or exc.status == 429 or exc.status >= 500
+      )
+      if not transient or attempt == MAX_ATTEMPTS:
+        raise
+      await asyncio.sleep(retry_delay_seconds * attempt)
+  raise AssertionError("unreachable")
 
 
 def _packs(
@@ -572,4 +694,22 @@ def _parse_response(raw: bytes) -> dict[str, Answer]:
     raise SystemOneError(
         FailureKind.PARSE, "response did not match System One."
     ) from exc
-  return {key: _parse_answer(answer) for key, answer in parsed.answers.items()}
+  return {
+      key: _parse_answer(answer, key) for key, answer in parsed.answers.items()
+  }
+
+
+def _check_spans(state: str, key: str, answer: ExtractAnswer) -> None:
+  """Raises unless every span is the exact text at its offsets in state.
+
+  Offsets count Unicode code points, as Python string indexing does.
+  """
+  for span in answer.spans:
+    if not 0 <= span.start <= span.end <= len(state) or (
+        state[span.start : span.end] != span.text
+    ):
+      raise SystemOneError(
+          FailureKind.PARSE,
+          f"question {key}: span {span.start}-{span.end} {span.text!r} is"
+          " not the text at those offsets.",
+      )

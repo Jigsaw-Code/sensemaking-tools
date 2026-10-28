@@ -339,7 +339,11 @@ def _choice_key(answer: systemone.Answer, name: str) -> str:
   match answer:
     case systemone.ChoiceAnswer(choice=choice):
       return choice
-    case systemone.NoulAnswer() | systemone.ScoreAnswer():
+    case (
+        systemone.NoulAnswer()
+        | systemone.ScoreAnswer()
+        | systemone.ExtractAnswer()
+    ):
       raise systemone.SystemOneError(
           systemone.FailureKind.PARSE,
           f"question {name} did not return a choice.",
@@ -381,7 +385,11 @@ def _score_probabilities(
   match answer:
     case systemone.ScoreAnswer(probabilities=probabilities):
       return probabilities
-    case systemone.ChoiceAnswer() | systemone.NoulAnswer():
+    case (
+        systemone.ChoiceAnswer()
+        | systemone.NoulAnswer()
+        | systemone.ExtractAnswer()
+    ):
       raise systemone.SystemOneError(
           systemone.FailureKind.PARSE,
           f"question {name} did not return a score.",
@@ -395,7 +403,11 @@ def _noul(answer: systemone.Answer, name: str) -> float:
   match answer:
     case systemone.NoulAnswer(noul=noul):
       return noul
-    case systemone.ChoiceAnswer() | systemone.ScoreAnswer():
+    case (
+        systemone.ChoiceAnswer()
+        | systemone.ScoreAnswer()
+        | systemone.ExtractAnswer()
+    ):
       raise systemone.SystemOneError(
           systemone.FailureKind.PARSE,
           f"question {name} did not return a noul answer.",
