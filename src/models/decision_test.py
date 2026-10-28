@@ -559,6 +559,10 @@ class DecisionTests(unittest.TestCase):
         "[::1]": "http://[::1]:11434/v1/systemone",
         "http://gpu-box:11434/": "http://gpu-box:11434/v1/systemone",
         "https://api.typesafe.ai": "https://api.typesafe.ai/v1/systemone",
+        "https://api.subq.ai": "https://api.subq.ai/v1/systemone",
+        "https://api.liquid.ai/decisions/v1/systemone": (
+            "https://api.liquid.ai/decisions/v1/systemone"
+        ),
         "https://api.inceptionlabs.ai/v1/decisions/": (
             "https://api.inceptionlabs.ai/v1/decisions"
         ),
@@ -612,6 +616,26 @@ class DecisionTests(unittest.TestCase):
         [len(body["questions"]) for body in transport.bodies], [16, 1]
     )
 
+  def test_long_state_is_sent_only_under_a_raised_body_limit(self):
+    """Tests that a state past 64 KiB needs a higher max_body_bytes."""
+    question = {
+        "q": systemone.NoulQuestion(instructions="Yes?", true="Yes", false="No")
+    }
+    state = "A long conversation. " * 5000
+    transport = RecordingTransport()
+    client = systemone.SystemOneClient(model="clef", transport=transport)
+    with self.assertRaises(systemone.SystemOneError) as caught:
+      asyncio.run(client.ask(state, question))
+    self.assertEqual(caught.exception.kind, systemone.FailureKind.PAYLOAD)
+    self.assertEqual(transport.bodies, [])
+
+    client = systemone.SystemOneClient(
+        model="subq-snap-1.1", transport=transport, max_body_bytes=1_000_000
+    )
+    answers = asyncio.run(client.ask(state, question))
+    self.assertEqual(set(answers), {"q"})
+    self.assertEqual(transport.bodies[0]["state"], state)
+
   def test_reads_answers_inside_a_result_envelope(self):
     """Tests that a Workers AI result envelope is unwrapped."""
     def transport(url: str, body: bytes) -> bytes:
@@ -637,6 +661,37 @@ class DecisionTests(unittest.TestCase):
         )
     )
     self.assertEqual(answers["q"].noul, 0.75)
+
+  def test_reads_hosted_score_answers_with_extra_fields(self):
+    """Tests the score legend and usage cost that hosted models add."""
+    legend = {str(level): text for level, text in enumerate(decision.RUBRIC)}
+    probabilities = {"0": 0.0, "1": 0.05, "2": 0.05, "3": 0.2, "4": 0.7}
+    usages = {
+        "subq-snap-1.1": {"input_tokens": 200, "output_tokens": 0},
+        "d1-ultra": {"input_tokens": 162, "output_tokens": 0, "cost": 7e-06},
+    }
+    for model, usage in usages.items():
+      with self.subTest(model=model):
+
+        def transport(url: str, body: bytes, model=model, usage=usage) -> bytes:
+          """Returns a canned hosted score response."""
+          return json.dumps({
+              "model": model,
+              "answers": {
+                  "rubric": {
+                      "type": "score",
+                      "score": 3.55,
+                      "legend": legend,
+                      "probabilities": probabilities,
+                      "confidence": 0.6,
+                  }
+              },
+              "usage": usage,
+          }).encode("utf-8")
+
+        client = systemone.SystemOneClient(model=model, transport=transport)
+        level = asyncio.run(decision.rubric_level(client, "state"))
+        self.assertEqual(level, 4)
 
   def test_api_key_is_sent_as_a_bearer_header(self):
     """Tests that the key is sent as a bearer header, and only when set."""
