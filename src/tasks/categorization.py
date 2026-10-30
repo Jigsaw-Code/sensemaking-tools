@@ -859,6 +859,7 @@ async def categorize_opinions(
     max_concurrent_calls: int | None = None,
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
+    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
     offer_other_opinion: bool = True,
     pass_label: str = "pass1",
 ) -> Iterable[Statement]:
@@ -876,6 +877,8 @@ async def categorize_opinions(
       receive before it is defaulted to 'Other'.
     autorater_min_score: Minimum integer autorater score (0-4 rubric) for an
       opinion assignment to pass.
+    opinion_matching: Opinion matching rules for categorization and
+      autoraters, one of prompts.OPINION_MATCHING_MODES.
     offer_other_opinion: Whether to offer an 'Other' option to the model.
     pass_label: Label used in the 'Other' provenance log line and run_health
       events (e.g. "pass1", "pass2").
@@ -890,6 +893,11 @@ async def categorize_opinions(
   if not (0 <= autorater_min_score <= 4):
     raise ValueError(
         f"autorater_min_score must be between 0 and 4, got {autorater_min_score}"
+    )
+  if opinion_matching not in prompts.OPINION_MATCHING_MODES:
+    raise ValueError(
+        f"Unknown opinion matching mode {opinion_matching!r}; expected one of"
+        f" {prompts.OPINION_MATCHING_MODES}."
     )
 
   logging.info("Starting Global Opinion Categorization Phase...")
@@ -977,6 +985,7 @@ async def categorize_opinions(
         input_statements_map,
         additional_context,
         attempt,
+        opinion_matching=opinion_matching,
         offer_other_opinion=offer_other_opinion,
     )
 
@@ -1039,6 +1048,7 @@ async def categorize_opinions(
           autorater_retry_counts=autorater_retry_counts,
           max_autorater_retries=max_autorater_retries,
           autorater_min_score=autorater_min_score,
+          opinion_matching=opinion_matching,
           max_concurrent_calls=max_concurrent_calls,
           other_provenance=other_provenance,
       )
@@ -1195,9 +1205,25 @@ def _prepare_opinion_prompts_for_pending_work(
     input_statements_map: dict[str, Statement],
     additional_context: str | None,
     attempt: int,
+    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
     offer_other_opinion: bool = True,
 ) -> list[dict[str, Any]]:
-  """Prepares opinion categorization prompts for all pending topics."""
+  """Prepares opinion categorization prompts for all pending topics.
+
+  Args:
+    topic_work_queue_ids: Topic name -> pending statement ids.
+    topics_to_process: Topics being categorized.
+    topic_to_opinions_map: Topic name -> NestedTopic of opinions.
+    input_statements_map: Statement id -> Statement.
+    additional_context: Optional additional prompt context.
+    attempt: 1-based attempt number (used for job naming).
+    opinion_matching: Matching rules mode for the prompt.
+    offer_other_opinion: If False, remove 'Other' from each menu. Topics left
+      with an empty menu are skipped.
+
+  Returns:
+    List of prompt job dicts.
+  """
   all_prompts = []
 
   for topic_name, pending_ids in topic_work_queue_ids.items():
@@ -1240,7 +1266,8 @@ def _prepare_opinion_prompts_for_pending_work(
         pending_statements,
         opinions,
         prompts.get_categorization_opinion_prompt(
-            json.dumps([{"name": op.name} for op in opinions])
+            json.dumps([{"name": op.name} for op in opinions]),
+            opinion_matching=opinion_matching,
         ),
         QuoteOpinionRecordList,
         additional_context,
@@ -1337,6 +1364,7 @@ async def _run_opinion_autoraters(
     autorater_retry_counts: dict[tuple[str, str], int],
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
+    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
     max_concurrent_calls: int | None = None,
     other_provenance: dict[tuple[str, str], str] | None = None,
 ) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
@@ -1349,6 +1377,8 @@ async def _run_opinion_autoraters(
     autorater_retry_counts: Rejections per quote (updated in place).
     max_autorater_retries: Rejections allowed before defaulting to 'Other'.
     autorater_min_score: Minimum autorater score (0-4 rubric) for a pass.
+    opinion_matching: Opinion matching mode, one of
+      prompts.OPINION_MATCHING_MODES.
     max_concurrent_calls: Concurrency limit.
     other_provenance: If given, records `autorater_exhausted` for each quote
       defaulted to 'Other', keyed by (statement id, quote id).
@@ -1386,6 +1416,7 @@ async def _run_opinion_autoraters(
         candidate_group["batch_items"],
         candidate_group["target_opinions"],
         candidate_group["parent_topic_name"],
+        opinion_matching=opinion_matching,
     )
     for p in prompts:
       # Inject metadata needed for processing later

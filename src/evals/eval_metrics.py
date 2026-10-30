@@ -433,7 +433,7 @@ class OpinionCategorizationEvaluationMetrics(EvaluationMetrics):
 
   def __init__(self):
     name = "OpinionCategorizationCorrectness"
-    criteria = prompts.eval_opinion_categorization_correctness_criteria
+    criteria = prompts.eval_opinion_categorization_correctness_criteria_identical
     additional_input_variables = [
         quote_extractor.TOPIC_COL,
         quote_extractor.QUOTE_COL,

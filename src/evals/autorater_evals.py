@@ -51,8 +51,29 @@ def prepare_opinion_eval_prompts(
     input_statements: list[custom_types.Statement],
     all_opinions_for_topic: list[custom_types.Topic],
     parent_topic_name: str,
+    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
 ) -> list[dict[str, Any]]:
-  """Prepares prompts for opinion evaluation."""
+  """Prepares prompts for opinion evaluation.
+
+  Args:
+    categorized_records: Records (one per quote) to evaluate.
+    input_statements: Statements containing the quotes.
+    all_opinions_for_topic: The opinion menu offered for the topic.
+    parent_topic_name: The topic name.
+    opinion_matching: Opinion matching mode, one of
+      prompts.OPINION_MATCHING_MODES.
+
+  Returns:
+    Prompt job dicts.
+
+  Raises:
+    ValueError: If opinion_matching is unknown.
+  """
+  if opinion_matching not in prompts.OPINION_MATCHING_MODES:
+    raise ValueError(
+        f"Unknown opinion matching mode {opinion_matching!r}; expected one of"
+        f" {prompts.OPINION_MATCHING_MODES}."
+    )
   prompt_jobs = []
   if not categorized_records:
     return prompt_jobs
@@ -74,6 +95,12 @@ def prepare_opinion_eval_prompts(
 
   rubric_str = json.dumps(pointwise_metric.rating_rubric, indent=2)
 
+  criteria_templates = (
+      prompts.eval_opinion_categorization_correctness_criteria_supports
+      if opinion_matching == prompts.OPINION_MATCHING_SUPPORTS
+      else pointwise_metric.criteria
+  )
+
   for record in categorized_records:
     if not record.quote_id:
       continue
@@ -87,7 +114,7 @@ def prepare_opinion_eval_prompts(
 
     # Manually format criteria as they contain placeholders
     formatted_criteria = {}
-    for key, template in pointwise_metric.criteria.items():
+    for key, template in criteria_templates.items():
       formatted_criteria[key] = template.format(
           topic=parent_topic_name,
           quote=quote_text,

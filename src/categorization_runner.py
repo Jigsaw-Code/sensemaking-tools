@@ -41,6 +41,7 @@ import time
 from typing import Any, Dict, Iterable, List, Literal, Optional, Union, cast
 from src.models import decision
 from src.models import model_factory
+from src import prompts
 from src import run_health
 from src import runner_utils
 from src import sensemaker
@@ -440,6 +441,17 @@ async def main() -> Optional[str]:
       ),
   )
   parser.add_argument(
+      "--opinion_matching",
+      choices=list(prompts.OPINION_MATCHING_MODES),
+      default=prompts.OPINION_MATCHING_IDENTICAL,
+      help=(
+          "Opinion matching rules for categorization and autoraters:"
+          " 'identical' (quote must explicitly support every key concept of"
+          " the opinion) or 'supports' (quote must support the opinion's"
+          f" core claim). Default: {prompts.OPINION_MATCHING_IDENTICAL}."
+      ),
+  )
+  parser.add_argument(
       "--recategorize_other",
       action="store_true",
       default=False,
@@ -619,6 +631,9 @@ async def main() -> Optional[str]:
           args,
           "autorater_min_score",
           categorization.DEFAULT_AUTORATER_MIN_SCORE,
+      ),
+      opinion_matching=getattr(
+          args, "opinion_matching", prompts.OPINION_MATCHING_IDENTICAL
       ),
   )
 

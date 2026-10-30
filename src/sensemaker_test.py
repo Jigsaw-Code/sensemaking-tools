@@ -224,6 +224,7 @@ class SensemakerTest(unittest.TestCase):
             offer_other_opinion_on_recategorize=True,
             dedup_new_opinions=True,
             recategorize_other_skip_autoraters=False,
+            opinion_matching="supports",
         )
     )
 
@@ -240,6 +241,12 @@ class SensemakerTest(unittest.TestCase):
             "offer_other_opinion"
         ]
     )
+    self.assertEqual(
+        mock_categorization.categorize_opinions.call_args.kwargs[
+            "opinion_matching"
+        ],
+        "supports",
+    )
     mock_categorization.recategorize_other_quotes.assert_called_once()
     recat_kwargs = (
         mock_categorization.recategorize_other_quotes.call_args.kwargs
@@ -248,6 +255,7 @@ class SensemakerTest(unittest.TestCase):
     self.assertTrue(recat_kwargs["dedup_new_opinions"])
     self.assertTrue(recat_kwargs["run_autoraters"])
     self.assertTrue(recat_kwargs["recategorize_all"])
+    self.assertEqual(recat_kwargs["opinion_matching"], "supports")
 
 
 class _FakeCheckpoints:

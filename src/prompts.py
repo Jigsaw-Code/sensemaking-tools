@@ -612,7 +612,7 @@ For example:
 }}
 """
 
-categorization_opinion_main_rules = """
+categorization_opinion_identical_rules = """
 Main Rules:
 - PRIORITY RULE: Select Only the Most Literal Match(es). You must evaluate all opinions. After evaluating all of them, select only the opinion or opinions that are the most literal, most explicit, and most holistic match and require the least inference.
 - Keep the number of selections to the absolute minimum. Only select more than one opinion if they are both equally perfect, literal matches to the quote.
@@ -622,6 +622,50 @@ Main Rules:
 - Be Aggressively Literal / No Inference. Do not make inferences or assumptions. Do not make logical leaps or semantic substitutions. If an opinion mentions a concept like 'dignity,' the quote must also mention 'dignity' or 'respect.' Do not infer that 'equal rights' is the same as 'dignity.' Do not infer 'regime' means 'corrupt government.'
 - Match Abstraction Levels. Do not match specific examples (like 'targeting based on skin color') to a broad category (like 'culture of hate').
 """
+
+# Opinion matching modes for opinion categorization (and the autorater rubric).
+# "identical": the original ultra-literal / holistic rules above (every key
+#   concept of the opinion must be explicitly supported by the quote).
+# "supports": a quote matches an opinion when it clearly supports the
+#   opinion's core claim; supporting details, examples, mechanisms and
+#   qualifiers in the opinion need not all be mentioned.
+OPINION_MATCHING_IDENTICAL = "identical"
+OPINION_MATCHING_SUPPORTS = "supports"
+OPINION_MATCHING_MODES = (OPINION_MATCHING_IDENTICAL, OPINION_MATCHING_SUPPORTS)
+
+categorization_opinion_supports_rules = """
+Main Rules:
+- PRIORITY RULE: Select the opinion (or opinions) that best captures the main point of the quote. You must evaluate all opinions before choosing.
+- A quote matches an opinion when it clearly supports the opinion's core claim. The quote does NOT need to mention every detail, example, mechanism, or qualifier listed in the opinion.
+- PRIORITY RULE: The Main Thesis MUST Agree. Never select an opinion whose core claim the quote contradicts or argues against, even if they share keywords or examples.
+- Keep the number of selections to the minimum. Only select more than one opinion if the quote clearly makes separate points that require multiple opinions to cover.
+- Do not stretch: a quote that only shares a keyword or a passing mention with an opinion, without supporting its core claim, is not a match.
+- Use "Other" only when the main point of the quote is not supported by the core claim of ANY listed opinion (for example, it is off-topic, or it raises a distinct idea that none of the opinions covers).
+"""
+
+
+def get_categorization_opinion_rules(
+    opinion_matching: str = OPINION_MATCHING_IDENTICAL,
+) -> str:
+  """Returns the main opinion-matching rules for the given matching mode.
+
+  Args:
+    opinion_matching: One of OPINION_MATCHING_MODES.
+
+  Returns:
+    The rules text block.
+
+  Raises:
+    ValueError: If opinion_matching is unknown.
+  """
+  if opinion_matching == OPINION_MATCHING_IDENTICAL:
+    return categorization_opinion_identical_rules
+  if opinion_matching == OPINION_MATCHING_SUPPORTS:
+    return categorization_opinion_supports_rules
+  raise ValueError(
+      f"Unknown opinion matching mode {opinion_matching!r}; expected one of"
+      f" {OPINION_MATCHING_MODES}."
+  )
 
 
 def get_topic_categorization_prompt(topics_json_str: str) -> str:
@@ -665,14 +709,40 @@ Response must be a valid JSON object matching StatementRecordList schema. Exampl
 """
 
 
-def get_categorization_opinion_prompt(opinions_json_str: str) -> str:
+def get_categorization_opinion_prompt(
+    opinions_json_str: str,
+    opinion_matching: str = OPINION_MATCHING_IDENTICAL,
+) -> str:
+  """Builds the opinion categorization prompt.
+
+  Args:
+    opinions_json_str: JSON list of the opinions offered for the topic.
+    opinion_matching: One of OPINION_MATCHING_MODES. "identical" (default)
+      reproduces the original prompt byte-for-byte.
+
+  Returns:
+    The prompt instructions.
+  """
+  main_rules = get_categorization_opinion_rules(opinion_matching)
+  if opinion_matching == OPINION_MATCHING_IDENTICAL:
+    closing_rule = (
+        'Pay close attention to Rules "Most Literal Match" and "Holistic'
+        ' Match". Do not select any opinion that is only a partial match or'
+        " requires an inference if a more literal match is available."
+    )
+  else:
+    closing_rule = (
+        "Choose the opinion whose core claim best captures the main point of"
+        ' each quote, and use "Other" only when no opinion\'s core claim'
+        " fits."
+    )
   return f"""
 Categorize the following quotes based on the provided opinions.
 
 Input Opinions:
 {opinions_json_str}
 
-{categorization_opinion_main_rules}
+{main_rules}
 
 Other rules:
 - Prioritize using the existing opinions whenever possible.
@@ -697,7 +767,7 @@ class Topic(BaseModel):
     name: str
 
 You must follow the rules for the instructions strictly.
-Pay close attention to Rules "Most Literal Match" and "Holistic Match". Do not select any opinion that is only a partial match or requires an inference if a more literal match is available.
+{closing_rule}
 
 Response must be a valid JSON object matching QuoteOpinionRecordList schema. Example:
 {{
@@ -853,7 +923,7 @@ You are evaluating a quote (quote) that has been categorized under the "Other" o
 {existing_opinions}
 
 """
-        + categorization_opinion_main_rules
+        + categorization_opinion_identical_rules
         + """
 
 Eval rules:
@@ -872,7 +942,7 @@ Based on the categorization rules provided above, evaluate if the `response` (qu
 }
 
 
-eval_opinion_categorization_correctness_criteria = {
+eval_opinion_categorization_correctness_criteria_identical = {
     "correctness": (
         """
 You are evaluating if a quote has been correctly assigned to one or more opinions.
@@ -884,7 +954,7 @@ The user's response will contain the list of opinions assigned to a single quote
 {all_opinions}
 
 """
-        + categorization_opinion_main_rules
+        + categorization_opinion_identical_rules
         + """
 
 Based on these rules, evaluate if each of the assigned opinions in the `response` is a correct match for the quote.
@@ -906,6 +976,52 @@ Here are the rules for categorization:
 Your Task:
 Evaluate if the quote is over-assigned to opinions in the `response`.
 - Rate highly if each assigned opinion represents a distinct, necessary, and perfect literal match.
+- Rate lower if fewer opinions could have been used to represent the quote's meaning accurately.
+"""
+    ),
+}
+
+
+# Variant of the opinion-categorization autorater criteria for "supports" mode:
+# a quote need only support the opinion's core claim (see
+# categorization_opinion_supports_rules), not every key concept of a
+# compound opinion. Selected when opinion_matching="supports".
+eval_opinion_categorization_correctness_criteria_supports = {
+    "correctness": (
+        """
+You are evaluating if a quote has been correctly assigned to one or more opinions.
+The user's response will contain the list of opinions assigned to a single quote.
+
+- **Quote**: {quote}
+- **Topic**: {topic}
+- **All Available Opinions for the Topic**:
+{all_opinions}
+
+"""
+        + categorization_opinion_supports_rules
+        + """
+
+Based on these rules, evaluate if each of the assigned opinions in the `response` is a correct match for the quote.
+An assigned opinion is correct if the quote supports its core claim.
+If the response is "Other", it is correct only if no listed opinion's core claim captures the main point of the quote.
+"""
+    ),
+    "minimality": (
+        """
+You are evaluating if a quote has been assigned the minimum necessary number of opinions.
+The user's response will contain the list of opinions assigned to a single quote.
+
+- **Quote**: {quote}
+- **Topic**: {topic}
+- **All Available Opinions for the Topic**:
+{all_opinions}
+
+Here are the rules for categorization:
+- Keep the number of selections to the minimum. Only select more than one opinion if the quote clearly makes separate points that require multiple opinions to cover.
+
+Your Task:
+Evaluate if the quote is over-assigned to opinions in the `response`.
+- Rate highly if each assigned opinion captures a distinct point the quote makes.
 - Rate lower if fewer opinions could have been used to represent the quote's meaning accurately.
 """
     ),

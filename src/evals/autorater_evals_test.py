@@ -59,6 +59,58 @@ class AutoraterEvalsTest(unittest.TestCase):
     self.assertEqual(prompt_data["metadata"]["quote_id"], "q1")
     self.assertEqual(prompt_data["response_mime_type"], "application/json")
 
+  def test_prepare_opinion_eval_prompts_opinion_matching(self):
+    input_statements = [
+        custom_types.Statement(
+            id="s1",
+            text="Statement 1",
+            quotes=[
+                custom_types.Quote(
+                    id="q1",
+                    text="Quote 1",
+                    topic=custom_types.FlatTopic(name="Topic A"),
+                )
+            ],
+        )
+    ]
+    categorized_records = [
+        custom_types.StatementRecord(
+            id="s1",
+            quote_id="q1",
+            topics=[custom_types.FlatTopic(name="Opinion 1")],
+        )
+    ]
+    all_opinions = [custom_types.FlatTopic(name="Opinion 1")]
+    parent_topic_name = "Topic A"
+
+    prompts_identical = autorater_evals.prepare_opinion_eval_prompts(
+        categorized_records,
+        input_statements,
+        all_opinions,
+        parent_topic_name,
+        opinion_matching="identical",
+    )
+    self.assertIn("Be Aggressively Literal", prompts_identical[0]["prompt"])
+
+    prompts_supports = autorater_evals.prepare_opinion_eval_prompts(
+        categorized_records,
+        input_statements,
+        all_opinions,
+        parent_topic_name,
+        opinion_matching="supports",
+    )
+    self.assertNotIn("Be Aggressively Literal", prompts_supports[0]["prompt"])
+    self.assertIn("supports its core claim", prompts_supports[0]["prompt"])
+
+    with self.assertRaises(ValueError):
+      autorater_evals.prepare_opinion_eval_prompts(
+          categorized_records,
+          input_statements,
+          all_opinions,
+          parent_topic_name,
+          opinion_matching="invalid_mode",
+      )
+
   def test_parse_eval_response_success(self):
     job = {}
     resp = {"text": '```json\n{"score": 4, "explanation": "Good"}\n```'}

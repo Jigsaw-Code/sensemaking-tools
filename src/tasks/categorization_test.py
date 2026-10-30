@@ -1282,6 +1282,119 @@ class CategorizationTest(unittest.TestCase):
     self.assertEqual(summary["other_source.pass1.model_choice"], 2)
     self.assertEqual(summary["other_source.pass1.autorater_exhausted"], 1)
 
+  def test_opinion_matching_prompt_validation(self):
+    opinions_json = '[{"name": "Op1"}]'
+    default_prompt = prompts.get_categorization_opinion_prompt(opinions_json)
+    identical_prompt = prompts.get_categorization_opinion_prompt(
+        opinions_json, opinion_matching=prompts.OPINION_MATCHING_IDENTICAL
+    )
+    # identical default byte-for-byte invariance
+    self.assertEqual(default_prompt, identical_prompt)
+
+    # supports prompt differs from identical
+    supports_prompt = prompts.get_categorization_opinion_prompt(
+        opinions_json, opinion_matching=prompts.OPINION_MATCHING_SUPPORTS
+    )
+    self.assertNotEqual(default_prompt, supports_prompt)
+
+    # invalid mode raises ValueError
+    with self.assertRaises(ValueError):
+      prompts.get_categorization_opinion_prompt(
+          opinions_json, opinion_matching="invalid_mode"
+      )
+    with self.assertRaises(ValueError):
+      prompts.get_categorization_opinion_rules("invalid_mode")
+
+
+class OpinionMatchingForwardingTest(unittest.TestCase):
+  """Tests opinion_matching forwarding and validation in categorize_opinions."""
+
+  def setUp(self):
+    super().setUp()
+    self.statement = custom_types.Statement(
+        id="s1",
+        text="text",
+        quotes=[
+            custom_types.Quote(
+                id="q1", text="quote", topic=custom_types.FlatTopic(name="T1")
+            )
+        ],
+    )
+    self.topics = [custom_types.FlatTopic(name="T1")]
+    self.topic_map = {
+        "T1": custom_types.NestedTopic(
+            name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
+        )
+    }
+    self.mock_model = MagicMock()
+    self.mock_model.max_llm_retries = 1
+    self.mock_model.process_prompts_concurrently = AsyncMock(
+        return_value=(pd.DataFrame(), pd.DataFrame(), 0.0, 1.0)
+    )
+    self.mock_prepare_prompts = self.enterContext(
+        patch.object(categorization, "_prepare_opinion_prompts_for_pending_work")
+    )
+    self.mock_prepare_prompts.return_value = [{"dummy": "prompt"}]
+    self.mock_process_results = self.enterContext(
+        patch.object(categorization, "_process_opinion_llm_results")
+    )
+    self.mock_process_results.return_value = ([{"records": []}], {}, 0)
+    self.mock_run_autoraters = self.enterContext(
+        patch.object(
+            categorization, "_run_opinion_autoraters", new_callable=AsyncMock
+        )
+    )
+    self.mock_run_autoraters.return_value = (1, {}, [], 0.0, 1.0)
+
+  def test_categorize_opinions_defaults_to_identical_matching(self):
+    asyncio.run(
+        categorization.categorize_opinions(
+            statements_with_topics_and_quotes=[self.statement],
+            topics_to_process=self.topics,
+            topic_to_opinions_map=self.topic_map,
+            model=self.mock_model,
+        )
+    )
+    self.assertEqual(
+        self.mock_prepare_prompts.call_args.kwargs["opinion_matching"],
+        prompts.OPINION_MATCHING_IDENTICAL,
+    )
+    self.assertEqual(
+        self.mock_run_autoraters.call_args.kwargs["opinion_matching"],
+        prompts.OPINION_MATCHING_IDENTICAL,
+    )
+
+  def test_categorize_opinions_forwards_supports_matching(self):
+    asyncio.run(
+        categorization.categorize_opinions(
+            statements_with_topics_and_quotes=[self.statement],
+            topics_to_process=self.topics,
+            topic_to_opinions_map=self.topic_map,
+            model=self.mock_model,
+            opinion_matching=prompts.OPINION_MATCHING_SUPPORTS,
+        )
+    )
+    self.assertEqual(
+        self.mock_prepare_prompts.call_args.kwargs["opinion_matching"],
+        prompts.OPINION_MATCHING_SUPPORTS,
+    )
+    self.assertEqual(
+        self.mock_run_autoraters.call_args.kwargs["opinion_matching"],
+        prompts.OPINION_MATCHING_SUPPORTS,
+    )
+
+  def test_categorize_opinions_rejects_invalid_opinion_matching(self):
+    with self.assertRaises(ValueError):
+      asyncio.run(
+          categorization.categorize_opinions(
+              statements_with_topics_and_quotes=[self.statement],
+              topics_to_process=self.topics,
+              topic_to_opinions_map=self.topic_map,
+              model=self.mock_model,
+              opinion_matching="invalid_mode",
+          )
+      )
+
 
 if __name__ == "__main__":
   unittest.main()

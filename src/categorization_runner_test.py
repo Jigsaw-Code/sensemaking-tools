@@ -22,6 +22,7 @@ import unittest
 from unittest import mock
 
 from src import categorization_runner
+from src import prompts
 from src.models import custom_types
 
 
@@ -522,6 +523,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         offer_other_opinion_on_recategorize=None,
         max_autorater_retries=3,
         autorater_min_score=4,
+        opinion_matching=prompts.OPINION_MATCHING_IDENTICAL,
     )
 
   @mock.patch('src.categorization_runner.model_factory.get_model')
@@ -556,6 +558,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         max_concurrent_calls=None,
         max_autorater_retries=5,
         autorater_min_score=3,
+        opinion_matching=prompts.OPINION_MATCHING_SUPPORTS,
         max_stall_minutes=7.5,
     )
     mock_read_csv.return_value = [{'participant_id': '1', 'survey_text': 'test'}]
@@ -591,6 +594,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         offer_other_opinion_on_recategorize=None,
         max_autorater_retries=5,
         autorater_min_score=3,
+        opinion_matching=prompts.OPINION_MATCHING_SUPPORTS,
     )
     self.assertEqual(
         mock_get_model.call_args.kwargs['max_stall_minutes'], 7.5
@@ -667,6 +671,7 @@ class CategorizationRunnerTest(unittest.TestCase):
         offer_other_opinion_on_recategorize=True,
         max_autorater_retries=3,
         autorater_min_score=4,
+        opinion_matching=prompts.OPINION_MATCHING_IDENTICAL,
     )
 
   def test_write_run_health(self):

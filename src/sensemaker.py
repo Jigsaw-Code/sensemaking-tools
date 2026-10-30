@@ -26,6 +26,7 @@ if project_root not in sys.path:
   sys.path.insert(0, project_root)
 
 from src import checkpoint_utils
+from src import prompts
 from src import runner_utils
 from src.models import custom_types
 from src.tasks import categorization
@@ -76,6 +77,7 @@ class Sensemaker:
       max_concurrent_calls: Optional[int] = None,
       max_autorater_retries: int = categorization.DEFAULT_MAX_AUTORATER_RETRIES,
       autorater_min_score: int = categorization.DEFAULT_AUTORATER_MIN_SCORE,
+      opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
       recategorize_other: bool = False,
       pass_existing_opinions_to_recategorize: bool = True,
       recategorize_other_skip_autoraters: bool = False,
@@ -117,6 +119,10 @@ class Sensemaker:
           may receive before it is defaulted to 'Other'.
         autorater_min_score: Minimum integer autorater score (0-4 rubric) for
           an opinion assignment to pass.
+        opinion_matching: Opinion matching rules for categorization and
+          autoraters: 'identical' (quote must explicitly support every key
+          concept) or 'supports' (quote must support the core claim). One of
+          prompts.OPINION_MATCHING_MODES.
         recategorize_other: Whether to run a secondary pass on quotes assigned
           to 'Other' to discover new emergent opinions and re-categorize.
         pass_existing_opinions_to_recategorize: Whether to pass existing
@@ -227,6 +233,7 @@ class Sensemaker:
     categorize_kwargs = dict(
         max_autorater_retries=max_autorater_retries,
         autorater_min_score=autorater_min_score,
+        opinion_matching=opinion_matching,
         offer_other_opinion=offer_other_opinion,
     )
 
