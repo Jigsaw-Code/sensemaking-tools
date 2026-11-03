@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import re
+from collections import Counter
 from typing import Any, Dict, List, Optional, cast
 
 from src.models.genai_model import GenaiModel
@@ -29,6 +30,142 @@ from pydantic import TypeAdapter, ValidationError
 # Gemini 1.5 Pro has 1M-2M context window, but we want to be safe.
 TARGET_CHUNK_TOKEN_COUNT = 2000
 MAX_CHUNK_TOKEN_COUNT = 1000000  # 1M limit
+
+_PLACEHOLDER_TOPIC_RE = re.compile(
+    r"^(?:Topic|Opinion|Subtopic|Category)\s*\d+$", re.IGNORECASE
+)
+_PREFIX_TOPIC_RE = re.compile(
+    r"^(?:Topic|Opinion|Subtopic|Category)\s*\d+\s*:\s*", re.IGNORECASE
+)
+
+
+def is_placeholder_topic_name(name: str) -> bool:
+  """Returns True if `name` is a generic placeholder like 'Topic 1' or 'Opinion 2'."""
+  cleaned = name.strip()
+  return not cleaned or bool(_PLACEHOLDER_TOPIC_RE.match(cleaned))
+
+
+def clean_topic_name(name: str) -> str:
+  """Strips 'Topic N:' / 'Opinion N:' prefixes, truncates runaway strings, and strips punctuation."""
+  cleaned = _PREFIX_TOPIC_RE.sub("", name.strip())
+  cleaned = re.sub(r"\s+", " ", cleaned).strip()
+  if cleaned.count(" & ") >= 3:
+    parts = []
+    for p in cleaned.split(" & "):
+      p_clean = p.strip()
+      if p_clean and p_clean not in parts:
+        parts.append(p_clean)
+      if len(parts) >= 3:
+        break
+    cleaned = " & ".join(parts)
+  if len(cleaned) > 120:
+    truncated = cleaned[:120].rsplit(" ", 1)[0]
+    cleaned = truncated if truncated else cleaned[:120]
+  return cleaned.rstrip(",.;:&- ").strip()
+
+
+def clean_and_filter_topic_names(
+    names: List[str], max_unique: Optional[int] = None
+) -> List[str]:
+  """Cleans, deduplicates (by frequency then order), and filters placeholder names.
+
+  If all input names are placeholders (e.g., in unit test fixtures using
+  'Topic 1', 'Topic 2'), preserves the deduplicated placeholders.
+
+  Args:
+      names: Raw topic or opinion names to clean and deduplicate.
+      max_unique: Optional maximum number of unique names to return. If None,
+        all unique cleaned names are returned.
+
+  Returns:
+      A list of cleaned, deduplicated topic or opinion names.
+  """
+  cleaned_all: List[str] = []
+  for raw in names:
+    if not isinstance(raw, str):
+      continue
+    s = clean_topic_name(raw)
+    if s and s.lower() != "other":
+      cleaned_all.append(s)
+
+  if not cleaned_all:
+    return []
+
+  non_placeholders = [s for s in cleaned_all if not is_placeholder_topic_name(s)]
+  candidates = non_placeholders if non_placeholders else cleaned_all
+
+  counts = Counter(candidates)
+  first_seen: Dict[str, int] = {}
+  for idx, s in enumerate(candidates):
+    if s not in first_seen:
+      first_seen[s] = idx
+
+  ordered_unique = sorted(
+      first_seen.keys(), key=lambda s: (-counts[s], first_seen[s])
+  )
+  if max_unique is not None:
+    return ordered_unique[:max_unique]
+  return ordered_unique
+
+
+def _repair_truncated_json(json_text: str) -> Optional[str]:
+  """Attempts to repair truncated JSON objects/arrays produced when max_tokens is hit."""
+  if not json_text:
+    return None
+
+  in_string = False
+  escape = False
+  stack: List[str] = []
+  string_start_idx: Optional[int] = None
+  last_valid_array_item_end: Optional[int] = None
+  stack_at_last_item: Optional[List[str]] = None
+
+  for idx, ch in enumerate(json_text):
+    if in_string:
+      if escape:
+        escape = False
+      elif ch == "\\":
+        escape = True
+      elif ch == '"':
+        in_string = False
+        string_start_idx = None
+      continue
+
+    if ch == '"':
+      in_string = True
+      string_start_idx = idx
+    elif ch in ("{", "["):
+      stack.append(ch)
+    elif ch == "}":
+      if not stack or stack[-1] != "{":
+        return None
+      stack.pop()
+      if stack and stack[-1] == "[":
+        last_valid_array_item_end = idx + 1
+        stack_at_last_item = list(stack)
+    elif ch == "]":
+      if not stack or stack[-1] != "[":
+        return None
+      stack.pop()
+
+  if not in_string and not stack:
+    return None
+
+  # Prefer truncating back to the last complete element in an open array.
+  if last_valid_array_item_end is not None and stack_at_last_item is not None:
+    prefix = json_text[:last_valid_array_item_end]
+    closers = "".join("]" if c == "[" else "}" for c in reversed(stack_at_last_item))
+    return prefix + closers
+
+  # Otherwise, if truncated inside a runaway string literal, cap the string and close open containers.
+  if in_string and string_start_idx is not None and stack:
+    raw_str_content = json_text[string_start_idx + 1 : string_start_idx + 1 + 120]
+    raw_str_content = raw_str_content.rstrip("\\")
+    prefix = json_text[: string_start_idx + 1] + raw_str_content + '"'
+    closers = "".join("]" if c == "[" else "}" for c in reversed(stack))
+    return prefix + closers
+
+  return None
 
 
 def parse_response(response_text: str, schema_to_expect: Any) -> Any:
@@ -66,13 +203,19 @@ def parse_response(response_text: str, schema_to_expect: Any) -> Any:
 
   try:
     return TypeAdapter(schema_to_expect).validate_json(json_text)
-  except ValidationError as e:
-    logging.debug(
-        "Model response failed Pydantic validation for schema"
-        f" {schema_to_expect}: {json_text}.\nError: {e}"
-    )
-    raise ValueError(f"Model response failed Pydantic validation") from e
-  except json.JSONDecodeError as e:
+  except (ValidationError, json.JSONDecodeError) as e:
+    repaired = _repair_truncated_json(json_text)
+    if repaired is not None:
+      try:
+        return TypeAdapter(schema_to_expect).validate_json(repaired)
+      except Exception:
+        pass
+    if isinstance(e, ValidationError):
+      logging.debug(
+          "Model response failed Pydantic validation for schema"
+          f" {schema_to_expect}: {json_text}.\nError: {e}"
+      )
+      raise ValueError(f"Model response failed Pydantic validation") from e
     logging.debug(f"Model returned invalid JSON: {json_text}.")
     raise ValueError(f"Model returned invalid JSON") from e
   except Exception as e:
@@ -215,7 +358,15 @@ async def _merge_topics(
   logging.info("Merging results from all chunks.")
   merge_instructions = prompts.topic_modeling_merge_topics_prompt
 
-  combined_topics = [topic.name for topic in partial_results]
+  raw_topics = [topic.name for topic in partial_results]
+  had_non_placeholder = any(
+      not is_placeholder_topic_name(clean_topic_name(name))
+      for name in raw_topics
+      if isinstance(name, str) and clean_topic_name(name).lower() != "other"
+  )
+  combined_topics = clean_and_filter_topic_names(raw_topics)
+  if not combined_topics:
+    combined_topics = raw_topics
 
   prompt_str = sensemaker_utils.get_prompt(
       merge_instructions, combined_topics, additional_context
@@ -228,15 +379,57 @@ async def _merge_topics(
   )
 
   if resp.get("error"):
+    if combined_topics:
+      logging.warning(
+          f"Error calling model for merge ({resp.get('error')}); falling back"
+          " to discovered chunk topics."
+      )
+      return custom_types.FlatTopicList(
+          topics=[
+              custom_types.FlatTopic(name=name) for name in combined_topics
+          ]
+      )
     raise ValueError(f"Error calling Gemini for merge: {resp.get('error')}")
 
-  final_response = parse_response(resp["text"], schema_to_expect)
+  try:
+    final_response = parse_response(resp["text"], schema_to_expect)
+  except Exception as e:
+    if combined_topics:
+      logging.warning(
+          f"Failed to parse merged topics ({e}); falling back to"
+          " discovered chunk topics."
+      )
+      return custom_types.FlatTopicList(
+          topics=[
+              custom_types.FlatTopic(name=name) for name in combined_topics
+          ]
+      )
+    raise
 
+  merged_topics: Optional[List[custom_types.FlatTopic]] = None
   if isinstance(final_response, custom_types.FlatTopicList):
-    return final_response
+    merged_topics = final_response.topics
+  elif isinstance(final_response, list):
+    merged_topics = final_response
 
-  if isinstance(final_response, list):
-    return custom_types.FlatTopicList(topics=final_response)
+  if merged_topics is not None:
+    if had_non_placeholder:
+      cleaned_merged = clean_and_filter_topic_names(
+          [t.name for t in merged_topics]
+      )
+      cleaned_merged = [
+          name for name in cleaned_merged if not is_placeholder_topic_name(name)
+      ]
+      if not cleaned_merged:
+        logging.warning(
+            "Merged topics only contained placeholders; falling back to"
+            " discovered chunk topics."
+        )
+        cleaned_merged = combined_topics
+      return custom_types.FlatTopicList(
+          topics=[custom_types.FlatTopic(name=name) for name in cleaned_merged]
+      )
+    return custom_types.FlatTopicList(topics=merged_topics)
 
   logging.error(
       f"LLM response for merge is not a FlatTopicList: {final_response}"

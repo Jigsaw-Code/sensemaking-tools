@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import enum
 import functools
 import itertools
 import json
@@ -27,7 +28,7 @@ from collections import defaultdict
 from typing import Any, Callable, Coroutine, Iterable, Set, Tuple, Union, cast
 from more_itertools import batched
 from src.tasks.topic_modeling_util import parse_response
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from src import prompts
 from src.models import decision
 from src.models import genai_model
@@ -103,6 +104,189 @@ def strip_other_opinions(opinions: list[Topic]) -> list[Topic]:
   return [op for op in opinions if not is_other_opinion(op.name)]
 
 
+def _build_topic_categorization_schema(
+    batch: list[Statement], target_topics: list[Topic]
+) -> Any:
+  """Builds a per-batch constrained Pydantic schema for topic categorization."""
+  valid_ids = list(dict.fromkeys(s.id for s in batch))
+  if not valid_ids or not target_topics:
+    return StatementRecordList
+  valid_topic_names = list(
+      dict.fromkeys([t.name for t in target_topics] + ["Other"])
+  )
+
+  id_enum = enum.Enum(
+      "StatementIdEnum",
+      {f"ID_{i}": sid for i, sid in enumerate(valid_ids)},
+      type=str,
+  )
+  topic_enum = enum.Enum(
+      "TopicNameEnum",
+      {f"TOPIC_{i}": tname for i, tname in enumerate(valid_topic_names)},
+      type=str,
+  )
+
+  class ConstrainedFlatTopic(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    name: topic_enum  # type: ignore[valid-type]
+
+  class ConstrainedStatementRecord(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    id: id_enum  # type: ignore[valid-type]
+    topics: list[ConstrainedFlatTopic] = Field(min_length=1, max_length=3)
+
+  class ConstrainedStatementRecordList(BaseModel):
+    items: list[ConstrainedStatementRecord] = Field(
+        min_length=len(batch), max_length=len(batch)
+    )
+
+  return ConstrainedStatementRecordList
+
+
+def _build_opinion_categorization_schema(
+    expected_statement_quote_pairs: list[tuple[str, str]],
+    target_opinions: list[Topic],
+) -> Any:
+  """Builds a per-batch constrained Pydantic schema for opinion categorization."""
+  valid_ids = list(
+      dict.fromkeys(sid for sid, _ in expected_statement_quote_pairs)
+  )
+  valid_quote_ids = list(
+      dict.fromkeys(qid for _, qid in expected_statement_quote_pairs)
+  )
+  if not valid_ids or not valid_quote_ids or not target_opinions:
+    return QuoteOpinionRecordList
+  # Always include "Other" at the schema level, even under --no-offer_other_opinion,
+  # because the prompt permits "Other" as a fallback when no listed opinion matches.
+  valid_opinion_names = list(
+      dict.fromkeys([t.name for t in target_opinions] + ["Other"])
+  )
+
+  id_enum = enum.Enum(
+      "OpinionStatementIdEnum",
+      {f"ID_{i}": sid for i, sid in enumerate(valid_ids)},
+      type=str,
+  )
+  quote_id_enum = enum.Enum(
+      "OpinionQuoteIdEnum",
+      {f"QID_{i}": qid for i, qid in enumerate(valid_quote_ids)},
+      type=str,
+  )
+  opinion_enum = enum.Enum(
+      "OpinionNameEnum",
+      {f"OP_{i}": oname for i, oname in enumerate(valid_opinion_names)},
+      type=str,
+  )
+
+  class ConstrainedFlatOpinion(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    name: opinion_enum  # type: ignore[valid-type]
+
+  class ConstrainedQuoteOpinionRecord(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    id: id_enum  # type: ignore[valid-type]
+    quote_id: quote_id_enum  # type: ignore[valid-type]
+    topics: list[ConstrainedFlatOpinion] = Field(min_length=1, max_length=3)
+
+  class ConstrainedQuoteOpinionRecordList(BaseModel):
+    items: list[ConstrainedQuoteOpinionRecord] = Field(
+        min_length=len(expected_statement_quote_pairs),
+        max_length=len(expected_statement_quote_pairs),
+    )
+
+  return ConstrainedQuoteOpinionRecordList
+
+
+def _normalize_topic_records(
+    raw_items: list[Any], batch: list[Statement] | None = None
+) -> list[StatementRecord]:
+  """Converts parsed items into top-level StatementRecord instances for pickling."""
+  records = [
+      StatementRecord(
+          id=str(item.id),
+          quote_id=(
+              str(item.quote_id) if getattr(item, "quote_id", None) else None
+          ),
+          topics=[FlatTopic(name=str(t.name)) for t in item.topics],
+      )
+      for item in raw_items
+  ]
+  # When a model returns the exact number of records expected for the batch
+  # but emits duplicate statement IDs (e.g., ["101", "101"] for batch ["101", "102"]),
+  # positionally reassign the duplicate entries to the missing batch IDs in order.
+  if batch and len(records) == len(batch):
+    batch_ids = [s.id for s in batch]
+    batch_id_set = set(batch_ids)
+    seen_ids: set[str] = set()
+    duplicate_indices: list[int] = []
+    for idx, rec in enumerate(records):
+      if rec.id in batch_id_set and rec.id not in seen_ids:
+        seen_ids.add(rec.id)
+      else:
+        duplicate_indices.append(idx)
+    missing_ids = [sid for sid in batch_ids if sid not in seen_ids]
+    if duplicate_indices and len(duplicate_indices) == len(missing_ids):
+      logging.warning(
+          "Detected %d duplicate/mismatched statement ID(s) in topic"
+          " categorization batch of size %d; positionally reassigning"
+          " indices %s to missing IDs %s.",
+          len(duplicate_indices),
+          len(batch),
+          duplicate_indices,
+          missing_ids,
+      )
+      for idx, missing_id in zip(duplicate_indices, missing_ids):
+        records[idx].id = missing_id
+  return records
+
+
+def _normalize_opinion_records(
+    raw_items: list[Any],
+    expected_statement_quote_pairs: list[tuple[str, str]] | None = None,
+) -> list[QuoteOpinionRecord]:
+  """Converts parsed items into top-level QuoteOpinionRecord instances for pickling."""
+  records = [
+      QuoteOpinionRecord(
+          id=str(item.id),
+          quote_id=str(item.quote_id),
+          topics=[FlatTopic(name=str(t.name)) for t in item.topics],
+      )
+      for item in raw_items
+  ]
+  # When a model returns the exact number of records expected for the batch
+  # but emits duplicate or mismatched (id, quote_id) pairs, positionally
+  # reassign those entries to the missing (id, quote_id) pairs in order.
+  if expected_statement_quote_pairs and len(records) == len(
+      expected_statement_quote_pairs
+  ):
+    pair_set = set(expected_statement_quote_pairs)
+    seen_pairs: set[tuple[str, str]] = set()
+    duplicate_indices: list[int] = []
+    for idx, rec in enumerate(records):
+      pair = (rec.id, rec.quote_id)
+      if pair in pair_set and pair not in seen_pairs:
+        seen_pairs.add(pair)
+      else:
+        duplicate_indices.append(idx)
+    missing_pairs = [
+        p for p in expected_statement_quote_pairs if p not in seen_pairs
+    ]
+    if duplicate_indices and len(duplicate_indices) == len(missing_pairs):
+      logging.warning(
+          "Detected %d duplicate/mismatched (id, quote_id) pair(s) in opinion"
+          " categorization batch of size %d; positionally reassigning"
+          " indices %s to missing pairs %s.",
+          len(duplicate_indices),
+          len(expected_statement_quote_pairs),
+          duplicate_indices,
+          missing_pairs,
+      )
+      for idx, (missing_id, missing_qid) in zip(
+          duplicate_indices, missing_pairs
+      ):
+        records[idx].id = missing_id
+        records[idx].quote_id = missing_qid
+  return records
 async def categorize_topics(
     statements: list[Statement],
     model: genai_model.GenaiModel,
@@ -185,6 +369,7 @@ async def learn_global_opinions(
     additional_context: str | None = None,
     max_concurrent_calls: int | None = None,
     offer_other_opinion: bool = True,
+    fail_on_opinion_chunk_error: bool = False,
 ) -> dict[str, Any]:
   """Learns opinions for all topics globally using concurrent batching.
 
@@ -197,6 +382,9 @@ async def learn_global_opinions(
       max_concurrent_calls: Optional maximum number of concurrent LLM calls.
         If None, the model's default is used.
       offer_other_opinion: Whether to append an 'Other' opinion to learned menus.
+      fail_on_opinion_chunk_error: If True, raises a ValueError immediately when
+        any opinion-learning chunk fails. If False, logs a warning and skips
+        failed chunks.
 
   Returns:
       A dictionary containing the learned opinions for each topic.
@@ -332,11 +520,15 @@ async def learn_global_opinions(
     topic_name = topic_obj.name
     topic_objs_by_name[topic_name] = topic_obj
 
-    if isinstance(result, dict) and result.get("error"):
+    if result is None or (isinstance(result, dict) and result.get("error")):
+      error_msg = result.get("error") if isinstance(result, dict) else result
+      if fail_on_opinion_chunk_error:
+        raise ValueError(
+            f"Error in opinion generation for topic '{topic_name}': {error_msg}"
+        )
       failed_opinion_chunks[topic_name] += 1
       logging.warning(
-          f"Opinion chunk failed for topic '{topic_name}':"
-          f" {result.get('error')}"
+          f"Opinion chunk failed for topic '{topic_name}': {error_msg}"
       )
       continue
 
@@ -348,14 +540,28 @@ async def learn_global_opinions(
     elif isinstance(result, dict) and not result.get("error"):
       subtopics = result.get("subtopics", [])
       subtopic_objs = [
-          s if isinstance(s, FlatTopic) else FlatTopic(name=s.get("name", "Other") if isinstance(s, dict) else str(s))
+          s
+          if isinstance(s, FlatTopic)
+          else FlatTopic(
+              name=s.get("name", "Other") if isinstance(s, dict) else str(s)
+          )
           for s in subtopics
       ]
-      parsed_topic = NestedTopic(name=result.get("name", topic_name), subtopics=subtopic_objs)
+      parsed_topic = NestedTopic(
+          name=result.get("name", topic_name), subtopics=subtopic_objs
+      )
+    else:
+      logging.warning(
+          f"Unexpected opinion chunk result type for topic '{topic_name}':"
+          f" {type(result)}"
+      )
+      continue
 
     if parsed_topic:
       # Ensure an "Other" opinion exists for each topic if offer_other_opinion is True.
-      if offer_other_opinion and not any(sub.name == "Other" for sub in parsed_topic.subtopics):
+      if offer_other_opinion and not any(
+          sub.name == "Other" for sub in parsed_topic.subtopics
+      ):
         parsed_topic.subtopics.append(FlatTopic(name="Other"))
       topic_results[topic_name].append(parsed_topic)
 
@@ -380,22 +586,63 @@ async def learn_global_opinions(
     # Check if merge is needed
     if len(partial_topics) == 1:
       # No merge needed
-      final_topic_map[topic_name] = partial_topics[0]
+      single_topic = partial_topics[0]
+      raw_single_opinions = [
+          sub.name for sub in single_topic.subtopics if sub.name != "Other"
+      ]
+      had_non_placeholder_single = any(
+          not topic_modeling_util.is_placeholder_topic_name(
+              topic_modeling_util.clean_topic_name(name)
+          )
+          for name in raw_single_opinions
+          if isinstance(name, str)
+      )
+      if had_non_placeholder_single:
+        cleaned_single = topic_modeling_util.clean_and_filter_topic_names(
+            raw_single_opinions
+        )
+        cleaned_single = [
+            name
+            for name in cleaned_single
+            if not topic_modeling_util.is_placeholder_topic_name(name)
+        ]
+        single_topic.subtopics = [
+            FlatTopic(name=name) for name in cleaned_single
+        ]
+      if offer_other_opinion and not any(
+          sub.name == "Other" for sub in single_topic.subtopics
+      ):
+        single_topic.subtopics.append(FlatTopic(name="Other"))
+      final_topic_map[topic_name] = single_topic
     else:
       # Multiple chunks -> Merge needed
       # Consolidate all opinion names
-      combined_opinions = []
+      raw_opinions = []
       for pt in partial_topics:
         if pt.subtopics:
           for sub in pt.subtopics:
-            combined_opinions.append(sub.name)
+            if sub.name != "Other":
+              raw_opinions.append(sub.name)
 
-      if not combined_opinions:
+      if not raw_opinions:
         final_topic_map[topic_name] = NestedTopic(
             name=topic_name,
             subtopics=[FlatTopic(name="Other")] if offer_other_opinion else [],
         )
         continue
+
+      had_non_placeholder = any(
+          not topic_modeling_util.is_placeholder_topic_name(
+              topic_modeling_util.clean_topic_name(name)
+          )
+          for name in raw_opinions
+          if isinstance(name, str)
+      )
+      combined_opinions = topic_modeling_util.clean_and_filter_topic_names(
+          raw_opinions
+      )
+      if not combined_opinions:
+        combined_opinions = raw_opinions
 
       # Prepare Merge Prompt
       target_topic_obj = topic_objs_by_name.get(topic_name)
@@ -410,6 +657,8 @@ async def learn_global_opinions(
       merge_prompts.append({
           "prompt": prompt_str,
           "topic_obj": target_topic_obj,
+          "combined_opinions": combined_opinions,
+          "had_non_placeholder": had_non_placeholder,
           "response_schema": (
               OpinionResponseSchema
           ),  # Merge prompt expects same structure (JSON list of opinions)
@@ -435,38 +684,75 @@ async def learn_global_opinions(
 
     for topic_name, idx in merge_job_indices.items():
       result = merge_results_df.iloc[idx]["result"]
+      merge_job = merge_prompts[idx]
+      had_non_placeholder = merge_job.get("had_non_placeholder", False)
+      combined_opinions = merge_job.get("combined_opinions", [])
 
       final_res = None
       if isinstance(result, OpinionResponseSchema):
-        final_res = NestedTopic(name=result.name, subtopics=result.subtopics)
+        final_res = NestedTopic(name=topic_name, subtopics=result.subtopics)
       elif isinstance(result, NestedTopic):
-        final_res = result
+        final_res = NestedTopic(name=topic_name, subtopics=result.subtopics)
       elif isinstance(result, dict) and not result.get("error"):
         subtopics = result.get("subtopics", [])
         subtopic_objs = [
-            s if isinstance(s, FlatTopic) else FlatTopic(name=s.get("name", "Other") if isinstance(s, dict) else str(s))
+            s
+            if isinstance(s, FlatTopic)
+            else FlatTopic(
+                name=s.get("name", "Other") if isinstance(s, dict) else str(s)
+            )
             for s in subtopics
         ]
-        final_res = NestedTopic(name=result.get("name", topic_name), subtopics=subtopic_objs)
+        final_res = NestedTopic(
+            name=result.get("name", topic_name), subtopics=subtopic_objs
+        )
 
       if final_res:
         if not final_res.subtopics:
           final_res.subtopics = []
-        if offer_other_opinion and not any(sub.name == "Other" for sub in final_res.subtopics):
+        if had_non_placeholder:
+          cleaned_subtopics = topic_modeling_util.clean_and_filter_topic_names(
+              [s.name for s in final_res.subtopics]
+          )
+          cleaned_subtopics = [
+              name
+              for name in cleaned_subtopics
+              if not topic_modeling_util.is_placeholder_topic_name(name)
+          ]
+          if not cleaned_subtopics:
+            logging.warning(
+                f"Merged opinions for '{topic_name}' only contained"
+                " placeholders; falling back to chunk opinions."
+            )
+            cleaned_subtopics = combined_opinions
+          final_res.subtopics = [
+              FlatTopic(name=name) for name in cleaned_subtopics
+          ]
+        if offer_other_opinion and not any(
+            sub.name == "Other" for sub in final_res.subtopics
+        ):
           final_res.subtopics.append(FlatTopic(name="Other"))
         final_topic_map[topic_name] = final_res
       else:
         logging.error(
-            f"Merge failed for topic '{topic_name}'. Falling back to combined partials."
+            f"Merge failed for topic '{topic_name}'. Falling back to combined"
+            " partials."
         )
-        fallback_subs = []
-        seen = set()
-        for pt in topic_results.get(topic_name, []):
-          for sub in (pt.subtopics or []):
-            if sub.name not in seen:
-              fallback_subs.append(sub)
-              seen.add(sub.name)
-        if offer_other_opinion and not any(s.name == "Other" for s in fallback_subs):
+        if combined_opinions:
+          fallback_subs = [
+              FlatTopic(name=name) for name in combined_opinions
+          ]
+        else:
+          fallback_subs = []
+          seen = set()
+          for pt in topic_results.get(topic_name, []):
+            for sub in pt.subtopics or []:
+              if sub.name not in seen and sub.name != "Other":
+                fallback_subs.append(sub)
+                seen.add(sub.name)
+        if offer_other_opinion and not any(
+            s.name == "Other" for s in fallback_subs
+        ):
           fallback_subs.append(FlatTopic(name="Other"))
         final_topic_map[topic_name] = NestedTopic(
             name=topic_name, subtopics=fallback_subs
@@ -611,7 +897,12 @@ async def categorize_opinions(
     # Execute
     def _parser(resp, job):
       parsed_wrapper = parse_response(resp["text"], job["response_schema"])
-      return parsed_wrapper.items if parsed_wrapper else []
+      items = parsed_wrapper.items if parsed_wrapper else []
+      if job.get("expected_statement_quote_pairs"):
+        return _normalize_opinion_records(
+            items, job.get("expected_statement_quote_pairs")
+        )
+      return _normalize_topic_records(items, job.get("batch_items"))
 
     results_df, stats, wall_delay, duration = (
         await model.process_prompts_concurrently(
@@ -1522,6 +1813,7 @@ def _prepare_categorization_prompts(
 
   for i, batch in enumerate(batches):
     statements_for_model_prompt_data: list[str] = []
+    expected_statement_quote_pairs: list[tuple[str, str]] = []
     is_processing_quotes_for_parent = parent_topic_name and any(
         s.quotes for s in batch
     )
@@ -1536,6 +1828,9 @@ def _prepare_categorization_prompts(
               if q.topic.name == parent_topic_name
           ]
           for quote_obj in relevant_quotes:
+            expected_statement_quote_pairs.append(
+                (statement_item.id, quote_obj.id)
+            )
             statements_for_model_prompt_data.append(
                 json.dumps({
                     "id": statement_item.id,
@@ -1558,11 +1853,22 @@ def _prepare_categorization_prompts(
         instructions, statements_for_model_prompt_data, additional_context
     )
 
+    batch_schema = output_schema
+    if is_opinion_categorization and expected_statement_quote_pairs:
+      batch_schema = _build_opinion_categorization_schema(
+          expected_statement_quote_pairs, target_topics_or_opinions
+      )
+    elif output_schema is StatementRecordList:
+      batch_schema = _build_topic_categorization_schema(
+          batch, target_topics_or_opinions
+      )
+
     prompt_jobs.append({
         "prompt": prompt_str,
         "topic": f"{parent_topic_name or 'topics'}_batch_{i}_attempt_{attempt}",
         "batch_items": batch,
-        "response_schema": output_schema,
+        "expected_statement_quote_pairs": expected_statement_quote_pairs,
+        "response_schema": batch_schema,
         "log_prefix_marker": (
             "5 (Opinion Categorization)"
             if is_opinion_categorization
@@ -1767,11 +2073,13 @@ async def _process_topic_categorization(
           instructions, statements_for_model_prompt_data, additional_context
       )
 
+      batch_schema = _build_topic_categorization_schema(batch, target_topics)
+
       prompt_jobs.append({
           "prompt": prompt_str,
           "topic": f"topics_batch_{i}_attempt_{attempt}",
           "batch_items": batch,
-          "response_schema": output_schema,
+          "response_schema": batch_schema,
           "log_prefix_marker": "2 (Topic Categorization)",
       })
 
@@ -1786,7 +2094,10 @@ async def _process_topic_categorization(
     # Call GenaiModel
     def _parser(resp, job):
       parsed_wrapper = parse_response(resp["text"], job["response_schema"])
-      return parsed_wrapper.items
+      return _normalize_topic_records(
+          parsed_wrapper.items if parsed_wrapper else [],
+          job.get("batch_items"),
+      )
 
     results_df, stats, wall_delay, _ = await model.process_prompts_concurrently(
         prompt_jobs,

@@ -417,6 +417,80 @@ class CategorizationTest(unittest.TestCase):
     opinion_names = [op.name for op in result_map["T1"].subtopics]
     self.assertEqual(opinion_names, ["Predefined Opinion 1", "Other"])
 
+  def test_learn_global_opinions_handles_failed_chunks(self):
+    import pandas as pd
+
+    statements_with_topics = [
+        custom_types.Statement(
+            id="s1",
+            text="text",
+            quotes=[
+                custom_types.Quote(
+                    id="q1",
+                    text="quote 1",
+                    topic=custom_types.FlatTopic(name="T1"),
+                ),
+                custom_types.Quote(
+                    id="q2",
+                    text="quote 2",
+                    topic=custom_types.FlatTopic(name="T2"),
+                ),
+            ],
+        )
+    ]
+    topics = [
+        custom_types.FlatTopic(name="T1"),
+        custom_types.FlatTopic(name="T2"),
+    ]
+    mock_model = MagicMock()
+    mock_model.max_llm_retries = 3
+
+    with patch(
+        "src.tasks.topic_modeling_util.create_chunks",
+        new_callable=AsyncMock,
+    ) as mock_chunks:
+      mock_chunks.return_value = [["chunk1"], ["chunk2"]]
+
+      results_df = pd.DataFrame([
+          {
+              "topic_obj": topics[0],
+              "result": {"error": "Failed after 3 attempts"},
+          },
+          {
+              "topic_obj": topics[0],
+              "result": custom_types.OpinionResponseSchema(
+                  name="T1",
+                  subtopics=[custom_types.FlatTopic(name="Expand transit")],
+              ),
+          },
+          {
+              "topic_obj": topics[1],
+              "result": {"error": "Failed after 3 attempts"},
+          },
+          {
+              "topic_obj": topics[1],
+              "result": {"error": "Failed after 3 attempts"},
+          },
+      ])
+
+      mock_model.process_prompts_concurrently = AsyncMock(
+          return_value=(results_df, pd.DataFrame(), 0.0, 1.0)
+      )
+
+      result_map = asyncio.run(
+          categorization.learn_global_opinions(
+              statements_with_topics, topics, mock_model
+          )
+      )
+
+      self.assertEqual(
+          [op.name for op in result_map["T1"].subtopics],
+          ["Expand transit", "Other"],
+      )
+      self.assertEqual(
+          [op.name for op in result_map["T2"].subtopics],
+          ["Other"],
+      )
   @patch(
       "src.tasks.categorization.asyncio.sleep",
       new_callable=AsyncMock,
@@ -1044,6 +1118,100 @@ class CategorizationTest(unittest.TestCase):
     self.assertEqual(real_op_names, ["Op1", "OpNew", "Other"])
     # Topic "Other" was skipped in updated_map
     self.assertNotIn("Other", updated_map)
+
+  def test_constrained_categorization_schemas_and_pickling(self):
+    import pickle
+
+    batch = [
+        custom_types.Statement(id="101", text="Fix the roads"),
+        custom_types.Statement(id="102", text="Unrelated comment"),
+    ]
+    topics = [
+        custom_types.FlatTopic(name="Roads"),
+        custom_types.FlatTopic(name="Fire and Rescue"),
+        custom_types.FlatTopic(name="Other"),
+    ]
+    schema = categorization._build_topic_categorization_schema(batch, topics)
+    parsed = categorization.parse_response(
+        '{"items": [{"id": "101", "topics": [{"name": "Roads"}]}, '
+        '{"id": "101", "topics": [{"name": "Other"}]}]}',
+        schema,
+    )
+    with patch.object(categorization.logging, "warning") as mock_warn:
+      normalized = categorization._normalize_topic_records(parsed.items, batch)
+    mock_warn.assert_called_once()
+    self.assertIn("positionally reassigning", mock_warn.call_args[0][0])
+    self.assertEqual([r.id for r in normalized], ["101", "102"])
+    self.assertEqual(normalized[0].topics[0].name, "Roads")
+    self.assertEqual(normalized[1].topics[0].name, "Other")
+    # Ensure normalized records can be pickled for checkpoints.
+    roundtrip = pickle.loads(pickle.dumps(normalized))
+    self.assertEqual([r.id for r in roundtrip], ["101", "102"])
+
+    # Even when "Other" is stripped from target_opinions (--no-offer_other_opinion),
+    # "Other" must remain a valid option at the schema level.
+    op_schema = categorization._build_opinion_categorization_schema(
+        [("101", "q1")], [custom_types.FlatTopic(name="Pave main streets")]
+    )
+    parsed_op = categorization.parse_response(
+        '{"items": [{"id": "101", "quote_id": "q1", "topics": [{"name":'
+        ' "Other"}]}]}',
+        op_schema,
+    )
+    normalized_op = categorization._normalize_opinion_records(
+        parsed_op.items, [("101", "q1")]
+    )
+    self.assertEqual(normalized_op[0].topics[0].name, "Other")
+
+  @patch(
+      "src.tasks.categorization.topic_modeling_util.create_chunks",
+      new_callable=AsyncMock,
+  )
+  def test_learn_global_opinions_fail_on_chunk_error_option(self, mock_chunks):
+    mock_chunks.return_value = [["<quote>q1</quote>"]]
+    topic = custom_types.FlatTopic(name="Roads")
+    stmt = custom_types.Statement(
+        id="s1",
+        text="Fix roads",
+        topics=[topic],
+        quotes=[custom_types.Quote(id="q1", text="Fix roads", topic=topic)],
+    )
+    mock_model = MagicMock()
+    mock_model.process_prompts_concurrently = AsyncMock(
+        return_value=(
+            pd.DataFrame([
+                {
+                    "topic_obj": topic,
+                    "result": {"error": "Batch failed after max retries."},
+                }
+            ]),
+            pd.DataFrame(),
+            0.0,
+            0.1,
+        )
+    )
+
+    with self.assertRaises(ValueError):
+      asyncio.run(
+          categorization.learn_global_opinions(
+              statements_with_topics_and_quotes=[stmt],
+              topics_to_process=[topic],
+              model=mock_model,
+              fail_on_opinion_chunk_error=True,
+          )
+      )
+
+    result_map = asyncio.run(
+        categorization.learn_global_opinions(
+            statements_with_topics_and_quotes=[stmt],
+            topics_to_process=[topic],
+            model=mock_model,
+            fail_on_opinion_chunk_error=False,
+        )
+    )
+    self.assertEqual(
+        [s.name for s in result_map["Roads"].subtopics], ["Other"]
+    )
 
 
 if __name__ == "__main__":

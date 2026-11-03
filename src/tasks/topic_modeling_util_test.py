@@ -277,6 +277,56 @@ class TopicModelingUtilTest(unittest.IsolatedAsyncioTestCase):
     )
     mock_get_prompt.assert_called_once()
 
+  async def test_merge_topics_filters_placeholders_and_falls_back_when_needed(
+      self,
+  ):
+    partial_results = [
+        custom_types.FlatTopic(name="Topic 1"),
+        custom_types.FlatTopic(name="Topic 2"),
+        custom_types.FlatTopic(name="Roads"),
+        custom_types.FlatTopic(name="Topic 1: Fire and Rescue,"),
+    ]
+    self.model.generate_content.return_value = {
+        "text": '{"topics": [{"name": "Topic 1"}, {"name": "Topic 2"}]}',
+        "error": None,
+    }
+
+    result = await topic_modeling_util._merge_topics(
+        self.model,
+        partial_results,
+        custom_types.FlatTopicList,
+    )
+
+    self.assertEqual(
+        [t.name for t in result.topics],
+        ["Roads", "Fire and Rescue"],
+    )
+
+  def test_parse_response_repairs_truncated_json(self):
+    truncated_after_item = (
+        '{"topics": [{"name": "Public Safety"}, {"name": "Infrastructure"},'
+        ' {"name": "Truncated'
+    )
+    parsed = topic_modeling_util.parse_response(
+        truncated_after_item, custom_types.FlatTopicList
+    )
+    self.assertEqual(
+        [t.name for t in parsed.topics], ["Public Safety", "Infrastructure"]
+    )
+
+    truncated_first_string = (
+        '{"name": "Public Health", "subtopics": [{"name": "Mental Health &'
+        " Physical Health & Mental Health & Physical Health"
+    )
+    parsed_op = topic_modeling_util.parse_response(
+        truncated_first_string, custom_types.OpinionResponseSchema
+    )
+    self.assertEqual(parsed_op.name, "Public Health")
+    self.assertEqual(len(parsed_op.subtopics), 1)
+    self.assertTrue(
+        parsed_op.subtopics[0].name.startswith("Mental Health & Physical Health")
+    )
+
 
 if __name__ == "__main__":
   unittest.main()
