@@ -148,10 +148,39 @@ let quoteMap;
 /** @type {{ key: string, value: string }[][]} */
 let compareGroups = [[]];
 let activeOverviewChart = "topics";
+/** @type {(() => void) | null} */
+let removeOverviewResizeListener = null;
+
+/**
+ * Registers a debounced window resize listener and returns a cleanup function
+ * that cancels any pending timer and removes the listener.
+ * @param {() => void} callback
+ * @param {number} [delayMs=250]
+ * @returns {() => void}
+ */
+function addDebouncedResizeListener(callback, delayMs = 250) {
+  let resizeTimer;
+  const onResize = () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(callback, delayMs);
+  };
+  window.addEventListener("resize", onResize);
+  return () => {
+    clearTimeout(resizeTimer);
+    window.removeEventListener("resize", onResize);
+  };
+}
 
 function renderOverviewChart() {
-  if (activeOverviewChart === "opinions") createOpinionChart();
-  else createTopicChart();
+  // Tear down the previous chart's window resize listener before re-rendering.
+  if (removeOverviewResizeListener) {
+    removeOverviewResizeListener();
+  }
+  if (activeOverviewChart === "opinions") {
+    removeOverviewResizeListener = createOpinionChart();
+  } else {
+    removeOverviewResizeListener = createTopicChart();
+  }
 }
 
 /**
@@ -272,13 +301,7 @@ function createDemographicChart({ id, data }) {
 
   render();
 
-  let resizeTimer;
-  const onResize = () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 250);
-  };
-  window.addEventListener("resize", onResize);
-  return () => window.removeEventListener("resize", onResize);
+  return addDebouncedResizeListener(render);
 }
 
 /**
@@ -524,11 +547,7 @@ function createTopicChart() {
 
   render();
 
-  let resizeTimer;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 250);
-  });
+  return addDebouncedResizeListener(render);
 }
 
 /**
@@ -718,11 +737,7 @@ function createOpinionChart() {
 
   render();
 
-  let resizeTimer;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 250);
-  });
+  return addDebouncedResizeListener(render);
 }
 
 /**
@@ -1004,6 +1019,9 @@ async function createFilterCompare() {
   const GROUP_LABELS = ["A", "B", "C", "D"];
   const demographics = window.PAYLOAD.demographics;
   const modalSel = d3.select("#filter-compare");
+  const cloneGroups = (groups) =>
+    groups.map((group) => group.map((f) => ({ ...f })));
+  let draftGroups = cloneGroups(compareGroups);
 
   const closeModal = () => modalSel.classed("is-open", false);
 
@@ -1011,7 +1029,7 @@ async function createFilterCompare() {
     const groupsSel = modalSel.select(".filter-compare-groups");
     groupsSel.html("");
 
-    compareGroups.forEach((group, gi) => {
+    draftGroups.forEach((group, gi) => {
       const card = groupsSel.append("div").attr("class", "filter-group-card");
 
       const header = card.append("div").attr("class", "filter-group-header");
@@ -1027,24 +1045,15 @@ async function createFilterCompare() {
         .append("button")
         .attr(
           "class",
-          `ghost button-delete-group${compareGroups.length <= 1 ? " is-hidden" : ""}`,
+          `ghost button-delete-group${draftGroups.length <= 1 ? " is-hidden" : ""}`,
         )
         .html(
           `<img src="svg/trash.svg" alt="" role="presentation"> ${deleteGroupText}`,
         )
         .on("click", () => {
-          compareGroups.splice(gi, 1);
+          draftGroups.splice(gi, 1);
           renderGroups();
         });
-
-      // const summaryText =
-      //   group.length === 0
-      //     ? "All Participants"
-      //     : group.map((f) => `${f.key}: ${f.value}`).join(", ");
-      // card
-      //   .append("div")
-      //   .attr("class", "filter-group-summary")
-      //   .text(summaryText);
 
       const grid = card.append("div").attr("class", "filter-group-selects");
 
@@ -1075,14 +1084,14 @@ async function createFilterCompare() {
         sel.on("change", function () {
           const key = d3.select(this).attr("data-key");
           const val = this.value;
-          compareGroups[gi] = compareGroups[gi].filter((f) => f.key !== key);
-          if (val) compareGroups[gi].push({ key, value: val });
+          draftGroups[gi] = draftGroups[gi].filter((f) => f.key !== key);
+          if (val) draftGroups[gi].push({ key, value: val });
           const allParticipantsText =
             i18n.filterModal?.allParticipants || "All Participants";
           const updated =
-            compareGroups[gi].length === 0
+            draftGroups[gi].length === 0
               ? allParticipantsText
-              : compareGroups[gi].map((f) => `${f.key}: ${f.value}`).join(", ");
+              : draftGroups[gi].map((f) => `${f.key}: ${f.value}`).join(", ");
           card.select(".filter-group-summary").text(updated);
         });
       });
@@ -1090,7 +1099,7 @@ async function createFilterCompare() {
 
     modalSel
       .select(".button-add-group")
-      .classed("is-hidden", compareGroups.length >= GROUP_LABELS.length);
+      .classed("is-hidden", draftGroups.length >= GROUP_LABELS.length);
   };
 
   renderGroups();
@@ -1099,22 +1108,27 @@ async function createFilterCompare() {
   d3.select("#filter-compare .filter-compare-bg").on("click", closeModal);
 
   d3.selectAll(".button-filter-compare").on("click", () => {
+    draftGroups = cloneGroups(compareGroups);
+    renderGroups();
     modalSel.classed("is-open", true);
   });
 
   d3.select("#filter-compare .button-add-group").on("click", () => {
-    if (compareGroups.length < GROUP_LABELS.length) {
-      compareGroups.push([]);
+    if (draftGroups.length < GROUP_LABELS.length) {
+      draftGroups.push([]);
       renderGroups();
     }
   });
 
   d3.select("#filter-compare .button-reset-groups").on("click", () => {
     compareGroups = [[]];
+    draftGroups = [[]];
     renderGroups();
+    renderOverviewChart();
   });
 
   d3.select("#filter-compare .button-apply-groups").on("click", () => {
+    compareGroups = cloneGroups(draftGroups);
     renderOverviewChart();
     closeModal();
   });

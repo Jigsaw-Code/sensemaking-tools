@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 
 import {
   BRIDGING_COLUMN,
@@ -444,5 +445,360 @@ describe("processReportData 'Other' category localization and sorting", () => {
     assert.match(result.dataStatic.conversationOverviewLead, /Economy/);
     assert.match(result.dataStatic.conversationOverviewLead, /Healthcare/);
     assert.doesNotMatch(result.dataStatic.conversationOverviewLead, /Otros/);
+  });
+});
+
+describe("createFilterCompare modal state & reset", () => {
+  function createMockDom() {
+    class MockElement {
+      constructor(tag) {
+        this.tag = tag;
+        this.attrs = new Map();
+        this.classes = new Set();
+        this.children = [];
+        this.textContent = "";
+        this.innerHTML = "";
+        this.value = "";
+        this.selected = false;
+        this.handlers = new Map();
+      }
+
+      setAttr(key, val) {
+        const str = String(val);
+        this.attrs.set(key, str);
+        if (key === "class") {
+          this.classes = new Set(str.split(/\s+/).filter(Boolean));
+        }
+      }
+
+      matchesSingle(token) {
+        if (token.startsWith("#")) {
+          return this.attrs.get("id") === token.slice(1);
+        }
+        if (token.startsWith(".")) {
+          return this.classes.has(token.slice(1));
+        }
+        return this.tag === token;
+      }
+
+      queryAll(selector) {
+        const tokens = selector.trim().split(/\s+/);
+        const search = (node, idx) => {
+          const results = [];
+          for (const child of node.children) {
+            if (child.matchesSingle(tokens[idx])) {
+              if (idx === tokens.length - 1) {
+                results.push(child);
+              } else {
+                results.push(...search(child, idx + 1));
+              }
+            }
+            results.push(...search(child, idx));
+          }
+          return results;
+        };
+        return search(this, 0);
+      }
+
+      query(selector) {
+        return this.queryAll(selector)[0] || null;
+      }
+
+      trigger(event, payload = {}) {
+        const fn = this.handlers.get(event);
+        if (fn) fn.call(this, payload);
+      }
+    }
+
+    const wrap = (nodes) => {
+      const first = nodes[0] || null;
+      const api = {
+        classed(name, val) {
+          if (val === undefined) {
+            return first ? first.classes.has(name) : false;
+          }
+          for (const n of nodes) {
+            if (val) n.classes.add(name);
+            else n.classes.delete(name);
+          }
+          return api;
+        },
+        select(subSelector) {
+          return wrap(first ? [first.query(subSelector)].filter(Boolean) : []);
+        },
+        html(str) {
+          if (str === undefined) return first ? first.innerHTML : "";
+          for (const n of nodes) {
+            n.innerHTML = str;
+            if (str === "") n.children = [];
+          }
+          return api;
+        },
+        append(tag) {
+          if (!first) return wrap([]);
+          const child = new MockElement(tag);
+          first.children.push(child);
+          return wrap([child]);
+        },
+        attr(key, val) {
+          if (val === undefined) return first ? first.attrs.get(key) : null;
+          for (const n of nodes) n.setAttr(key, val);
+          return api;
+        },
+        text(str) {
+          if (str === undefined) return first ? first.textContent : "";
+          for (const n of nodes) n.textContent = String(str);
+          return api;
+        },
+        property(key, val) {
+          if (val === undefined) return first ? first[key] : undefined;
+          for (const n of nodes) {
+            n[key] = val;
+            if (key === "selected" && val && first) {
+              // Track selected option value if needed
+            }
+          }
+          return api;
+        },
+        on(event, handler) {
+          for (const n of nodes) n.handlers.set(event, handler);
+          return api;
+        },
+      };
+      return api;
+    };
+
+    const root = new MockElement("body");
+    const openBtn = new MockElement("button");
+    openBtn.setAttr("class", "button-filter-compare");
+    root.children.push(openBtn);
+
+    const modal = new MockElement("div");
+    modal.setAttr("id", "filter-compare");
+    for (const [tag, cls] of [
+      ["div", "filter-compare-bg"],
+      ["button", "button-close"],
+      ["div", "filter-compare-groups"],
+      ["button", "button-add-group"],
+      ["button", "button-reset-groups"],
+      ["button", "button-apply-groups"],
+    ]) {
+      const el = new MockElement(tag);
+      el.setAttr("class", cls);
+      modal.children.push(el);
+    }
+    root.children.push(modal);
+
+    const docListeners = new Map();
+    const document = {
+      getElementById(id) {
+        return root.query(`#${id}`);
+      },
+      addEventListener(event, handler) {
+        docListeners.set(event, handler);
+      },
+      triggerKeyup(key) {
+        const fn = docListeners.get("keyup");
+        if (fn) fn({ key });
+      },
+    };
+
+    const d3 = {
+      select(target) {
+        if (typeof target === "string") {
+          const found = root.query(target);
+          return wrap(found ? [found] : []);
+        }
+        return wrap(target ? [target] : []);
+      },
+      selectAll(selector) {
+        return wrap(root.queryAll(selector));
+      },
+    };
+
+    return { root, modal, openBtn, document, d3 };
+  }
+
+  async function mountFilterCompare() {
+    const scriptSrc = fs.readFileSync(
+      path.join(packageRoot, "src", "script.js"),
+      "utf-8",
+    );
+    const startIdx = scriptSrc.indexOf("async function createFilterCompare()");
+    const endIdx = scriptSrc.indexOf("function createShare()", startIdx);
+    assert.ok(startIdx !== -1 && endIdx !== -1, "Could not locate createFilterCompare in script.js");
+    const fnSource = scriptSrc.slice(startIdx, endIdx);
+
+    const dom = createMockDom();
+    let renderCalls = 0;
+    const sandbox = {
+      compareGroups: [[]],
+      renderOverviewChart: () => {
+        renderCalls += 1;
+      },
+      i18n: {},
+      window: {
+        PAYLOAD: {
+          demographics: [
+            {
+              label: "Country",
+              values: [
+                { value: "United States", count: 10 },
+                { value: "United Kingdom", count: 10 },
+                { value: "Australia", count: 10 },
+              ],
+            },
+          ],
+        },
+      },
+      document: dom.document,
+      d3: dom.d3,
+      getCompareGroups: () => sandbox.compareGroups,
+    };
+
+    vm.runInNewContext(
+      `${fnSource}\nthis.__init = createFilterCompare; this.__readGroups = () => compareGroups;`,
+      sandbox,
+    );
+    await sandbox.__init();
+
+    return {
+      ...dom,
+      getCompareGroups: () => JSON.parse(JSON.stringify(sandbox.__readGroups())),
+      getRenderCalls: () => renderCalls,
+    };
+  }
+
+  it("resets comparison and re-renders overview chart when Reset is clicked and modal is closed without Apply", async () => {
+    const ctx = await mountFilterCompare();
+
+    // 1. Open modal and configure Group A = United States, Group B = United Kingdom
+    ctx.openBtn.trigger("click");
+    assert.equal(ctx.modal.classes.has("is-open"), true);
+
+    ctx.root.query("#filter-compare .button-add-group").trigger("click");
+    const selectA = ctx.root.query("#filter-group-0-country");
+    const selectB = ctx.root.query("#filter-group-1-country");
+    selectA.value = "United States";
+    selectA.trigger("change");
+    selectB.value = "United Kingdom";
+    selectB.trigger("change");
+
+    // Apply comparison
+    ctx.root.query("#filter-compare .button-apply-groups").trigger("click");
+    assert.equal(ctx.modal.classes.has("is-open"), false);
+    assert.equal(ctx.getRenderCalls(), 1);
+    assert.deepEqual(ctx.getCompareGroups(), [
+      [{ key: "Country", value: "United States" }],
+      [{ key: "Country", value: "United Kingdom" }],
+    ]);
+
+    // 2. Reopen modal, click Reset, then close via the X button without clicking Apply
+    ctx.openBtn.trigger("click");
+    assert.equal(ctx.modal.classes.has("is-open"), true);
+
+    ctx.root.query("#filter-compare .button-reset-groups").trigger("click");
+    assert.equal(ctx.getRenderCalls(), 2, "Reset should immediately re-render overview chart");
+    assert.deepEqual(ctx.getCompareGroups(), [[]]);
+
+    ctx.root.query("#filter-compare .button-close").trigger("click");
+    assert.equal(ctx.modal.classes.has("is-open"), false);
+    assert.deepEqual(ctx.getCompareGroups(), [[]]);
+  });
+
+  it("discards un-applied draft changes when modal is closed without clicking Apply", async () => {
+    const ctx = await mountFilterCompare();
+
+    // Apply Group A = United States vs Group B = United Kingdom
+    ctx.openBtn.trigger("click");
+    ctx.root.query("#filter-compare .button-add-group").trigger("click");
+    const selectA = ctx.root.query("#filter-group-0-country");
+    const selectB = ctx.root.query("#filter-group-1-country");
+    selectA.value = "United States";
+    selectA.trigger("change");
+    selectB.value = "United Kingdom";
+    selectB.trigger("change");
+    ctx.root.query("#filter-compare .button-apply-groups").trigger("click");
+    assert.equal(ctx.getRenderCalls(), 1);
+
+    // Reopen, add a 3rd group and edit Group A, then cancel via Escape
+    ctx.openBtn.trigger("click");
+    ctx.root.query("#filter-compare .button-add-group").trigger("click");
+    assert.equal(ctx.root.queryAll(".filter-group-card").length, 3);
+    const draftSelectA = ctx.root.query("#filter-group-0-country");
+    draftSelectA.value = "Australia";
+    draftSelectA.trigger("change");
+
+    ctx.document.triggerKeyup("Escape");
+    assert.equal(ctx.modal.classes.has("is-open"), false);
+    assert.equal(ctx.getRenderCalls(), 1, "Closing without Apply should not re-render chart");
+    assert.deepEqual(ctx.getCompareGroups(), [
+      [{ key: "Country", value: "United States" }],
+      [{ key: "Country", value: "United Kingdom" }],
+    ]);
+
+    // Reopening again should show the 2 applied groups, not the discarded 3rd draft group
+    ctx.openBtn.trigger("click");
+    assert.equal(ctx.root.queryAll(".filter-group-card").length, 2);
+  });
+
+  it("tears down previous resize listener and re-renders on every renderOverviewChart call", () => {
+    const scriptSrc = fs.readFileSync(
+      path.join(packageRoot, "src", "script.js"),
+      "utf-8",
+    );
+    const startIdx = scriptSrc.indexOf("let activeOverviewChart =");
+    const endIdx = scriptSrc.indexOf("function createDemographicChart(", startIdx);
+    assert.ok(
+      startIdx !== -1 && endIdx !== -1,
+      "Could not locate addDebouncedResizeListener/renderOverviewChart in script.js",
+    );
+    const fnSource = scriptSrc.slice(startIdx, endIdx);
+
+    const activeListeners = new Set();
+    let topicChartMounts = 0;
+    let opinionChartMounts = 0;
+
+    const sandbox = {
+      clearTimeout,
+      setTimeout,
+      window: {
+        addEventListener(event, fn) {
+          if (event === "resize") activeListeners.add(fn);
+        },
+        removeEventListener(event, fn) {
+          if (event === "resize") activeListeners.delete(fn);
+        },
+      },
+      createTopicChart() {
+        topicChartMounts += 1;
+        return sandbox.__addResize(() => {});
+      },
+      createOpinionChart() {
+        opinionChartMounts += 1;
+        return sandbox.__addResize(() => {});
+      },
+    };
+
+    vm.runInNewContext(
+      `${fnSource}\nthis.__addResize = addDebouncedResizeListener; this.__render = renderOverviewChart; this.__setMode = (m) => { activeOverviewChart = m; };`,
+      sandbox,
+    );
+
+    sandbox.__render();
+    assert.equal(topicChartMounts, 1);
+    assert.equal(opinionChartMounts, 0);
+    assert.equal(activeListeners.size, 1);
+
+    // Re-rendering in topics mode cleans up the old listener and mounts a fresh topic chart
+    sandbox.__render();
+    assert.equal(topicChartMounts, 2);
+    assert.equal(activeListeners.size, 1);
+
+    // Switching to opinions mode cleans up topic listener and mounts opinion chart
+    sandbox.__setMode("opinions");
+    sandbox.__render();
+    assert.equal(opinionChartMounts, 1);
+    assert.equal(activeListeners.size, 1);
   });
 });
