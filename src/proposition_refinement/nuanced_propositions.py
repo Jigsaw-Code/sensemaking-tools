@@ -4,7 +4,7 @@ Library for combining propositions from different topics to find common ground.
 
 import os
 import re
-from src.models import genai_model
+from src.models import base_model
 
 
 def generate_combination_prompt(
@@ -64,7 +64,7 @@ def parse_nuanced_propositions(resp: dict, job: dict) -> list[str]:
 
 async def combine_propositions(
     propositions_by_topic: dict[str, list[str]],
-    model: genai_model.GenaiModel,
+    model: base_model.BaseModel,
     additional_context: str | None = None,
 ):
   """Combines propositions from different topics to find common ground."""

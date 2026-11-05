@@ -577,7 +577,7 @@ class PropositionRefinementMainTest(unittest.TestCase):
           "src.proposition_refinement.main.run_nuanced_approval_jury",
           new_callable=AsyncMock,
       ), patch(
-          "src.proposition_refinement.main.genai_model.GenaiModel"
+          "src.proposition_refinement.main.model_factory.get_model"
       ):
         yield mock_stage_1
 

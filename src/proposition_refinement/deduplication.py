@@ -4,8 +4,8 @@ import pandas as pd
 import json
 import re
 import logging
+from src.models import base_model
 from src.models import decision
-from src.models.genai_model import GenaiModel
 
 
 def _preprocess_and_add_ids(by_topic_df):
@@ -314,7 +314,7 @@ async def select_final_propositions(
 async def run_deduplication(
     by_topic_data,
     final_propositions_per_topic,
-    model,
+    model: base_model.BaseModel,
     ranking_column: str = 'full_schulze_ranking',
 ):
   """Orchestrates the entire proposition deduplication and selection process.
@@ -331,7 +331,7 @@ async def run_deduplication(
       each row is a proposition.
     final_propositions_per_topic: The number of final propositions to select
       for each topic.
-    model: The GenaiModel instance to use for equivalence detection and
+    model: The BaseModel instance to use for equivalence detection and
       tie-breaking.
     ranking_column: The name of the column in `by_topic_data` that contains
         the ranked list of propositions to use for selection.

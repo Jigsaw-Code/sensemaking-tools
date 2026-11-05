@@ -24,7 +24,7 @@ from src.proposition_refinement import deduplication
 from src.social_choice import proportional_approval_voting
 from src import participation
 from src import runner_utils
-from src.models import genai_model
+from src.models import model_factory
 
 
 def pipeline_stage(name=None, check_fn=None):
@@ -1087,17 +1087,20 @@ async def main():
   )
 
   gemini_api_key = args.gemini_api_key or os.environ.get("GEMINI_API_KEY")
-  if not gemini_api_key:
+  if (
+      os.environ.get("MODEL_ENDPOINT_TYPE", "google_genai") == "google_genai"
+      and not gemini_api_key
+  ):
     raise ValueError(
         "Gemini API key not provided. Please set the GEMINI_API_KEY environment"
         " variable or use the --gemini_api_key argument."
     )
 
-  sim_jury_model = genai_model.GenaiModel(
+  sim_jury_model = model_factory.get_model(
       gemini_api_key=gemini_api_key,
       model_name=args.simulated_jury_model_name,
   )
-  nuanced_props_model = genai_model.GenaiModel(
+  nuanced_props_model = model_factory.get_model(
       gemini_api_key=gemini_api_key,
       model_name=args.nuanced_propositions_model_name,
   )

@@ -27,6 +27,7 @@ import logging
 import os
 import random
 import json
+from src.models import base_model
 from src.models import decision
 from src.models import genai_model
 from src.models import systemone
@@ -356,7 +357,7 @@ async def run_simulated_jury(
     participants_df: pd.DataFrame,
     statements: list[str],
     voting_mode: VotingMode,
-    model: genai_model.GenaiModel,
+    model: base_model.BaseModel,
     topic_name: str = "",
     opinion_name: str = "",
     batch_size: int = None,
