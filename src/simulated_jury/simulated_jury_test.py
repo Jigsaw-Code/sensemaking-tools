@@ -3,6 +3,7 @@ Tests for the simulated jury.
 """
 
 import unittest
+from unittest import mock
 from src.simulated_jury import simulated_jury
 
 
@@ -198,6 +199,51 @@ class SimulatedJuryTest(unittest.TestCase):
     job = {'shuffled_statements': ['Statement A', 'Statement B', 'Statement C']}
     with self.assertRaises(ValueError):
       simulated_jury.parse_llm_ranking_response({'text': result}, job)
+
+  def test_parse_llm_ranking_response_partial_on_last_attempt(self):
+    result = '{"ranking": ["A", "A", "B"], "reasoning": "dup letter"}'
+    job_early = {
+        'shuffled_statements': ['Statement A', 'Statement B', 'Statement C'],
+        'current_attempt': 0,
+        'retry_attempts': 3,
+    }
+    with self.assertRaises(ValueError):
+      simulated_jury.parse_llm_ranking_response({'text': result}, job_early)
+    job_last = {
+        'shuffled_statements': ['Statement A', 'Statement B', 'Statement C'],
+        'current_attempt': 2,
+        'retry_attempts': 3,
+    }
+    with mock.patch.object(simulated_jury.logging, 'warning') as mock_warn:
+      preference = simulated_jury.parse_llm_ranking_response(
+          {'text': result}, job_last
+      )
+    self.assertEqual(preference['ranking'], ['Statement A', 'Statement B'])
+    mock_warn.assert_called_once()
+
+  def test_parse_llm_approval_response_incomplete_retries_and_defaults(self):
+    result = (
+        '{"votes": [{"statement_letter": "A", "vote": "Agree"},'
+        ' {"statement_letter": "A", "vote": "Agree"}], "reasoning": "dup"}'
+    )
+    job_early = {
+        'shuffled_statements': ['Statement A', 'Statement B'],
+        'current_attempt': 0,
+        'retry_attempts': 3,
+    }
+    with self.assertRaises(ValueError):
+      simulated_jury.parse_llm_approval_response({'text': result}, job_early)
+    job_last = {
+        'shuffled_statements': ['Statement A', 'Statement B'],
+        'current_attempt': 2,
+        'retry_attempts': 3,
+    }
+    with mock.patch.object(simulated_jury.logging, 'warning') as mock_warn:
+      approvals = simulated_jury.parse_llm_approval_response(
+          {'text': result}, job_last
+      )
+    self.assertEqual(approvals, {'Statement A': True, 'Statement B': False})
+    mock_warn.assert_called_once()
 
   def test_build_approval_matrix_with_errors(self):
     import pandas as pd

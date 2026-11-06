@@ -222,7 +222,10 @@ def parse_llm_ranking_response(resp: dict, job: dict) -> dict:
     ranking_letters = data.get("ranking", [])
     reasoning = data.get("reasoning", "")
 
-    ranking = mapper.convert_letters_to_statements(ranking_letters)
+    # Deduplicate statements while preserving the LLM's preference order.
+    ranking = list(
+        dict.fromkeys(mapper.convert_letters_to_statements(ranking_letters))
+    )
 
     if len(ranking) != len(statements):
       # On the final attempt, accept a partial ranking to avoid failing the job.
@@ -231,7 +234,7 @@ def parse_llm_ranking_response(resp: dict, job: dict) -> dict:
           >= job.get("retry_attempts", genai_model.MAX_LLM_RETRIES) - 1
       )
       if is_last_attempt:
-        logging.debug(
+        logging.warning(
             "Accepting partial ranking on final attempt (%d of %d statements).",
             len(ranking),
             len(statements),
@@ -287,6 +290,26 @@ def parse_llm_approval_response(resp: dict, job: dict) -> dict:
         statement_text = mapper.letter_to_statement[statement_letter]
         # Count 'Agree', 'Strongly Agree', and 'Somewhat Agree' as agreement.
         approval_dict[statement_text] = vote_value in POSITIVE_APPROVAL_VOTES
+
+    if len(approval_dict) != len(statements):
+      is_last_attempt = (
+          job.get("current_attempt", 0)
+          >= job.get("retry_attempts", genai_model.MAX_LLM_RETRIES) - 1
+      )
+      if is_last_attempt:
+        logging.warning(
+            "Incomplete approval votes on final attempt (%d of %d statements);"
+            " defaulting missing statements to False.",
+            len(approval_dict),
+            len(statements),
+        )
+        for statement_text in statements:
+          approval_dict.setdefault(statement_text, False)
+      else:
+        raise ValueError(
+            f"Incomplete voting. Expected {len(statements)} unique statement"
+            f" letters, got {len(approval_dict)}."
+        )
 
     return approval_dict
 
@@ -460,11 +483,45 @@ async def run_simulated_jury(
           approval_scale,
       )
 
+      valid_letters = list(STATEMENT_MAPPING_CHARS[: len(shuffled_batch)])
       schema = None
       if voting_mode == VotingMode.RANK:
-        schema = rank_schema
+        schema = {
+            **rank_schema,
+            "properties": {
+                **rank_schema["properties"],
+                "ranking": {
+                    **rank_schema["properties"]["ranking"],
+                    "minItems": len(shuffled_batch),
+                    "maxItems": len(shuffled_batch),
+                    "items": {"type": "STRING", "enum": valid_letters},
+                },
+            },
+        }
       elif voting_mode == VotingMode.APPROVAL:
-        schema = approval_schema
+        schema = {
+            **approval_schema,
+            "properties": {
+                **approval_schema["properties"],
+                "votes": {
+                    **approval_schema["properties"]["votes"],
+                    "minItems": len(shuffled_batch),
+                    "maxItems": len(shuffled_batch),
+                    "items": {
+                        **approval_schema["properties"]["votes"]["items"],
+                        "properties": {
+                            **approval_schema["properties"]["votes"]["items"][
+                                "properties"
+                            ],
+                            "statement_letter": {
+                                "type": "STRING",
+                                "enum": valid_letters,
+                            },
+                        },
+                    },
+                },
+            },
+        }
 
       jobs.append({
           "job_id": f"{i}-{j}",

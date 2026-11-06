@@ -26,6 +26,11 @@ class TestApplyJurySizeSampling(unittest.TestCase):
     result = sampling_utils.apply_jury_size_sampling(self.df, 0.5)
     self.assertEqual(len(result), 50)
 
+  def test_fractional_sampling_small_pool_returns_at_least_one(self):
+    small_df = pd.DataFrame({'id': range(3)})
+    result = sampling_utils.apply_jury_size_sampling(small_df, 0.02)
+    self.assertEqual(len(result), 1)
+
   def test_integer_sampling(self):
     result = sampling_utils.apply_jury_size_sampling(self.df, 10.0)
     self.assertEqual(len(result), 10)

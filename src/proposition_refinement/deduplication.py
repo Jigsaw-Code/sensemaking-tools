@@ -106,8 +106,30 @@ async def generate_equivalence_sets(processed_by_topic_df, model):
     logging.debug('--- ready to jsonify ---\n%s', x)
     return json.loads(x)
 
+  equivalence_schema = {
+      'type': 'OBJECT',
+      'properties': {
+          'equivalence_sets': {
+              'type': 'ARRAY',
+              'items': {
+                  'type': 'ARRAY',
+                  'items': {
+                      'type': 'STRING',
+                      'enum': list(propositions_map.keys()),
+                  },
+              },
+          },
+      },
+      'required': ['equivalence_sets'],
+  }
+
   response, _, _, _ = await model.process_prompts_concurrently(
-      [{'prompt': prompt, 'topic': 'deduplication'}],
+      [{
+          'prompt': prompt,
+          'topic': 'deduplication',
+          'response_mime_type': 'application/json',
+          'response_schema': equivalence_schema,
+      }],
       # response_parser=lambda x, job: json.loads(x)
       response_parser=parser_with_logging,
   )

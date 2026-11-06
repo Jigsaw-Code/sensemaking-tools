@@ -301,6 +301,44 @@ class OpenAICompatibleModelTest(unittest.TestCase):
     self.assertEqual(llm_stats.iloc[0]['api_calls_made'], 3)
     self.assertEqual(llm_stats.iloc[0]['non_quota_failures'], 1)
 
+  @patch.dict('os.environ', {'OLLAMA_CONTEXT_LENGTH': '8192'})
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_generate_content_passes_ollama_context_length(
+      self, mock_async_openai
+  ):
+    mock_client = mock_async_openai.return_value
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = 'ok'
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    model = OpenAICompatibleModel(
+        model_name='gemma3:270m', endpoint_url='http://localhost:11434/v1'
+    )
+    asyncio.run(
+        model.generate_content(prompt='test prompt', run_name='test_run')
+    )
+    _, kwargs = mock_client.chat.completions.create.call_args
+    self.assertEqual(kwargs.get('extra_body'), {'options': {'num_ctx': 8192}})
+
+  @patch('src.models.openai_compatible_model.AsyncOpenAI')
+  def test_generate_content_timeout_error_has_non_empty_error_message(
+      self, mock_async_openai
+  ):
+    mock_client = mock_async_openai.return_value
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=asyncio.TimeoutError()
+    )
+    model = OpenAICompatibleModel(
+        model_name='gemma3:270m', endpoint_url='http://localhost:11434/v1'
+    )
+    result = asyncio.run(
+        model.generate_content(prompt='test prompt', run_name='test_run')
+    )
+    self.assertEqual(result['error'], 'TimeoutError')
+
 
 if __name__ == '__main__':
   unittest.main()

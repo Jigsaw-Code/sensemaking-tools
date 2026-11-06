@@ -157,6 +157,13 @@ class OpenAICompatibleModel(BaseModel):
         )
       except ValueError:
         pass
+    if "extra_body" not in kwargs and os.getenv("OLLAMA_CONTEXT_LENGTH"):
+      try:
+        extra_args["extra_body"] = {
+            "options": {"num_ctx": int(os.environ["OLLAMA_CONTEXT_LENGTH"])}
+        }
+      except ValueError:
+        pass
     if response_mime_type == "application/json" or response_schema:
       if response_schema:
         # Handle Pydantic models
@@ -222,8 +229,9 @@ class OpenAICompatibleModel(BaseModel):
           "error": None,
       }
     except Exception as e:
-      logging.error(f"Error calling OpenAI endpoint: {e}")
-      return {"error": str(e), "is_quota_error": _is_quota_error(e)}
+      error_msg = str(e) or type(e).__name__
+      logging.error(f"Error calling OpenAI endpoint: {error_msg}")
+      return {"error": error_msg, "is_quota_error": _is_quota_error(e)}
 
   async def _api_worker_with_retry(
       self,
@@ -282,8 +290,8 @@ class OpenAICompatibleModel(BaseModel):
               response_schema=job.get("response_schema"),
           )
 
-          if resp.get("error"):
-            raise Exception(resp["error"])
+          if resp.get("error") is not None:
+            raise Exception(resp["error"] or "Unknown API error")
 
           try:
             result = response_parser(resp, job)

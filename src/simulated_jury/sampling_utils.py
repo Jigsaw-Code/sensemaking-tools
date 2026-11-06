@@ -35,7 +35,10 @@ def apply_jury_size_sampling(
   if 0.0 < jury_size < 1.0:
     if verbose:
       print(f"\nSubsetting to {jury_size * 100:.2f}% of the original size.")
-    return df.sample(frac=jury_size, random_state=random_state)
+    if df.empty:
+      return df
+    n_samples = max(1, round(len(df) * jury_size))
+    return df.sample(n=min(len(df), n_samples), random_state=random_state)
 
   # jury_size > 1.0
   target_size = int(jury_size)
