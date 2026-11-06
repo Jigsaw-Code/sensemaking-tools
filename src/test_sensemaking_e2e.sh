@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Runs each step of theSensemaking pipeline, intended as an end-to-end test
+# Runs each step of the Sensemaking pipeline, intended as an end-to-end test
 # Example command:
-#   bash src/test_sensemaking_e2e.sh <GEMINI_API_KEY> <GCLOUD_API_KEY> <QUALTRICS_CSV> <WORKING_DIR> gemini-3.0-flash
+#   bash src/test_sensemaking_e2e.sh "" "" src/smoke_test_data.csv /tmp/sensemaking_e2e_output [gemma3:270m]
 
 set -e  # Exit on any error
 
 # Check arguments
 if [ "$#" -lt 3 ]; then
     echo "Usage: $0 <GEMINI_API_KEY> <GCLOUD_API_KEY> <QUALTRICS_CSV> <WORKING_DIR>"
-    echo "Optional: [MODEL_NAME] [FIXED_RESPONSE_COLS] [FOLLOW_UP_QUESTION_COLS] [FOLLOW_UP_RESPONSE_COLS]"
+    echo "Optional: [MODEL_NAME (default: gemma3:270m)] [FIXED_RESPONSE_COLS] [FOLLOW_UP_QUESTION_COLS] [FOLLOW_UP_RESPONSE_COLS]"
     exit 1
 fi
 
@@ -30,12 +30,12 @@ GEMINI_API_KEY=$1
 GCLOUD_API_KEY=$2
 QUALTRICS_CSV=$3
 WORKING_DIR=$4
-MODEL_NAME=${5:-"gemini-3.1-flash-lite"}
+MODEL_NAME=${5:-"gemma3:270m"}
 
 # Args for Qualtrics survey processing
-FIXED_RESPONSE_COLS=${5:-"Q1,Q35,Q36"}
-FOLLOW_UP_QUESTION_COLS=${6:-"Q1FU,Q2FU,Q3FU"}
-FOLLOW_UP_RESPONSE_COLS=${7:-"Q23,Q37,Q39"}
+FIXED_RESPONSE_COLS=${6:-"Q1,Q35,Q36"}
+FOLLOW_UP_QUESTION_COLS=${7:-"Q1FU,Q2FU,Q3FU"}
+FOLLOW_UP_RESPONSE_COLS=${8:-"Q23,Q37,Q39"}
 
 # Create working directory if it doesn't exist.
 mkdir -p "$WORKING_DIR"
@@ -45,6 +45,73 @@ print_step() {
   local prefix="Starting Step: "
   printf "\n%s%s\n" "${prefix}" "${1}"
 }
+
+OLLAMA_SERVER_PID=""
+cleanup() {
+  if [[ "$MODEL_NAME" == gemma* ]]; then
+    printf "\nTearing down local Gemma server resources...\n"
+    if command -v ollama >/dev/null 2>&1; then
+      ollama stop "$MODEL_NAME" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$OLLAMA_SERVER_PID" ]] && kill -0 "$OLLAMA_SERVER_PID" 2>/dev/null; then
+      kill "$OLLAMA_SERVER_PID" 2>/dev/null || true
+      wait "$OLLAMA_SERVER_PID" 2>/dev/null || true
+    fi
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if [[ "$MODEL_NAME" == gemma* ]]; then
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo "Error: 'ollama' is required to run local Gemma models ($MODEL_NAME), but was not found in PATH." >&2
+    exit 1
+  fi
+
+  # Force CPU execution for the local Ollama server.
+  export OLLAMA_NUM_GPU=0
+  export OLLAMA_LLM_LIBRARY="cpu"
+  export CUDA_VISIBLE_DEVICES=""
+  export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-8192}"
+  export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
+
+  if ollama list >/dev/null 2>&1; then
+    print_step "Reusing running local Ollama server at $OLLAMA_HOST for $MODEL_NAME"
+  else
+    print_step "Starting local Ollama server on CPU ($OLLAMA_HOST) for $MODEL_NAME"
+    ollama serve > "$WORKING_DIR/ollama_server.log" 2>&1 &
+    OLLAMA_SERVER_PID=$!
+
+    # Wait for the Ollama server to become ready.
+    SERVER_READY=0
+    for _ in {1..30}; do
+      if ollama list >/dev/null 2>&1; then
+        SERVER_READY=1
+        break
+      fi
+      sleep 1
+    done
+
+    if [[ "$SERVER_READY" -ne 1 ]]; then
+      echo "Error: Local Ollama server failed to start within 30 seconds. Check $WORKING_DIR/ollama_server.log" >&2
+      exit 1
+    fi
+  fi
+
+  # Ensure the requested Gemma model is available locally.
+  if ! ollama list | awk -v model="$MODEL_NAME" 'NR>1 && ($1 == model || $1 == model ":latest") {found=1} END {exit !found}'; then
+    print_step "Pulling model $MODEL_NAME"
+    ollama pull "$MODEL_NAME"
+  fi
+
+  export MODEL_ENDPOINT_TYPE="openai_api_compatible"
+  export OPENAI_API_ENDPOINT_URL="http://${OLLAMA_HOST}/v1"
+  export OPENAI_API_ENDPOINT_KEY="${GEMINI_API_KEY:-ollama}"
+  export OPENAI_RESPONSE_FORMAT_STYLE="openai_json_schema"
+  export OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-1024}"
+  export OPENAI_FREQUENCY_PENALTY="${OPENAI_FREQUENCY_PENALTY:-0.5}"
+  export MAX_BATCH_TOKENS="${MAX_BATCH_TOKENS:-1500}"
+  export MAX_ITEMS_PER_BATCH="${MAX_ITEMS_PER_BATCH:-2}"
+fi
 
 print_step "Processing the Survey Results"
 bash src/survey_processing.sh \
@@ -75,7 +142,7 @@ python3 -m src.get_bridging_scores \
 print_step "Generating the Report Text"
 python3 -m src.generate_report_text.generate_report_text \
   --input_csv "$WORKING_DIR/bridging_scores.csv" \
-  --additional_context ./default-additional-context.md \
+  --additional_context_file src/default-additional-context.md \
   --output_dir "$WORKING_DIR/report_outputs" \
   --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME"
