@@ -382,6 +382,7 @@ class CategorizationTest(unittest.TestCase):
           return_value=(results_df, pd.DataFrame(), 0.0, 1.0)
       )
 
+      # By default, offer_other_opinion=False does not add "Other".
       result_map = asyncio.run(
           categorization.learn_global_opinions(
               statements_with_topics, topics, mock_model
@@ -391,10 +392,25 @@ class CategorizationTest(unittest.TestCase):
       self.assertIn("T1", result_map)
       t1_result = result_map["T1"]
       self.assertEqual(t1_result.name, "T1")
-      # Verify "Other" was added
-      opinion_names = [op.name for op in t1_result.subtopics]
-      self.assertIn("Other", opinion_names)
-      self.assertIn("Opinion 1", opinion_names)
+      self.assertEqual(
+          [op.name for op in t1_result.subtopics], ["Opinion 1"]
+      )
+
+      # When offer_other_opinion=True, "Other" is added.
+      result_map_other = asyncio.run(
+          categorization.learn_global_opinions(
+              statements_with_topics,
+              topics,
+              mock_model,
+              offer_other_opinion=True,
+          )
+      )
+      self.assertIn("T1", result_map_other)
+      opinion_names_other = [
+          op.name for op in result_map_other["T1"].subtopics
+      ]
+      self.assertIn("Other", opinion_names_other)
+      self.assertIn("Opinion 1", opinion_names_other)
 
   def test_learn_global_opinions_uses_predefined_subtopics(self):
     """Predefined subtopics (e.g., from --topic_and_opinion_csv) skip LLM learning."""
@@ -406,6 +422,7 @@ class CategorizationTest(unittest.TestCase):
     mock_model = MagicMock()
     mock_model.process_prompts_concurrently = AsyncMock()
 
+    # By default, offer_other_opinion=False preserves subtopics without "Other".
     result_map = asyncio.run(
         categorization.learn_global_opinions(
             statements_with_topics_and_quotes=[],
@@ -417,7 +434,28 @@ class CategorizationTest(unittest.TestCase):
     mock_model.process_prompts_concurrently.assert_not_called()
     self.assertIn("T1", result_map)
     opinion_names = [op.name for op in result_map["T1"].subtopics]
-    self.assertEqual(opinion_names, ["Predefined Opinion 1", "Other"])
+    self.assertEqual(opinion_names, ["Predefined Opinion 1"])
+
+    # Setting offer_other_opinion=True appends "Other".
+    predefined_topic_with_other = custom_types.NestedTopic(
+        name="T1",
+        subtopics=[custom_types.FlatTopic(name="Predefined Opinion 1")],
+    )
+    result_map_other = asyncio.run(
+        categorization.learn_global_opinions(
+            statements_with_topics_and_quotes=[],
+            topics_to_process=[
+                predefined_topic_with_other,
+                custom_types.FlatTopic(name="Other"),
+            ],
+            model=mock_model,
+            offer_other_opinion=True,
+        )
+    )
+    self.assertCountEqual(
+        [op.name for op in result_map_other["T1"].subtopics],
+        ["Predefined Opinion 1", "Other"],
+    )
 
   def test_learn_global_opinions_handles_failed_chunks(self):
     import pandas as pd
@@ -479,6 +517,7 @@ class CategorizationTest(unittest.TestCase):
           return_value=(results_df, pd.DataFrame(), 0.0, 1.0)
       )
 
+      # By default, offer_other_opinion=False omits "Other".
       result_map = asyncio.run(
           categorization.learn_global_opinions(
               statements_with_topics, topics, mock_model
@@ -487,10 +526,28 @@ class CategorizationTest(unittest.TestCase):
 
       self.assertEqual(
           [op.name for op in result_map["T1"].subtopics],
-          ["Expand transit", "Other"],
+          ["Expand transit"],
       )
       self.assertEqual(
           [op.name for op in result_map["T2"].subtopics],
+          [],
+      )
+
+      # When offer_other_opinion=True, "Other" is appended to both.
+      result_map_other = asyncio.run(
+          categorization.learn_global_opinions(
+              statements_with_topics,
+              topics,
+              mock_model,
+              offer_other_opinion=True,
+          )
+      )
+      self.assertCountEqual(
+          [op.name for op in result_map_other["T1"].subtopics],
+          ["Expand transit", "Other"],
+      )
+      self.assertEqual(
+          [op.name for op in result_map_other["T2"].subtopics],
           ["Other"],
       )
   @patch(
@@ -1115,9 +1172,9 @@ class CategorizationTest(unittest.TestCase):
     self.assertEqual(len(statements_out), 2)
     s_ids = {s.id for s in statements_out}
     self.assertEqual(s_ids, {"s1", "s2"})
-    # RealTopic got new opinion
+    # RealTopic receives the new opinion without "Other" by default.
     real_op_names = [o.name for o in updated_map["RealTopic"].subtopics]
-    self.assertEqual(real_op_names, ["Op1", "OpNew", "Other"])
+    self.assertEqual(real_op_names, ["Op1", "OpNew"])
     # Topic "Other" was skipped in updated_map
     self.assertNotIn("Other", updated_map)
 
@@ -1203,6 +1260,7 @@ class CategorizationTest(unittest.TestCase):
           )
       )
 
+    # By default, offer_other_opinion=False produces empty subtopics on error.
     result_map = asyncio.run(
         categorization.learn_global_opinions(
             statements_with_topics_and_quotes=[stmt],
@@ -1212,7 +1270,21 @@ class CategorizationTest(unittest.TestCase):
         )
     )
     self.assertEqual(
-        [s.name for s in result_map["Roads"].subtopics], ["Other"]
+        [s.name for s in result_map["Roads"].subtopics], []
+    )
+
+    # Setting offer_other_opinion=True produces ["Other"].
+    result_map_with_other = asyncio.run(
+        categorization.learn_global_opinions(
+            statements_with_topics_and_quotes=[stmt],
+            topics_to_process=[topic],
+            model=mock_model,
+            fail_on_opinion_chunk_error=False,
+            offer_other_opinion=True,
+        )
+    )
+    self.assertEqual(
+        [s.name for s in result_map_with_other["Roads"].subtopics], ["Other"]
     )
 
   def test_count_other_provenance(self):
@@ -1285,19 +1357,19 @@ class CategorizationTest(unittest.TestCase):
   def test_opinion_matching_prompt_validation(self):
     opinions_json = '[{"name": "Op1"}]'
     default_prompt = prompts.get_categorization_opinion_prompt(opinions_json)
-    identical_prompt = prompts.get_categorization_opinion_prompt(
-        opinions_json, opinion_matching=prompts.OPINION_MATCHING_IDENTICAL
-    )
-    # identical default byte-for-byte invariance
-    self.assertEqual(default_prompt, identical_prompt)
-
-    # supports prompt differs from identical
     supports_prompt = prompts.get_categorization_opinion_prompt(
         opinions_json, opinion_matching=prompts.OPINION_MATCHING_SUPPORTS
     )
-    self.assertNotEqual(default_prompt, supports_prompt)
+    # Verify that the default matches "supports" byte-for-byte.
+    self.assertEqual(default_prompt, supports_prompt)
 
-    # invalid mode raises ValueError
+    # Verify that the "identical" prompt differs from the "supports" default.
+    identical_prompt = prompts.get_categorization_opinion_prompt(
+        opinions_json, opinion_matching=prompts.OPINION_MATCHING_IDENTICAL
+    )
+    self.assertNotEqual(default_prompt, identical_prompt)
+
+    # Verify that an invalid mode raises ValueError.
     with self.assertRaises(ValueError):
       prompts.get_categorization_opinion_prompt(
           opinions_json, opinion_matching="invalid_mode"
@@ -1346,7 +1418,7 @@ class OpinionMatchingForwardingTest(unittest.TestCase):
     )
     self.mock_run_autoraters.return_value = (1, {}, [], 0.0, 1.0)
 
-  def test_categorize_opinions_defaults_to_identical_matching(self):
+  def test_categorize_opinions_defaults_to_supports_matching(self):
     asyncio.run(
         categorization.categorize_opinions(
             statements_with_topics_and_quotes=[self.statement],
@@ -1357,30 +1429,30 @@ class OpinionMatchingForwardingTest(unittest.TestCase):
     )
     self.assertEqual(
         self.mock_prepare_prompts.call_args.kwargs["opinion_matching"],
-        prompts.OPINION_MATCHING_IDENTICAL,
+        prompts.OPINION_MATCHING_SUPPORTS,
     )
     self.assertEqual(
         self.mock_run_autoraters.call_args.kwargs["opinion_matching"],
-        prompts.OPINION_MATCHING_IDENTICAL,
+        prompts.OPINION_MATCHING_SUPPORTS,
     )
 
-  def test_categorize_opinions_forwards_supports_matching(self):
+  def test_categorize_opinions_forwards_identical_matching(self):
     asyncio.run(
         categorization.categorize_opinions(
             statements_with_topics_and_quotes=[self.statement],
             topics_to_process=self.topics,
             topic_to_opinions_map=self.topic_map,
             model=self.mock_model,
-            opinion_matching=prompts.OPINION_MATCHING_SUPPORTS,
+            opinion_matching=prompts.OPINION_MATCHING_IDENTICAL,
         )
     )
     self.assertEqual(
         self.mock_prepare_prompts.call_args.kwargs["opinion_matching"],
-        prompts.OPINION_MATCHING_SUPPORTS,
+        prompts.OPINION_MATCHING_IDENTICAL,
     )
     self.assertEqual(
         self.mock_run_autoraters.call_args.kwargs["opinion_matching"],
-        prompts.OPINION_MATCHING_SUPPORTS,
+        prompts.OPINION_MATCHING_IDENTICAL,
     )
 
   def test_categorize_opinions_rejects_invalid_opinion_matching(self):

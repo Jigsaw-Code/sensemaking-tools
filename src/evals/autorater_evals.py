@@ -51,7 +51,7 @@ def prepare_opinion_eval_prompts(
     input_statements: list[custom_types.Statement],
     all_opinions_for_topic: list[custom_types.Topic],
     parent_topic_name: str,
-    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
+    opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
 ) -> list[dict[str, Any]]:
   """Prepares prompts for opinion evaluation.
 
@@ -61,7 +61,8 @@ def prepare_opinion_eval_prompts(
     all_opinions_for_topic: The opinion menu offered for the topic.
     parent_topic_name: The topic name.
     opinion_matching: Opinion matching mode, one of
-      prompts.OPINION_MATCHING_MODES.
+      prompts.OPINION_MATCHING_MODES (default:
+      prompts.OPINION_MATCHING_SUPPORTS).
 
   Returns:
     Prompt job dicts.
@@ -98,7 +99,7 @@ def prepare_opinion_eval_prompts(
   criteria_templates = (
       prompts.eval_opinion_categorization_correctness_criteria_supports
       if opinion_matching == prompts.OPINION_MATCHING_SUPPORTS
-      else pointwise_metric.criteria
+      else prompts.eval_opinion_categorization_correctness_criteria_identical
   )
 
   for record in categorized_records:

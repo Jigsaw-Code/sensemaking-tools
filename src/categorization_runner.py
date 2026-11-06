@@ -426,8 +426,11 @@ async def main() -> Optional[str]:
       type=int,
       default=categorization.DEFAULT_MAX_AUTORATER_RETRIES,
       help=(
-          "Autorater rejections a single quote may receive before it is"
-          " defaulted to 'Other'."
+          "Autorater rejections a single quote may receive before falling back"
+          " to 'Other' (default:"
+          f" {categorization.DEFAULT_MAX_AUTORATER_RETRIES}). Lower to reduce"
+          " retry latency on ambiguous quotes, or raise to allow more attempts"
+          " before falling back to 'Other'."
       ),
   )
   parser.add_argument(
@@ -437,18 +440,23 @@ async def main() -> Optional[str]:
       default=categorization.DEFAULT_AUTORATER_MIN_SCORE,
       help=(
           "Minimum integer autorater score (0-4 rubric) for an opinion"
-          " assignment to pass."
+          " assignment to pass (default:"
+          f" {categorization.DEFAULT_AUTORATER_MIN_SCORE}). Lowering this"
+          " reduces 'Other' categorization at the expense of more lenient"
+          " categorization."
       ),
   )
   parser.add_argument(
       "--opinion_matching",
       choices=list(prompts.OPINION_MATCHING_MODES),
-      default=prompts.OPINION_MATCHING_IDENTICAL,
+      default=prompts.OPINION_MATCHING_SUPPORTS,
       help=(
-          "Opinion matching rules for categorization and autoraters:"
-          " 'identical' (quote must explicitly support every key concept of"
-          " the opinion) or 'supports' (quote must support the opinion's"
-          f" core claim). Default: {prompts.OPINION_MATCHING_IDENTICAL}."
+          "Opinion matching rules for categorization and autoraters (default:"
+          f" '{prompts.OPINION_MATCHING_SUPPORTS}'). 'supports' matches quotes"
+          " that endorse an opinion's core claim without requiring every"
+          " clause in the opinion label; use 'identical' when strict"
+          " concept-by-concept equivalence is required (increases 'Other'"
+          " categorization on compound opinions)."
       ),
   )
   parser.add_argument(
@@ -456,18 +464,24 @@ async def main() -> Optional[str]:
       action="store_true",
       default=False,
       help=(
-          "If set, runs a secondary pass on quotes assigned to 'Other' to"
-          " discover new emergent opinions and re-categorize into them."
+          "If set, runs a second pass on quotes assigned to 'Other' to learn"
+          " additional emergent opinions and re-categorize against the"
+          " expanded opinion set (default: False). Enable when finer-grained"
+          " opinions, tighter cluster cohesion, and lower 'Other' rates"
+          " justify an additional categorization pass."
       ),
   )
   parser.add_argument(
       "--offer_other_opinion",
       action=argparse.BooleanOptionalAction,
-      default=True,
+      default=False,
       help=(
-          "Whether to offer an 'Other' opinion option during opinion"
-          " categorization. If False, quotes only land in 'Other' when"
-          " autoraters/retries are exhausted or a topic has no opinions."
+          "Whether to list 'Other' in the input opinion menu shown to the"
+          " categorizer (default: %(default)s, i.e. --no-offer_other_opinion)."
+          " When False, 'Other' is omitted from the menu so it is not chosen"
+          " as an easy catch-all, while remaining valid in the output schema"
+          " and autorater fallback path. Pass --offer_other_opinion for more"
+          " conservative voluntary 'Other' selections."
       ),
   )
   parser.add_argument(
@@ -475,9 +489,10 @@ async def main() -> Optional[str]:
       action=argparse.BooleanOptionalAction,
       default=None,
       help=(
-          "Overrides --offer_other_opinion specifically for the second-pass"
-          " recategorization (--recategorize_other). If not set, inherits"
-          " --offer_other_opinion."
+          "Overrides --[no-]offer_other_opinion specifically during"
+          " second-pass recategorization (--recategorize_other). Default:"
+          " %(default)s (inherits --[no-]offer_other_opinion). Set when the"
+          " first and second passes need different 'Other' menu behavior."
       ),
   )
   parser.add_argument(
@@ -485,9 +500,10 @@ async def main() -> Optional[str]:
       action=argparse.BooleanOptionalAction,
       default=False,
       help=(
-          "Step 5b anti-duplication: hard existing-opinion constraint in the"
-          " learning prompt plus LLM judge deduplication against existing"
-          " opinions."
+          "During --recategorize_other, enforce a stricter non-duplication"
+          " prompt and run an LLM judge to merge newly learned opinions that"
+          " duplicate first-pass opinions (default: %(default)s). Enable if"
+          " second-pass learning produces near-duplicate opinions."
       ),
   )
   parser.add_argument(
@@ -496,7 +512,9 @@ async def main() -> Optional[str]:
       default=False,
       help=(
           "Skip autoraters during second-pass recategorization"
-          " (--recategorize_other)."
+          " (--recategorize_other), even when first-pass autoraters are"
+          " enabled (default: %(default)s). Enable to avoid the latency and"
+          " API cost of a second autorater pass."
       ),
   )
 
@@ -618,7 +636,7 @@ async def main() -> Optional[str]:
           args, "recategorize_other_skip_autoraters", False
       ),
       dedup_new_opinions=getattr(args, "dedup_new_opinions", False),
-      offer_other_opinion=getattr(args, "offer_other_opinion", True),
+      offer_other_opinion=getattr(args, "offer_other_opinion", False),
       offer_other_opinion_on_recategorize=getattr(
           args, "offer_other_opinion_on_recategorize", None
       ),
@@ -633,7 +651,7 @@ async def main() -> Optional[str]:
           categorization.DEFAULT_AUTORATER_MIN_SCORE,
       ),
       opinion_matching=getattr(
-          args, "opinion_matching", prompts.OPINION_MATCHING_IDENTICAL
+          args, "opinion_matching", prompts.OPINION_MATCHING_SUPPORTS
       ),
   )
 

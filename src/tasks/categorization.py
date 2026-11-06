@@ -440,7 +440,7 @@ async def learn_global_opinions(
     model: genai_model.GenaiModel,
     additional_context: str | None = None,
     max_concurrent_calls: int | None = None,
-    offer_other_opinion: bool = True,
+    offer_other_opinion: bool = False,
     fail_on_opinion_chunk_error: bool = False,
 ) -> dict[str, Any]:
   """Learns opinions for all topics globally using concurrent batching.
@@ -453,7 +453,8 @@ async def learn_global_opinions(
         model.
       max_concurrent_calls: Optional maximum number of concurrent LLM calls.
         If None, the model's default is used.
-      offer_other_opinion: Whether to append an 'Other' opinion to learned menus.
+      offer_other_opinion: Whether to append an 'Other' opinion to learned menus
+        (default: False).
       fail_on_opinion_chunk_error: If True, raises a ValueError immediately when
         any opinion-learning chunk fails. If False, logs a warning and skips
         failed chunks.
@@ -859,8 +860,8 @@ async def categorize_opinions(
     max_concurrent_calls: int | None = None,
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
-    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
-    offer_other_opinion: bool = True,
+    opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
+    offer_other_opinion: bool = False,
     pass_label: str = "pass1",
 ) -> Iterable[Statement]:
   """Categorizes opinions within the provided topics for each statement.
@@ -877,9 +878,11 @@ async def categorize_opinions(
       receive before it is defaulted to 'Other'.
     autorater_min_score: Minimum integer autorater score (0-4 rubric) for an
       opinion assignment to pass.
-    opinion_matching: Opinion matching rules for categorization and
-      autoraters, one of prompts.OPINION_MATCHING_MODES.
-    offer_other_opinion: Whether to offer an 'Other' option to the model.
+    opinion_matching: Opinion matching rules for categorization and autoraters:
+      'supports' (core claim, default) or 'identical' (every key concept). One
+      of prompts.OPINION_MATCHING_MODES.
+    offer_other_opinion: Whether to offer an 'Other' option to the model
+      (default: False).
     pass_label: Label used in the 'Other' provenance log line and run_health
       events (e.g. "pass1", "pass2").
 
@@ -1205,8 +1208,8 @@ def _prepare_opinion_prompts_for_pending_work(
     input_statements_map: dict[str, Statement],
     additional_context: str | None,
     attempt: int,
-    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
-    offer_other_opinion: bool = True,
+    opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
+    offer_other_opinion: bool = False,
 ) -> list[dict[str, Any]]:
   """Prepares opinion categorization prompts for all pending topics.
 
@@ -1364,7 +1367,7 @@ async def _run_opinion_autoraters(
     autorater_retry_counts: dict[tuple[str, str], int],
     max_autorater_retries: int = DEFAULT_MAX_AUTORATER_RETRIES,
     autorater_min_score: int = DEFAULT_AUTORATER_MIN_SCORE,
-    opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
+    opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
     max_concurrent_calls: int | None = None,
     other_provenance: dict[tuple[str, str], str] | None = None,
 ) -> Tuple[int, dict[str, list[Statement]], list[dict], float, float]:
@@ -1717,7 +1720,7 @@ async def recategorize_other_quotes(
     recategorize_all: bool = True,
     max_concurrent_calls: int | None = None,
     dedup_new_opinions: bool = False,
-    offer_other_opinion: bool = True,
+    offer_other_opinion: bool = False,
     **categorize_kwargs: Any,
 ) -> tuple[list[Statement], dict[str, NestedTopic]]:
   """Reruns opinion learning on 'Other' quotes and recategorizes.
@@ -1736,7 +1739,8 @@ async def recategorize_other_quotes(
     dedup_new_opinions: If True, existing opinions are passed to the learner as
       a hard constraint and an LLM judge maps each new opinion that is equivalent
       to an existing (or earlier new) opinion onto it, dropping the duplicate.
-    offer_other_opinion: Whether to append an 'Other' opinion to learned menus.
+    offer_other_opinion: Whether to append an 'Other' opinion to learned menus
+      (default: False).
     **categorize_kwargs: Forwarded to `categorize_opinions`.
 
   Returns:

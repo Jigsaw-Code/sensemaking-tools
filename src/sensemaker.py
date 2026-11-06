@@ -77,12 +77,12 @@ class Sensemaker:
       max_concurrent_calls: Optional[int] = None,
       max_autorater_retries: int = categorization.DEFAULT_MAX_AUTORATER_RETRIES,
       autorater_min_score: int = categorization.DEFAULT_AUTORATER_MIN_SCORE,
-      opinion_matching: str = prompts.OPINION_MATCHING_IDENTICAL,
+      opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
       recategorize_other: bool = False,
       pass_existing_opinions_to_recategorize: bool = True,
       recategorize_other_skip_autoraters: bool = False,
       dedup_new_opinions: bool = False,
-      offer_other_opinion: bool = True,
+      offer_other_opinion: bool = False,
       offer_other_opinion_on_recategorize: Optional[bool] = None,
   ) -> Iterable[custom_types.Statement]:
     """Categorize statements into topics and opinions using an LLM.
@@ -120,9 +120,8 @@ class Sensemaker:
         autorater_min_score: Minimum integer autorater score (0-4 rubric) for
           an opinion assignment to pass.
         opinion_matching: Opinion matching rules for categorization and
-          autoraters: 'identical' (quote must explicitly support every key
-          concept) or 'supports' (quote must support the core claim). One of
-          prompts.OPINION_MATCHING_MODES.
+          autoraters: 'supports' (core claim, default) or 'identical' (every
+          key concept). One of prompts.OPINION_MATCHING_MODES.
         recategorize_other: Whether to run a secondary pass on quotes assigned
           to 'Other' to discover new emergent opinions and re-categorize.
         pass_existing_opinions_to_recategorize: Whether to pass existing
@@ -131,8 +130,8 @@ class Sensemaker:
           second-pass recategorization.
         dedup_new_opinions: Whether to run an LLM judge to deduplicate newly
           learned opinions against existing opinions.
-        offer_other_opinion: Whether to offer an 'Other' opinion option during
-          opinion categorization.
+        offer_other_opinion: Whether to include 'Other' in the input opinion
+          menu presented to the categorizer (default: False).
         offer_other_opinion_on_recategorize: Optional override for
           offer_other_opinion specifically during second-pass recategorization.
 

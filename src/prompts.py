@@ -624,11 +624,12 @@ Main Rules:
 """
 
 # Opinion matching modes for opinion categorization (and the autorater rubric).
-# "identical": the original ultra-literal / holistic rules above (every key
-#   concept of the opinion must be explicitly supported by the quote).
-# "supports": a quote matches an opinion when it clearly supports the
+# "supports" (default): a quote matches an opinion when it clearly supports the
 #   opinion's core claim; supporting details, examples, mechanisms and
 #   qualifiers in the opinion need not all be mentioned.
+# "identical": the original ultra-literal / holistic rules above (every key
+#   concept of the opinion must be explicitly supported by the quote;
+#   reproduces legacy runs byte-for-byte).
 OPINION_MATCHING_IDENTICAL = "identical"
 OPINION_MATCHING_SUPPORTS = "supports"
 OPINION_MATCHING_MODES = (OPINION_MATCHING_IDENTICAL, OPINION_MATCHING_SUPPORTS)
@@ -645,7 +646,7 @@ Main Rules:
 
 
 def get_categorization_opinion_rules(
-    opinion_matching: str = OPINION_MATCHING_IDENTICAL,
+    opinion_matching: str = OPINION_MATCHING_SUPPORTS,
 ) -> str:
   """Returns the main opinion-matching rules for the given matching mode.
 
@@ -711,14 +712,15 @@ Response must be a valid JSON object matching StatementRecordList schema. Exampl
 
 def get_categorization_opinion_prompt(
     opinions_json_str: str,
-    opinion_matching: str = OPINION_MATCHING_IDENTICAL,
+    opinion_matching: str = OPINION_MATCHING_SUPPORTS,
 ) -> str:
   """Builds the opinion categorization prompt.
 
   Args:
     opinions_json_str: JSON list of the opinions offered for the topic.
-    opinion_matching: One of OPINION_MATCHING_MODES. "identical" (default)
-      reproduces the original prompt byte-for-byte.
+    opinion_matching: One of OPINION_MATCHING_MODES. "supports" (default)
+      matches quotes supporting the opinion's core claim. "identical"
+      reproduces the original literal prompt byte-for-byte.
 
   Returns:
     The prompt instructions.

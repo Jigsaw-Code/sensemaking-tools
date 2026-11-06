@@ -431,9 +431,21 @@ class OpinionCategorizationCorrectnessPointwiseEvaluationMetric(
 class OpinionCategorizationEvaluationMetrics(EvaluationMetrics):
   """Metrics for evaluating opinion categorization correctness."""
 
-  def __init__(self):
+  def __init__(
+      self,
+      opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
+  ):
+    if opinion_matching not in prompts.OPINION_MATCHING_MODES:
+      raise ValueError(
+          f"Unknown opinion matching mode {opinion_matching!r}; expected one"
+          f" of {prompts.OPINION_MATCHING_MODES}."
+      )
     name = "OpinionCategorizationCorrectness"
-    criteria = prompts.eval_opinion_categorization_correctness_criteria_identical
+    criteria = (
+        prompts.eval_opinion_categorization_correctness_criteria_supports
+        if opinion_matching == prompts.OPINION_MATCHING_SUPPORTS
+        else prompts.eval_opinion_categorization_correctness_criteria_identical
+    )
     additional_input_variables = [
         quote_extractor.TOPIC_COL,
         quote_extractor.QUOTE_COL,
