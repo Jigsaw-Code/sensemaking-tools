@@ -19,7 +19,7 @@ sends one state and a set of questions; the answers come back as choice, noul,
 or score answers. Hosts share this request shape and differ in path and auth:
 Ollama serves ``POST /v1/systemone`` locally, and hosted services take a
 bearer key at their own endpoint. Tested with Clef on Ollama and Workers AI,
-TypeSafe Jev, and Inception Mercury Decide.
+TypeSafe Jev, Inception Mercury Decide, SubQ Snap, and Liquid d1-ultra.
 """
 
 from __future__ import annotations
@@ -41,9 +41,9 @@ import pydantic
 # fewer, so the client takes its own limit.
 MAX_QUESTIONS: Final = 64
 MAX_CHOICE_OPTIONS: Final = 26
+# Request size that Ollama accepts. Hosted long-context models accept far
+# larger states, so the client takes its own limit.
 MAX_BODY_BYTES: Final = 64 * 1024
-# Leave headroom under the server's 64 KiB text limit while packing.
-PACK_BODY_BYTES: Final = 60 * 1024
 DEFAULT_TIMEOUT_SECONDS: Final = 600
 # Attempts per request when the host fails transiently (429, 5xx, no answer).
 MAX_ATTEMPTS: Final = 3
@@ -376,6 +376,7 @@ class SystemOneClient:
       api_key: str | None = None,
       max_questions: int = MAX_QUESTIONS,
       retry_delay_seconds: float = 1.0,
+      max_body_bytes: int = MAX_BODY_BYTES,
   ):
     """Initializes the client.
 
@@ -392,6 +393,8 @@ class SystemOneClient:
       max_questions: Most questions the host accepts in one request.
       retry_delay_seconds: Backoff unit between attempts after a transient
         failure; the nth retry waits n units.
+      max_body_bytes: Largest request body the host accepts, in bytes. The
+        state is sent with every request, so this bounds the state.
     """
     if max_concurrent < 1:
       raise SystemOneError(
@@ -403,6 +406,11 @@ class SystemOneClient:
           FailureKind.CONFIG,
           f"max_questions must be >= 1, got {max_questions}.",
       )
+    if max_body_bytes < 1:
+      raise SystemOneError(
+          FailureKind.CONFIG,
+          f"max_body_bytes must be >= 1, got {max_body_bytes}.",
+      )
     self.model = _require_text(model, "model")
     self._endpoint = _require_text(endpoint, "endpoint").rstrip("/")
     self._transport = transport or functools.partial(
@@ -411,6 +419,7 @@ class SystemOneClient:
     self._max_concurrent = max_concurrent
     self._keep_alive = keep_alive
     self._max_questions = max_questions
+    self._max_body_bytes = max_body_bytes
     self._retry_delay_seconds = retry_delay_seconds
     self._limiter: asyncio.Semaphore | None = None
 
@@ -426,8 +435,9 @@ class SystemOneClient:
   ) -> dict[str, Answer]:
     """Asks every question about the same state.
 
-    Questions are packed into requests of at most max_questions, and under
-    60 KiB. Answers are keyed by the caller's question ids.
+    Questions are packed into requests of at most max_questions, with a
+    sixteenth of max_body_bytes left as headroom (60 KiB of Ollama's 64 KiB).
+    Answers are keyed by the caller's question ids.
     """
     _require_text(state, "state")
     if not questions:
@@ -446,14 +456,19 @@ class SystemOneClient:
     }
     answers: dict[str, Answer] = {}
     for pack in _packs(
-        state, self.model, self._keep_alive, dumped, self._max_questions
+        state,
+        self.model,
+        self._keep_alive,
+        dumped,
+        self._max_questions,
+        self._max_body_bytes,
     ):
       body = json.dumps(pack).encode("utf-8")
-      if len(body) > MAX_BODY_BYTES:
+      if len(body) > self._max_body_bytes:
         raise SystemOneError(
             FailureKind.PAYLOAD,
             f"decision request is {len(body)} bytes; the limit is"
-            f" {MAX_BODY_BYTES}.",
+            f" {self._max_body_bytes}.",
         )
       raw = await self._post(body)
       parsed = _parse_response(raw)
@@ -495,8 +510,14 @@ def _packs(
     keep_alive: str | None,
     questions: dict[str, dict[str, object]],
     max_questions: int,
+    max_body_bytes: int,
 ) -> list[dict[str, object]]:
   """Splits questions so each request fits the server limits."""
+  pack_bytes = max_body_bytes - max_body_bytes // 16
+  too_big = (
+      f"a single question with this state does not fit in {max_body_bytes}"
+      " bytes; hosts that accept longer states take a higher max_body_bytes."
+  )
   items = list(questions.items())
   packs: list[list[tuple[str, dict[str, object]]]] = []
   current: list[tuple[str, dict[str, object]]] = []
@@ -504,20 +525,14 @@ def _packs(
     trial = current + [item]
     if (
         len(trial) > max_questions
-        or _nbytes(state, model, keep_alive, trial) > PACK_BODY_BYTES
+        or _nbytes(state, model, keep_alive, trial) > pack_bytes
     ):
       if not current:
-        raise SystemOneError(
-            FailureKind.PAYLOAD,
-            "a single question does not fit in a System One request.",
-        )
+        raise SystemOneError(FailureKind.PAYLOAD, too_big)
       packs.append(current)
       current = [item]
-      if _nbytes(state, model, keep_alive, current) > MAX_BODY_BYTES:
-        raise SystemOneError(
-            FailureKind.PAYLOAD,
-            "a single question does not fit in a System One request.",
-        )
+      if _nbytes(state, model, keep_alive, current) > max_body_bytes:
+        raise SystemOneError(FailureKind.PAYLOAD, too_big)
     else:
       current = trial
   if current:

@@ -156,6 +156,7 @@ With only these two set, requests go to `POST /v1/systemone` on a local Ollama 0
 * `DECISION_MODEL_API_KEY`: bearer key for a hosted endpoint.
 * `DECISION_MODEL_KEEP_ALIVE`: how long Ollama keeps the model loaded between stages (default `30m` for the default local server). Once `DECISION_MODEL_HOST` is set it is sent only when given, because other servers reject the field.
 * `DECISION_MAX_QUESTIONS`: most questions per request (default `64`, Ollama's limit). Lower it for hosts with a smaller limit.
+* `DECISION_MAX_BODY_BYTES`: largest request body in bytes (default `65536`, Ollama's limit). Every request carries the whole state, so this bounds how long a state can be. Raise it for hosts that read long states, such as SubQ Snap.
 * `DECISION_THRESHOLD`: probability cutoff for labels and equivalence, between 0 and 1 (default `0.5`).
 * `DECISION_MAX_CONCURRENT`: requests in flight (default `1`, because a local runner has one slot).
 
@@ -166,6 +167,8 @@ Locally, Clef and `pplx-decider:27b-q4_K_M` have been tested on Ollama 0.40.11. 
 | Clef on Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/run/@cf/cloudflare/clef` | `clef` |
 | TypeSafe Jev | `https://api.typesafe.ai` | `jev-latest` |
 | Inception Mercury Decide | `https://api.inceptionlabs.ai/v1/decisions` | `mercury-decide` |
+| SubQ Snap | `https://api.subq.ai` | `subq-snap-1.1` |
+| Liquid d1-ultra | `https://api.liquid.ai/decisions/v1/systemone` | `d1-ultra` |
 
 Assignment asks one yes/no question per label, and Other is not asked: it is assigned only when no other label clears the threshold. Labels beyond the question limit are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts are a score question on the 0-4 rubric, read at its most likely level, with no written explanation; a level below `autorater_min_score` is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
 
