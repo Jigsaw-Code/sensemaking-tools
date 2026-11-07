@@ -741,6 +741,82 @@ class DecisionTests(unittest.TestCase):
     self.assertIn("0.35.1", str(caught.exception))
     self.assertIn("DECISION_MODEL_HOST", str(caught.exception))
 
+  def test_extract_answer_spans_come_back_in_state_order(self):
+    """Tests the extract wire format, span order, and code-point offsets."""
+    state = "🚲 Bikes! Build protected lanes. Fix potholes."
+    bodies = []
+
+    def transport(url: str, body: bytes) -> bytes:
+      """Returns two spans out of order for the one extract question."""
+      bodies.append(json.loads(body))
+      spans = [
+          {"text": "Fix potholes", "start": 32, "end": 44, "confidence": 0.7},
+          {"text": "Bikes", "start": 2, "end": 7, "confidence": 0.9},
+      ]
+      return json.dumps({
+          "model": "mercury-decide",
+          "answers": {
+              "q": {
+                  "type": "extract",
+                  "spans": {"q": spans},
+                  "not_stated": {"q": 0.01},
+              }
+          },
+      }).encode("utf-8")
+
+    client = systemone.SystemOneClient(
+        model="mercury-decide", transport=transport
+    )
+    answers = asyncio.run(
+        client.ask(
+            state, {"q": systemone.ExtractQuestion(instructions="Ideas.")}
+        )
+    )
+
+    answer = answers["q"]
+    self.assertIsInstance(answer, systemone.ExtractAnswer)
+    assert isinstance(answer, systemone.ExtractAnswer)
+    self.assertEqual([s.text for s in answer.spans], ["Bikes", "Fix potholes"])
+    self.assertEqual(answer.not_stated, 0.01)
+    self.assertEqual(
+        bodies[0]["questions"]["q"],
+        {"type": "extract", "instructions": "Ideas."},
+    )
+
+  def test_extract_span_off_its_offsets_is_a_parse_error(self):
+    """Tests that a span whose text is not at its offsets is rejected."""
+
+    def transport(url: str, body: bytes) -> bytes:
+      """Returns a span whose offsets point at different text."""
+      return json.dumps({
+          "model": "mercury-decide",
+          "answers": {
+              "q": {
+                  "type": "extract",
+                  "spans": {
+                      "q": [{
+                          "text": "lanes",
+                          "start": 0,
+                          "end": 5,
+                          "confidence": 0.9,
+                      }]
+                  },
+              }
+          },
+      }).encode("utf-8")
+
+    client = systemone.SystemOneClient(
+        model="mercury-decide", transport=transport
+    )
+    with self.assertRaises(systemone.SystemOneError) as caught:
+      asyncio.run(
+          client.ask(
+              "Build protected lanes.",
+              {"q": systemone.ExtractQuestion(instructions="Ideas.")},
+          )
+      )
+    self.assertEqual(caught.exception.kind, systemone.FailureKind.PARSE)
+
   def test_installed_client_enables_the_decision_path(self):
     """Tests that an installed client turns the decision path on and off."""
     client, _ = _client()

@@ -16,12 +16,14 @@
 
 import os
 import logging
+from src.models import extraction
 from src.models import systemone
 from src.models.base_model import BaseModel
 from src.models.genai_model import GenaiModel
 from src.models.openai_compatible_model import OpenAICompatibleModel
 
 DECISION_ENDPOINT_SYSTEMONE = "systemone"
+EXTRACT_ENDPOINT_CLAIRIC = "clairic"
 _DEFAULT_DECISION_THRESHOLD = 0.5
 # Keeps the default local Ollama model loaded between pipeline stages.
 _OLLAMA_KEEP_ALIVE = "30m"
@@ -101,29 +103,109 @@ def get_decision_model() -> systemone.SystemOneClient | None:
         missing, DECISION_MODEL_HOST is not a valid host, or a numeric
         setting is not a positive integer.
   """
-  endpoint_type = os.getenv("DECISION_ENDPOINT_TYPE")
+  return _systemone_client_from_env("DECISION")
+
+
+def get_extractor(prefix: str) -> extraction.Extractor | None:
+  """Creates the extraction model configured under a prefix, if any.
+
+  Extraction models mark exact spans of text, which judgment-only hosts do
+  not do, so each stage that extracts has its own prefix: QUOTE for span
+  quotes and CONTEXT for participant context.
+
+  Environment Variables (shown for the QUOTE prefix):
+      QUOTE_ENDPOINT_TYPE: 'systemone' for a System One host that answers
+        extract questions, such as Inception Mercury Decide, or 'clairic' for
+        Cloudflare's Clairic on Workers AI. Unset turns the stage's span path
+        off.
+      QUOTE_MODEL: Model name for 'systemone', e.g. 'mercury-decide'.
+      QUOTE_MODEL_HOST: Host or endpoint URL. For 'clairic' it defaults to the
+        Workers AI run URL for CLOUDFLARE_ACCOUNT_ID.
+      QUOTE_MODEL_API_KEY: Bearer key (a Cloudflare API token for 'clairic').
+      QUOTE_MAX_CONCURRENT: Maximum requests in flight (default 1).
+      QUOTE_MODEL_KEEP_ALIVE, QUOTE_MAX_QUESTIONS: As for DECISION_*, with
+        'systemone' only.
+
+  Args:
+      prefix: Variable prefix, e.g. 'QUOTE'.
+
+  Returns:
+      An Extractor, or None when {prefix}_ENDPOINT_TYPE is unset.
+
+  Raises:
+      SystemOneError: If the settings under the prefix are invalid.
+  """
+  endpoint_type = os.getenv(f"{prefix}_ENDPOINT_TYPE")
+  if not endpoint_type:
+    return None
+  if endpoint_type == DECISION_ENDPOINT_SYSTEMONE:
+    client = _systemone_client_from_env(prefix)
+    return extraction.SystemOneExtractor(client) if client else None
+  if endpoint_type != EXTRACT_ENDPOINT_CLAIRIC:
+    raise systemone.SystemOneError(
+        systemone.FailureKind.CONFIG,
+        f"Unknown {prefix}_ENDPOINT_TYPE: {endpoint_type}",
+    )
+  host = os.getenv(f"{prefix}_MODEL_HOST")
+  if host and host.strip():
+    endpoint = host.strip()
+  else:
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    if not account:
+      raise systemone.SystemOneError(
+          systemone.FailureKind.CONFIG,
+          f"{prefix}_MODEL_HOST or CLOUDFLARE_ACCOUNT_ID must be set when"
+          f" {prefix}_ENDPOINT_TYPE is '{EXTRACT_ENDPOINT_CLAIRIC}'.",
+      )
+    endpoint = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        f"{account}/ai/run/{extraction.CLAIRIC_MODEL}"
+    )
+  logging.info(f"Creating ClairicExtractor with endpoint: {endpoint}")
+  return extraction.ClairicExtractor(
+      endpoint=endpoint,
+      api_key=os.getenv(f"{prefix}_MODEL_API_KEY") or None,
+      max_concurrent=_positive_int_env(f"{prefix}_MAX_CONCURRENT", 1),
+  )
+
+
+def _systemone_client_from_env(
+    prefix: str,
+) -> systemone.SystemOneClient | None:
+  """Builds a System One client from the variables under one prefix.
+
+  Args:
+    prefix: Variable prefix, e.g. 'DECISION' for DECISION_ENDPOINT_TYPE.
+
+  Returns:
+    A SystemOneClient, or None when {prefix}_ENDPOINT_TYPE is unset.
+
+  Raises:
+    SystemOneError: If a setting under the prefix is invalid.
+  """
+  endpoint_type = os.getenv(f"{prefix}_ENDPOINT_TYPE")
   if not endpoint_type:
     return None
   if endpoint_type != DECISION_ENDPOINT_SYSTEMONE:
     raise systemone.SystemOneError(
         systemone.FailureKind.CONFIG,
-        f"Unknown DECISION_ENDPOINT_TYPE: {endpoint_type}",
+        f"Unknown {prefix}_ENDPOINT_TYPE: {endpoint_type}",
     )
-  model = os.getenv("DECISION_MODEL")
+  model = os.getenv(f"{prefix}_MODEL")
   if not model:
     raise systemone.SystemOneError(
         systemone.FailureKind.CONFIG,
-        "DECISION_MODEL must be set when DECISION_ENDPOINT_TYPE is"
+        f"{prefix}_MODEL must be set when {prefix}_ENDPOINT_TYPE is"
         f" '{DECISION_ENDPOINT_SYSTEMONE}'.",
     )
-  host = os.getenv("DECISION_MODEL_HOST")
+  host = os.getenv(f"{prefix}_MODEL_HOST")
   endpoint = (
       systemone.endpoint_url(host)
       if host and host.strip()
       else systemone.DEFAULT_ENDPOINT
   )
-  api_key = os.getenv("DECISION_MODEL_API_KEY") or None
-  keep_alive = os.getenv("DECISION_MODEL_KEEP_ALIVE") or (
+  api_key = os.getenv(f"{prefix}_MODEL_API_KEY") or None
+  keep_alive = os.getenv(f"{prefix}_MODEL_KEEP_ALIVE") or (
       None if host and host.strip() else _OLLAMA_KEEP_ALIVE
   )
   logging.info(
@@ -135,9 +217,9 @@ def get_decision_model() -> systemone.SystemOneClient | None:
       api_key=api_key,
       keep_alive=keep_alive,
       max_questions=_positive_int_env(
-          "DECISION_MAX_QUESTIONS", systemone.MAX_QUESTIONS
+          f"{prefix}_MAX_QUESTIONS", systemone.MAX_QUESTIONS
       ),
-      max_concurrent=_positive_int_env("DECISION_MAX_CONCURRENT", 1),
+      max_concurrent=_positive_int_env(f"{prefix}_MAX_CONCURRENT", 1),
   )
 
 
