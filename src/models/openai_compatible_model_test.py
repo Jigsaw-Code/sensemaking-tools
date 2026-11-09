@@ -301,9 +301,12 @@ class OpenAICompatibleModelTest(unittest.TestCase):
     self.assertEqual(llm_stats.iloc[0]['api_calls_made'], 3)
     self.assertEqual(llm_stats.iloc[0]['non_quota_failures'], 1)
 
-  @patch.dict('os.environ', {'OLLAMA_CONTEXT_LENGTH': '8192'})
+  @patch.dict(
+      'os.environ',
+      {'OLLAMA_CONTEXT_LENGTH': '8192', 'OPENAI_REASONING_EFFORT': 'none'},
+  )
   @patch('src.models.openai_compatible_model.AsyncOpenAI')
-  def test_generate_content_passes_ollama_context_length(
+  def test_generate_content_passes_ollama_context_length_and_reasoning_effort(
       self, mock_async_openai
   ):
     mock_client = mock_async_openai.return_value
@@ -322,6 +325,7 @@ class OpenAICompatibleModelTest(unittest.TestCase):
     )
     _, kwargs = mock_client.chat.completions.create.call_args
     self.assertEqual(kwargs.get('extra_body'), {'options': {'num_ctx': 8192}})
+    self.assertEqual(kwargs.get('reasoning_effort'), 'none')
 
   @patch('src.models.openai_compatible_model.AsyncOpenAI')
   def test_generate_content_timeout_error_has_non_empty_error_message(

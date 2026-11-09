@@ -48,12 +48,12 @@ print_step() {
 
 OLLAMA_SERVER_PID=""
 cleanup() {
-  if [[ "$MODEL_NAME" == gemma* ]]; then
+  if [[ "$MODEL_NAME" == gemma* ]] && [[ -n "$OLLAMA_SERVER_PID" ]]; then
     printf "\nTearing down local Gemma server resources...\n"
     if command -v ollama >/dev/null 2>&1; then
       ollama stop "$MODEL_NAME" >/dev/null 2>&1 || true
     fi
-    if [[ -n "$OLLAMA_SERVER_PID" ]] && kill -0 "$OLLAMA_SERVER_PID" 2>/dev/null; then
+    if kill -0 "$OLLAMA_SERVER_PID" 2>/dev/null; then
       kill "$OLLAMA_SERVER_PID" 2>/dev/null || true
       wait "$OLLAMA_SERVER_PID" 2>/dev/null || true
     fi
@@ -62,21 +62,41 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ "$MODEL_NAME" == gemma* ]]; then
-  if ! command -v ollama >/dev/null 2>&1; then
-    echo "Error: 'ollama' is required to run local Gemma models ($MODEL_NAME), but was not found in PATH." >&2
-    exit 1
+  if [[ -z "${OLLAMA_HOST:-}" ]] && [[ -f "/tmp/gce_ollama_active_host" ]]; then
+    CANDIDATE_GCE_HOST="$(cat /tmp/gce_ollama_active_host 2>/dev/null || true)"
+    if [[ -n "$CANDIDATE_GCE_HOST" ]] && curl -sf "http://${CANDIDATE_GCE_HOST}/api/tags" >/dev/null 2>&1; then
+      export OLLAMA_HOST="$CANDIDATE_GCE_HOST"
+    fi
+  fi
+  export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
+  if [[ "$MODEL_NAME" == "gemma3:270m" ]]; then
+    export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-8192}"
+    export OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-1024}"
+    export OPENAI_FREQUENCY_PENALTY="${OPENAI_FREQUENCY_PENALTY:-0.5}"
+    export MAX_BATCH_TOKENS="${MAX_BATCH_TOKENS:-1500}"
+    export MAX_ITEMS_PER_BATCH="${MAX_ITEMS_PER_BATCH:-2}"
+  else
+    export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-65536}"
+    export OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-8192}"
+    export OPENAI_REASONING_EFFORT="${OPENAI_REASONING_EFFORT:-none}"
+    export OPENAI_FREQUENCY_PENALTY="${OPENAI_FREQUENCY_PENALTY:-0.0}"
+    export MAX_BATCH_TOKENS="${MAX_BATCH_TOKENS:-3000}"
+    export MAX_ITEMS_PER_BATCH="${MAX_ITEMS_PER_BATCH:-5}"
   fi
 
-  # Force CPU execution for the local Ollama server.
-  export OLLAMA_NUM_GPU=0
-  export OLLAMA_LLM_LIBRARY="cpu"
-  export CUDA_VISIBLE_DEVICES=""
-  export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-8192}"
-  export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
-
-  if ollama list >/dev/null 2>&1; then
-    print_step "Reusing running local Ollama server at $OLLAMA_HOST for $MODEL_NAME"
+  if curl -sf "http://${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+    print_step "Reusing running Ollama server at $OLLAMA_HOST for $MODEL_NAME"
   else
+    if ! command -v ollama >/dev/null 2>&1; then
+      echo "Error: No Ollama server reachable at $OLLAMA_HOST and 'ollama' was not found in PATH." >&2
+      exit 1
+    fi
+
+    # Force CPU execution for the local fallback Ollama server.
+    export OLLAMA_NUM_GPU=0
+    export OLLAMA_LLM_LIBRARY="cpu"
+    export CUDA_VISIBLE_DEVICES=""
+
     print_step "Starting local Ollama server on CPU ($OLLAMA_HOST) for $MODEL_NAME"
     ollama serve > "$WORKING_DIR/ollama_server.log" 2>&1 &
     OLLAMA_SERVER_PID=$!
@@ -97,20 +117,18 @@ if [[ "$MODEL_NAME" == gemma* ]]; then
     fi
   fi
 
-  # Ensure the requested Gemma model is available locally.
-  if ! ollama list | awk -v model="$MODEL_NAME" 'NR>1 && ($1 == model || $1 == model ":latest") {found=1} END {exit !found}'; then
-    print_step "Pulling model $MODEL_NAME"
-    ollama pull "$MODEL_NAME"
+  # Ensure the requested Gemma model is available on the target Ollama server.
+  if command -v ollama >/dev/null 2>&1; then
+    if ! ollama list | awk -v model="$MODEL_NAME" 'NR>1 && ($1 == model || $1 == model ":latest") {found=1} END {exit !found}'; then
+      print_step "Pulling model $MODEL_NAME on $OLLAMA_HOST"
+      ollama pull "$MODEL_NAME"
+    fi
   fi
 
   export MODEL_ENDPOINT_TYPE="openai_api_compatible"
   export OPENAI_API_ENDPOINT_URL="http://${OLLAMA_HOST}/v1"
   export OPENAI_API_ENDPOINT_KEY="${GEMINI_API_KEY:-ollama}"
   export OPENAI_RESPONSE_FORMAT_STYLE="openai_json_schema"
-  export OPENAI_MAX_TOKENS="${OPENAI_MAX_TOKENS:-1024}"
-  export OPENAI_FREQUENCY_PENALTY="${OPENAI_FREQUENCY_PENALTY:-0.5}"
-  export MAX_BATCH_TOKENS="${MAX_BATCH_TOKENS:-1500}"
-  export MAX_ITEMS_PER_BATCH="${MAX_ITEMS_PER_BATCH:-2}"
 fi
 
 print_step "Processing the Survey Results"
@@ -128,6 +146,7 @@ python3 -m src.categorization_runner \
   --input_file "$WORKING_DIR/survey_processing_ouput/processed.csv" \
   --output_dir "$WORKING_DIR/categorization_outputs" \
   --skip_autoraters \
+  --max_concurrent_calls "${MAX_CONCURRENT_CALLS:-4}" \
   --gemini_api_key "$GEMINI_API_KEY" \
   --model_name "$MODEL_NAME" \
   --log_level DEBUG

@@ -157,6 +157,11 @@ class OpenAICompatibleModel(BaseModel):
         )
       except ValueError:
         pass
+    if (
+        "reasoning_effort" not in kwargs
+        and os.getenv("OPENAI_REASONING_EFFORT")
+    ):
+      extra_args["reasoning_effort"] = os.environ["OPENAI_REASONING_EFFORT"]
     if "extra_body" not in kwargs and os.getenv("OLLAMA_CONTEXT_LENGTH"):
       try:
         extra_args["extra_body"] = {
