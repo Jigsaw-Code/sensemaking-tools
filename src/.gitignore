@@ -2,5 +2,3 @@
 /.venv
 .DS_Store
 testdata
-*.csv
-!smoke_test_data.csv
