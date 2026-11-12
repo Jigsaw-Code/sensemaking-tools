@@ -40,9 +40,11 @@ In config.json, optionally add these properties
 | `excluded_opinions` | `array` | `[]` | Opinion names (exact match to CSV `opinion` column or `propositions.csv` proposition/opinion) to hide from the report. |
 
 ### 3. Generate the Report
-No dependecies are required to generate the report. Open your terminal/command prompt in the project folder and run:
+Install dependencies once in `src/report_ui/`, then generate the report:
 
 ```bash
+npm install
+
 # Static (default): Best for hosting
 npm run static
 
@@ -61,7 +63,7 @@ All results are in the `output` folder ready to deploy or share. To preview:
 
 ## Programmatic / CLI usage (optional)
 
-The copy-into-`input/` workflow above is unchanged. If your pipeline already has artefacts on disk, you can pass their paths directly instead of copying:
+The copy-into-`input/` workflow above is unchanged. If your pipeline already has artefacts on disk, install dependencies once (`npm install`) and pass paths directly instead of copying:
 
 ```bash
 # Inline (single self-contained HTML) — use --output
@@ -143,7 +145,7 @@ If you are a developer looking to modify the report or build process, here is th
 
 ### Key Commands
 
-*(Note: `npm run preview` and `npm run dev` require you to first install dependencies by running `npm install`.)*
+*(Note: Run `npm install` first to install project dependencies.)*
 
 | Command | Description |
 | :--- | :--- |
@@ -153,7 +155,7 @@ If you are a developer looking to modify the report or build process, here is th
 | `npm run dev` | Runs the data processing steps without a full build cleanup (useful for debugging data logic and a live server for testing and developing features). |
 
 ### Data Pipeline (`data.js`)
-1.  **Ingestion**: Reads `opinions.csv` via `csvtojson`.
+1.  **Ingestion**: Parses `opinions.csv` via `papaparse`.
 2.  **Grouping**: Groups raw rows by `topic`, then by `opinion`.
 4.  **Output**: Generates `data-static.json` (lightweight payload) and `data-inline.json` (heavy payload with all quotes).
 

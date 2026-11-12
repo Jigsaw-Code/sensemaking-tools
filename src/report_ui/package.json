@@ -23,5 +23,8 @@
     "browser-sync": "^3.0.4",
     "express": "^5.2.1",
     "mustache": "^4.2.0"
+  },
+  "dependencies": {
+    "papaparse": "^5.5.3"
   }
 }

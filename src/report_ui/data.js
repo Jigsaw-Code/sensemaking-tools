@@ -10,6 +10,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import Papa from "papaparse";
 
 import { resolveDemographicColors } from "./palette.js";
 
@@ -49,6 +50,23 @@ export function hasBridgingColumn(rows) {
 export function getBridgingScore(row) {
   const num = Number(row[BRIDGING_COLUMN]);
   return Number.isFinite(num) ? num : 0;
+}
+
+/**
+ * Parses CSV text into an array of header-keyed string objects using PapaParse.
+ *
+ * @param {string} csvText - Raw UTF-8 CSV content.
+ * @returns {Object<string, string>[]} Parsed row objects.
+ */
+export function parseCsv(csvText) {
+  const text = csvText.replace(/^\uFEFF/, "");
+  if (text.trim().length === 0) return [];
+  const { data } = Papa.parse(text, {
+    header: true,
+    delimiter: ",",
+    skipEmptyLines: true,
+  });
+  return data;
 }
 
 /**

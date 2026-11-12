@@ -10,11 +10,11 @@
  * @module BuildScript
  */
 
-import { execSync, spawnSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { processReportData, resolveBuildOptions } from "./data.js";
+import { parseCsv, processReportData, resolveBuildOptions } from "./data.js";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -149,25 +149,20 @@ function resetDefaultCtx() {
 }
 
 /**
- * Converts a CSV file to a JSON file using `csvtojson` via `spawnSync`.
- * Avoids shell interpolation of file paths.
+ * Converts a CSV file to a JSON file using `parseCsv` (PapaParse).
  *
  * @param {string} csvPath - Source CSV file path.
  * @param {string} jsonPath - Destination JSON file path.
  */
 function convertCsvToJson(csvPath, jsonPath) {
-  const fd = fs.openSync(jsonPath, "w");
   try {
-    const result = spawnSync("npx", ["-y", "-q", "csvtojson", csvPath], {
-      stdio: ["ignore", fd, "inherit"],
-      cwd: packageRoot,
-    });
-    if (result.error || result.status !== 0) {
-      console.error(`Error converting CSV: ${csvPath}`);
-      process.exit(1);
-    }
-  } finally {
-    fs.closeSync(fd);
+    const csvText = fs.readFileSync(csvPath, "utf-8");
+    const rows = parseCsv(csvText);
+    fs.writeFileSync(jsonPath, JSON.stringify(rows));
+  } catch (e) {
+    console.error(`Error converting CSV: ${csvPath}`);
+    console.error(e.message || e);
+    process.exit(1);
   }
 }
 
@@ -204,8 +199,8 @@ const tasks = {
 
   /**
    * Converts input CSV data to JSON and runs the data processing script.
-   * Uses `csvtojson` for conversion and executes `data.js` (legacy) or
-   * processReportData (explicit paths).
+   * Uses `parseCsv` (PapaParse) for conversion and executes `data.js` (legacy)
+   * or processReportData (explicit paths).
    */
   data: () => {
     console.log("...converting opinions csv to json and processing data");

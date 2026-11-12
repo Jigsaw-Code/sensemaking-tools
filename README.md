@@ -296,6 +296,7 @@ Alternatively, skip the copy step and pass paths explicitly:
 
 ```shell
 cd src/report_ui
+npm install
 node build.js inline \
   --bridging_scores <OUTPUT_DIR>/bridging_scores.csv \
   --summary <OUTPUT_DIR>/report_text/report_data.json \
@@ -326,15 +327,21 @@ You can enhance your report by configuring two additional features before buildi
 
 ##### **View and Build the Report**:
 
+First, install the report generator dependencies once from `src/report_ui`:
+
+```shell
+cd src/report_ui
+npm install
+```
+
 3. **Web Server Deployment (Static)**: Run `npm run build` from the `src/report_ui` directory to output a version optimized for delivery via a web server to `src/report_ui/output/static`.
 4. **Offline Viewing (Inline)**: Run `npm run inline` to output a self-contained version of the report to `src/report_ui/output/inline`.
    * *Note: This may not be suitable for larger conversations.*
 
 *(Optional) Local Development:*
-If you want to view the report using a live local server during development, you will need to install the dev dependencies first:
+If you want to view the report using a live local server during development:
 ```shell
 cd src/report_ui
-npm install
 npm run dev
 ```
 

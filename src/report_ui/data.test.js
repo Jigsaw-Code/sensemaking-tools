@@ -15,6 +15,7 @@ import {
   BRIDGING_COLUMN,
   getBridgingScore,
   hasBridgingColumn,
+  parseCsv,
   processReportData,
 } from "./data.js";
 
@@ -1215,6 +1216,38 @@ describe("processReportData demographic_value_order", () => {
       { value: "Nigeria", count: 4 },
       { value: "Ireland", count: 2 },
       { value: "Australia", count: 1 },
+    ]);
+  });
+});
+
+describe("parseCsv", () => {
+  it("parses RFC 4180 escaped double-quotes immediately followed by commas or closing quotes", () => {
+    const csv = [
+      "participant_id,quote,topic,demo:Country",
+      '3935,"People will become less ""smart"", less testing of AI suggestions.",Human Skills,Australia',
+      '7058,"You might start worrying: ""Am I learning, or leaning on a crutch?""",Education,Nigeria',
+    ].join("\r\n");
+
+    assert.deepEqual(parseCsv(csv), [
+      {
+        participant_id: "3935",
+        quote: 'People will become less "smart", less testing of AI suggestions.',
+        topic: "Human Skills",
+        "demo:Country": "Australia",
+      },
+      {
+        participant_id: "7058",
+        quote: 'You might start worrying: "Am I learning, or leaning on a crutch?"',
+        topic: "Education",
+        "demo:Country": "Nigeria",
+      },
+    ]);
+  });
+
+  it("handles UTF-8 BOM, multiline quoted fields, and trailing empty columns", () => {
+    const csv = '\uFEFFid,text,empty_col\n1,"line one\nline two",\n';
+    assert.deepEqual(parseCsv(csv), [
+      { id: "1", text: "line one\nline two", empty_col: "" },
     ]);
   });
 });
