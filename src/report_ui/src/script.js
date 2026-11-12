@@ -356,7 +356,7 @@ function getTopicData() {
         return {
           ...topic,
           opinions: filteredOpinions,
-          opinionCount: filteredOpinions.length,
+          opinionCount: topic.opinionCount,
           rawQuoteCount,
           quoteCount: rawQuoteCount,
           quoteCountFormatted: formatNumber(rawQuoteCount),
@@ -385,6 +385,9 @@ function createTopicChart() {
   const barHeight = groups.length > 1 ? svgHeight / 2 : svgHeight;
   const borderRadius = groups.length > 1 ? 2 : 4;
   const containerSel = d3.select(`#conversation-overview-chart`);
+  const fullTopicMap = new Map(
+    window.PAYLOAD.topics.map((t) => [t.topicID, t]),
+  );
 
   const render = () => {
     containerSel.html("");
@@ -401,17 +404,27 @@ function createTopicChart() {
       (d) => d.rawQuoteCount,
     );
 
-    const sortedTopicIDs = [...groups[0].topics]
+    const group0TopicMap = new Map(
+      (groups[0]?.topics ?? []).map((t) => [t.topicID, t]),
+    );
+    const activeTopicIDs = new Set(
+      groups.flatMap((g) => g.topics.map((t) => t.topicID)),
+    );
+    const sortedTopicIDs = window.PAYLOAD.topics
+      .filter((t) => activeTopicIDs.has(t.topicID))
       .sort((a, b) => {
         if (a.isOther) return 1;
         if (b.isOther) return -1;
+        const countA = group0TopicMap.get(a.topicID)?.rawQuoteCount ?? 0;
+        const countB = group0TopicMap.get(b.topicID)?.rawQuoteCount ?? 0;
+        if (countA !== countB) return d3.descending(countA, countB);
         return d3.descending(a.rawQuoteCount, b.rawQuoteCount);
       })
       .map((t) => t.topicID);
 
     sortedTopicIDs.forEach((topicID, topicIdx) => {
-      const refTopic = groups[0].topics.find((t) => t.topicID === topicID);
-      if (!refTopic) return;
+      const fullTopic = fullTopicMap.get(topicID);
+      if (!fullTopic) return;
 
       const topicColor = TOPIC_PALETTE[topicIdx % TOPIC_PALETTE.length];
       const hoverColor = d3.color(topicColor).darker(0.8);
@@ -420,18 +433,25 @@ function createTopicChart() {
 
       const opinionsCountText = (
         i18n.chart?.opinionsMeta || "({count} opinions)"
-      ).replace("{count}", formatNumber(refTopic.opinionCount));
+      ).replace("{count}", formatNumber(fullTopic.opinionCount));
 
-      wrapper
+      const header = wrapper
         .append("div")
         .attr("class", "topic-header")
-        .html(
-          `${refTopic.text} <span class="topic-meta">${opinionsCountText}</span>`,
-        );
+        .text(`${fullTopic.text} `);
+      header
+        .append("span")
+        .attr("class", "topic-meta")
+        .text(opinionsCountText);
 
       groups.forEach(({ label, topics, description }) => {
-        const topic = topics.find((t) => t.topicID === topicID);
-        if (!topic) return;
+        const topic = topics.find((t) => t.topicID === topicID) ?? {
+          ...fullTopic,
+          opinions: [],
+          rawQuoteCount: 0,
+          quoteCount: 0,
+          quoteCountFormatted: formatNumber(0),
+        };
 
         const sortedOpinions = [...topic.opinions].sort((a, b) => {
           if (a.isOther) return 1;

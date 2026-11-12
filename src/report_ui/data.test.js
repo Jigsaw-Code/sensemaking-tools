@@ -802,3 +802,255 @@ describe("createFilterCompare modal state & reset", () => {
     assert.equal(activeListeners.size, 1);
   });
 });
+
+describe("createTopicChart comparison topic headers", () => {
+  function mountTopicChart(compareGroups) {
+    const scriptSrc = fs.readFileSync(
+      path.join(packageRoot, "src", "script.js"),
+      "utf-8",
+    );
+    const startIdx = scriptSrc.indexOf("function getTopicData()");
+    const endIdx = scriptSrc.indexOf("function createParticipantChart()", startIdx);
+    assert.ok(
+      startIdx !== -1 && endIdx !== -1,
+      "Could not locate getTopicData/createTopicChart in script.js",
+    );
+    const fnSource = scriptSrc.slice(startIdx, endIdx);
+
+    class MockNode {
+      constructor(tag) {
+        this.tag = tag;
+        this.attrs = new Map();
+        this.classes = new Set();
+        this.children = [];
+        this.textContent = "";
+        this.innerHTML = "";
+        this.styles = new Map();
+        this.handlers = new Map();
+      }
+      setAttr(k, v) {
+        const str = String(v);
+        this.attrs.set(k, str);
+        if (k === "class") {
+          this.classes = new Set(str.split(/\s+/).filter(Boolean));
+        }
+      }
+      getBoundingClientRect() {
+        return { width: 800 };
+      }
+      matchesSingle(token) {
+        if (token.startsWith("#")) return this.attrs.get("id") === token.slice(1);
+        if (token.startsWith(".")) return this.classes.has(token.slice(1));
+        return this.tag === token;
+      }
+      queryAll(selector) {
+        const tokens = selector.trim().split(/\s+/);
+        const search = (node, idx) => {
+          const out = [];
+          for (const child of node.children) {
+            if (child.matchesSingle(tokens[idx])) {
+              if (idx === tokens.length - 1) out.push(child);
+              else out.push(...search(child, idx + 1));
+            }
+            out.push(...search(child, idx));
+          }
+          return out;
+        };
+        return search(this, 0);
+      }
+    }
+
+    const chartEl = new MockNode("div");
+    chartEl.setAttr("id", "conversation-overview-chart");
+
+    const wrap = (nodes, dataItems = null) => {
+      const first = nodes[0] || null;
+      const api = {
+        node: () => first,
+        html(str) {
+          if (str === "") {
+            for (const n of nodes) {
+              n.innerHTML = "";
+              n.children = [];
+            }
+          } else {
+            for (const n of nodes) n.innerHTML = String(str);
+          }
+          return api;
+        },
+        text(str) {
+          for (const n of nodes) n.textContent = String(str);
+          return api;
+        },
+        append(tag) {
+          if (dataItems) {
+            const created = dataItems.map((datum) => {
+              const child = new MockNode(tag);
+              child.__data__ = datum;
+              if (first) first.children.push(child);
+              return child;
+            });
+            return wrap(created);
+          }
+          if (!first) return wrap([]);
+          const child = new MockNode(tag);
+          first.children.push(child);
+          return wrap([child]);
+        },
+        attr(k, v) {
+          nodes.forEach((n, i) => {
+            const val = typeof v === "function" ? v(n.__data__, i) : v;
+            n.setAttr(k, val);
+          });
+          return api;
+        },
+        style(k, v) {
+          nodes.forEach((n, i) => {
+            const val = typeof v === "function" ? v(n.__data__, i) : v;
+            n.styles.set(k, val);
+          });
+          return api;
+        },
+        on(evt, fn) {
+          for (const n of nodes) n.handlers.set(evt, fn);
+          return api;
+        },
+        selectAll() {
+          return {
+            data(arr) {
+              return {
+                enter() {
+                  return wrap(nodes, arr);
+                },
+              };
+            },
+          };
+        },
+      };
+      return api;
+    };
+
+    const opinions = Array.from({ length: 7 }, (_, idx) => ({
+      fullID: `privacy-op-${idx + 1}`,
+      text: `Privacy opinion ${idx + 1}`,
+      count: 2,
+      countFormatted: "2",
+    }));
+
+    const quoteMap = new Map();
+    opinions.forEach((op, idx) => {
+      if (idx < 5) {
+        // First 5 opinions appear in both US and UK
+        quoteMap.set(op.fullID, [
+          { id: op.fullID, quote: "us quote", Country: "United States" },
+          { id: op.fullID, quote: "uk quote", Country: "United Kingdom" },
+        ]);
+      } else {
+        // Last 2 opinions only appear in UK (absent from Group A = US)
+        quoteMap.set(op.fullID, [
+          { id: op.fullID, quote: "uk only quote", Country: "United Kingdom" },
+        ]);
+      }
+    });
+    quoteMap.set("ukonly-op-1", [
+      { id: "ukonly-op-1", quote: "uk exclusive topic quote", Country: "United Kingdom" },
+    ]);
+
+    const sandbox = {
+      compareGroups,
+      quoteMap,
+      i18n: {},
+      TOPIC_PALETTE: ["#4285F4", "#34A853"],
+      lowSampleThreshold: 30,
+      formatNumber: (n) => String(n),
+      formatQuotes: (n) => `${n} Quotes`,
+      tippy: () => {},
+      clearTimeout,
+      setTimeout,
+      addDebouncedResizeListener: () => () => {},
+      window: {
+        PAYLOAD: {
+          topics: [
+            {
+              topicID: "privacy",
+              text: "Privacy, Cybersecurity, and Fraud",
+              opinionCount: 7,
+              rawQuoteCount: 12,
+              quoteCount: 12,
+              quoteCountFormatted: "12",
+              opinions,
+            },
+            {
+              topicID: "ukonly",
+              text: "UK Specific Topic",
+              opinionCount: 3,
+              rawQuoteCount: 1,
+              quoteCount: 1,
+              quoteCountFormatted: "1",
+              opinions: [
+                {
+                  fullID: "ukonly-op-1",
+                  text: "UK opinion 1",
+                  count: 1,
+                  countFormatted: "1",
+                },
+              ],
+            },
+          ],
+        },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+      d3: {
+        select: () => wrap([chartEl]),
+        sum: (arr, fn) => arr.reduce((acc, x) => acc + fn(x), 0),
+        max: (arr, fn) => Math.max(...arr.map(fn)),
+        descending: (a, b) => (b < a ? -1 : b > a ? 1 : 0),
+        color: () => ({ darker: () => "#222" }),
+      },
+    };
+
+    vm.runInNewContext(
+      `${fnSource}\nthis.__getTopicData = getTopicData; this.__createTopicChart = createTopicChart;`,
+      sandbox,
+    );
+    sandbox.__createTopicChart();
+    return {
+      chartEl,
+      groups: sandbox.__getTopicData(),
+    };
+  }
+
+  it("derives topic header opinion counts from the full dataset rather than Group A's filtered opinions", () => {
+    const { chartEl, groups } = mountTopicChart([
+      [{ key: "Country", value: "United States" }],
+      [{ key: "Country", value: "United Kingdom" }],
+    ]);
+
+    // Group A only matched 5 opinions in "privacy", while full dataset has 7
+    assert.equal(groups[0].topics[0].opinions.length, 5);
+    assert.equal(groups[0].topics[0].opinionCount, 7);
+
+    const wrappers = chartEl.queryAll(".topic-wrapper");
+    assert.equal(
+      wrappers.length,
+      2,
+      "Both topics with quotes across any active group should render",
+    );
+
+    const privacyHeader = wrappers[0].queryAll(".topic-header")[0];
+    const privacyMeta = wrappers[0].queryAll(".topic-meta")[0];
+    assert.equal(
+      privacyHeader.textContent.trim(),
+      "Privacy, Cybersecurity, and Fraud",
+    );
+    assert.equal(privacyMeta.textContent, "(7 opinions)");
+
+    // Second topic had 0 quotes in Group A (US) and 1 quote in Group B (UK), but 3 opinions in full dataset
+    const ukHeader = wrappers[1].queryAll(".topic-header")[0];
+    const ukMeta = wrappers[1].queryAll(".topic-meta")[0];
+    assert.equal(ukHeader.textContent.trim(), "UK Specific Topic");
+    assert.equal(ukMeta.textContent, "(3 opinions)");
+    assert.equal(wrappers[1].queryAll(".topic-group").length, 2);
+  });
+});
