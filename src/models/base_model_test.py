@@ -73,5 +73,30 @@ class ResolveMaxConcurrentCallsTest(unittest.TestCase):
           base_model.resolve_max_concurrent_calls(value, default=_DEFAULT)
 
 
+class _DummyModel(base_model.BaseModel):
+  """Minimal concrete BaseModel for testing schema constraint defaults."""
+
+  async def generate_content(self, prompt, run_name, **kwargs):
+    return {"text": "", "error": None}
+
+  async def process_prompts_concurrently(self, prompts, response_parser, **kwargs):
+    raise NotImplementedError
+
+
+class BaseModelSchemaConstraintsTest(unittest.TestCase):
+  """Tests BaseModel schema constraint defaults and constructor overrides."""
+
+  def test_defaults_and_overrides(self):
+    default_model = _DummyModel()
+    self.assertFalse(default_model.strict_array_bounds())
+    self.assertIsNone(default_model.max_constrained_enum_chars())
+
+    overridden = _DummyModel(
+        strict_array_bounds=True, max_constrained_enum_chars=1234
+    )
+    self.assertTrue(overridden.strict_array_bounds())
+    self.assertEqual(overridden.max_constrained_enum_chars(), 1234)
+
+
 if __name__ == "__main__":
   unittest.main()

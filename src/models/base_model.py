@@ -73,6 +73,54 @@ def resolve_max_concurrent_calls(value: int | None, default: int) -> int:
 class BaseModel(ABC):
   """Abstract base class for LLM models."""
 
+  DEFAULT_STRICT_ARRAY_BOUNDS: bool = False
+  DEFAULT_MAX_CONSTRAINED_ENUM_CHARS: int | None = None
+
+  def __init__(
+      self,
+      *,
+      strict_array_bounds: bool | None = None,
+      max_constrained_enum_chars: int | None = None,
+  ):
+    """Initializes BaseModel schema constraint settings.
+
+    Args:
+        strict_array_bounds: Optional override for whether dynamic per-batch
+          schemas should include `min_length`/`max_length` array bounds. If
+          None, `DEFAULT_STRICT_ARRAY_BOUNDS` is used.
+        max_constrained_enum_chars: Optional maximum combined character length
+          of enum values in a per-batch constrained schema before falling back
+          to an unconstrained schema.
+    """
+    self._strict_array_bounds = (
+        self.DEFAULT_STRICT_ARRAY_BOUNDS
+        if strict_array_bounds is None
+        else bool(strict_array_bounds)
+    )
+    self._max_constrained_enum_chars = max_constrained_enum_chars
+
+  def strict_array_bounds(self) -> bool:
+    """Returns True when dynamic per-batch schemas should bound array lengths.
+
+    Cloud FST constraint compilers (such as Gemini's OpenFst engine) unroll
+    bounded arrays (`minItems`/`maxItems`), which multiplies enum DFA states
+    across nested arrays and can exceed server-side state limits. Local
+    pushdown-automaton grammar samplers (e.g., GBNF on OpenAI-compatible
+    endpoints) do not unroll states and benefit from explicit length bounds on
+    smaller open-weights models.
+    """
+    return getattr(
+        self, "_strict_array_bounds", self.DEFAULT_STRICT_ARRAY_BOUNDS
+    )
+
+  def max_constrained_enum_chars(self) -> int | None:
+    """Returns the max combined enum character count for constrained schemas."""
+    return getattr(
+        self,
+        "_max_constrained_enum_chars",
+        self.DEFAULT_MAX_CONSTRAINED_ENUM_CHARS,
+    )
+
   @abstractmethod
   async def generate_content(
       self,

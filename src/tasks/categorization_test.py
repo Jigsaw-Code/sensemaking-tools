@@ -27,6 +27,12 @@ from src.tasks import categorization
 
 class CategorizationTest(unittest.TestCase):
 
+  def _create_mock_model(self) -> MagicMock:
+    mock_model = MagicMock()
+    mock_model.strict_array_bounds.return_value = False
+    mock_model.max_constrained_enum_chars.return_value = None
+    return mock_model
+
   @patch.object(
       categorization, "_process_topic_categorization", new_callable=AsyncMock
   )
@@ -104,7 +110,7 @@ class CategorizationTest(unittest.TestCase):
         ]
       return pd.DataFrame(rows), stats, 0.0, 1.0
 
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     mock_model.process_prompts_concurrently = AsyncMock(
         side_effect=_fake_process
     )
@@ -154,7 +160,7 @@ class CategorizationTest(unittest.TestCase):
     nested_topic = custom_types.NestedTopic(name="Topic A", subtopics=opinions)
     topic_map = {"Topic A": nested_topic}
 
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
     # is independent of max_llm_retries.
     mock_model.max_llm_retries = 20
@@ -244,7 +250,7 @@ class CategorizationTest(unittest.TestCase):
     nested_topic = custom_types.NestedTopic(name="Topic A", subtopics=opinions)
     topic_map = {"Topic A": nested_topic}
 
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
     # is independent of max_llm_retries.
     mock_model.max_llm_retries = 20
@@ -353,7 +359,7 @@ class CategorizationTest(unittest.TestCase):
         )
     ]
     topics = [custom_types.FlatTopic(name="T1")]
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
     # is independent of max_llm_retries.
     mock_model.max_llm_retries = 20
@@ -419,7 +425,7 @@ class CategorizationTest(unittest.TestCase):
         subtopics=[custom_types.FlatTopic(name="Predefined Opinion 1")],
     )
     topics = [predefined_topic, custom_types.FlatTopic(name="Other")]
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     mock_model.process_prompts_concurrently = AsyncMock()
 
     # By default, offer_other_opinion=False preserves subtopics without "Other".
@@ -482,7 +488,7 @@ class CategorizationTest(unittest.TestCase):
         custom_types.FlatTopic(name="T1"),
         custom_types.FlatTopic(name="T2"),
     ]
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     mock_model.max_llm_retries = 3
 
     with patch(
@@ -576,7 +582,7 @@ class CategorizationTest(unittest.TestCase):
         )
     }
 
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
     # is independent of max_llm_retries.
     mock_model.max_llm_retries = 20
@@ -680,7 +686,7 @@ class CategorizationTest(unittest.TestCase):
             name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
         )
     }
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     with self.assertRaises(ValueError):
       asyncio.run(
           categorization.categorize_opinions(
@@ -713,7 +719,7 @@ class CategorizationTest(unittest.TestCase):
             name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
         )
     }
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     for bad_score in (-1, 5):
       with self.subTest(bad_score=bad_score):
         with self.assertRaises(ValueError):
@@ -748,7 +754,7 @@ class CategorizationTest(unittest.TestCase):
             name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
         )
     }
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     mock_model.max_llm_retries = 20
 
     fake_record = custom_types.StatementRecord(
@@ -838,7 +844,7 @@ class CategorizationTest(unittest.TestCase):
             name="T2", subtopics=[custom_types.FlatTopic(name="Op2")]
         ),
     }
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     mock_model.max_llm_retries = 20
 
     t2_call_count = 0
@@ -933,7 +939,7 @@ class CategorizationTest(unittest.TestCase):
             name="T1", subtopics=[custom_types.FlatTopic(name="Op1")]
         )
     }
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     # Use real default (MAX_LLM_RETRIES=20) to ensure autorater retry budget
     # is independent of max_llm_retries.
     mock_model.max_llm_retries = 20
@@ -1112,7 +1118,7 @@ class CategorizationTest(unittest.TestCase):
         )
     }
 
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
 
     # Step 5b learning response: new opinion "OpNew"
     resp_learning = custom_types.OpinionResponseSchema(
@@ -1181,6 +1187,7 @@ class CategorizationTest(unittest.TestCase):
   def test_constrained_categorization_schemas_and_pickling(self):
     import pickle
 
+    mock_model = self._create_mock_model()
     batch = [
         custom_types.Statement(id="101", text="Fix the roads"),
         custom_types.Statement(id="102", text="Unrelated comment"),
@@ -1190,7 +1197,9 @@ class CategorizationTest(unittest.TestCase):
         custom_types.FlatTopic(name="Fire and Rescue"),
         custom_types.FlatTopic(name="Other"),
     ]
-    schema = categorization._build_topic_categorization_schema(batch, topics)
+    schema = categorization._build_topic_categorization_schema(
+        batch, topics, model=mock_model
+    )
     parsed = categorization.parse_response(
         '{"items": [{"id": "101", "topics": [{"name": "Roads"}]}, '
         '{"id": "101", "topics": [{"name": "Other"}]}]}',
@@ -1210,7 +1219,9 @@ class CategorizationTest(unittest.TestCase):
     # Even when "Other" is stripped from target_opinions (--no-offer_other_opinion),
     # "Other" must remain a valid option at the schema level.
     op_schema = categorization._build_opinion_categorization_schema(
-        [("101", "q1")], [custom_types.FlatTopic(name="Pave main streets")]
+        [("101", "q1")],
+        [custom_types.FlatTopic(name="Pave main streets")],
+        model=mock_model,
     )
     parsed_op = categorization.parse_response(
         '{"items": [{"id": "101", "quote_id": "q1", "topics": [{"name":'
@@ -1221,6 +1232,97 @@ class CategorizationTest(unittest.TestCase):
         parsed_op.items, [("101", "q1")]
     )
     self.assertEqual(normalized_op[0].topics[0].name, "Other")
+
+  def test_constrained_categorization_schema_array_bounds_and_size_fallback(
+      self,
+  ):
+    """Tests FST-safe unbounded arrays on GenaiModel vs bounded on OpenAICompatibleModel."""
+    from src.models import genai_model
+    from src.models import openai_compatible_model
+
+    batch = [
+        custom_types.Statement(id="101", text="Fix the roads"),
+        custom_types.Statement(id="102", text="Unrelated comment"),
+    ]
+    topics = [
+        custom_types.FlatTopic(name="Roads"),
+        custom_types.FlatTopic(name="Fire and Rescue"),
+    ]
+    opinion_pairs = [("101", "q1"), ("102", "q2")]
+    opinions = [
+        custom_types.FlatTopic(
+            name=(
+                "The wedding reception should feature a mix of classic disco"
+                " and 80s synth-pop to keep all generations on the dance floor."
+            )
+        ),
+        custom_types.FlatTopic(
+            name=(
+                "High-energy house music should be reserved for a dedicated"
+                " late-night set after older guests leave."
+            )
+        ),
+    ]
+
+    # GenaiModel default: omit minItems/maxItems so Gemini's OpenFst compiler
+    # does not unroll positional copies and exceed its FST height limit (5888),
+    # while still enforcing enum constraints on id, quote_id, and topics[].name.
+    gemini = genai_model.GenaiModel(model_name=MagicMock())
+    self.assertFalse(gemini.strict_array_bounds())
+    self.assertEqual(
+        gemini.max_constrained_enum_chars(),
+        genai_model.MAX_CONSTRAINED_ENUM_CHARS,
+    )
+
+    topic_schema_genai = categorization._build_topic_categorization_schema(
+        batch, topics, model=gemini
+    ).model_json_schema()
+    self.assertNotIn("minItems", topic_schema_genai["properties"]["items"])
+    self.assertNotIn("maxItems", topic_schema_genai["properties"]["items"])
+
+    op_schema_genai = categorization._build_opinion_categorization_schema(
+        opinion_pairs, opinions, model=gemini
+    ).model_json_schema()
+    self.assertNotIn("minItems", op_schema_genai["properties"]["items"])
+    self.assertNotIn("maxItems", op_schema_genai["properties"]["items"])
+
+    # OpenAICompatibleModel default: include minItems/maxItems for local GBNF.
+    with patch("src.models.openai_compatible_model.AsyncOpenAI"):
+      openai_model = openai_compatible_model.OpenAICompatibleModel(
+          model_name="gemma4:26b", endpoint_url="http://localhost:11434/v1"
+      )
+    self.assertTrue(openai_model.strict_array_bounds())
+    self.assertIsNone(openai_model.max_constrained_enum_chars())
+
+    topic_schema_openai = categorization._build_topic_categorization_schema(
+        batch, topics, model=openai_model
+    ).model_json_schema()
+    self.assertEqual(topic_schema_openai["properties"]["items"]["minItems"], 2)
+    self.assertEqual(topic_schema_openai["properties"]["items"]["maxItems"], 2)
+
+    op_schema_openai = categorization._build_opinion_categorization_schema(
+        opinion_pairs, opinions, model=openai_model
+    ).model_json_schema()
+    self.assertEqual(op_schema_openai["properties"]["items"]["minItems"], 2)
+    self.assertEqual(op_schema_openai["properties"]["items"]["maxItems"], 2)
+
+    # Constructor overrides on GenaiModel (e.g., tight max_constrained_enum_chars
+    # falls back to unconstrained StatementRecordList / QuoteOpinionRecordList).
+    gemini_small_enum_cap = genai_model.GenaiModel(
+        model_name=MagicMock(), max_constrained_enum_chars=10
+    )
+    self.assertIs(
+        categorization._build_topic_categorization_schema(
+            batch, topics, model=gemini_small_enum_cap
+        ),
+        categorization.StatementRecordList,
+    )
+    self.assertIs(
+        categorization._build_opinion_categorization_schema(
+            opinion_pairs, opinions, model=gemini_small_enum_cap
+        ),
+        categorization.QuoteOpinionRecordList,
+    )
 
   @patch(
       "src.tasks.categorization.topic_modeling_util.create_chunks",
@@ -1235,7 +1337,7 @@ class CategorizationTest(unittest.TestCase):
         topics=[topic],
         quotes=[custom_types.Quote(id="q1", text="Fix roads", topic=topic)],
     )
-    mock_model = MagicMock()
+    mock_model = self._create_mock_model()
     mock_model.process_prompts_concurrently = AsyncMock(
         return_value=(
             pd.DataFrame([

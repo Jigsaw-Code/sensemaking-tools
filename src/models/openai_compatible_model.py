@@ -17,15 +17,18 @@
 import asyncio
 import logging
 import os
-from typing import Any, Callable, Tuple
-from openai import AsyncOpenAI, RateLimitError
-from pydantic import BaseModel as PydanticBaseModel
-import pandas as pd
-from src.models import base_model
-from src.models.base_model import BaseModel
 import random
 import time
+from typing import Any, Callable, Tuple
+
+from openai import AsyncOpenAI
+from openai import RateLimitError
+import pandas as pd
+from pydantic import BaseModel as PydanticBaseModel
+from src.models import base_model
+from src.models.base_model import BaseModel
 import tqdm.asyncio
+
 
 # Timeout in seconds for API calls. Default Gemini timeout is 10 minutes.
 TIMEOUT_SECONDS = 601
@@ -88,6 +91,9 @@ def _is_quota_error(error: Any) -> bool:
 class OpenAICompatibleModel(BaseModel):
   """Wrapper for OpenAI API compatible endpoints."""
 
+  DEFAULT_STRICT_ARRAY_BOUNDS: bool = True
+  DEFAULT_MAX_CONSTRAINED_ENUM_CHARS: int | None = None
+
   def __init__(
       self,
       model_name: str,
@@ -95,6 +101,8 @@ class OpenAICompatibleModel(BaseModel):
       api_key: str | None = None,
       max_llm_retries: int | None = None,
       stats_log_file: str | None = None,
+      strict_array_bounds: bool | None = None,
+      max_constrained_enum_chars: int | None = None,
       **kwargs,
   ):
     """Initializes the OpenAICompatibleModel.
@@ -105,7 +113,17 @@ class OpenAICompatibleModel(BaseModel):
         api_key: Optional API key.
         max_llm_retries: Optional maximum number of retries for API calls.
         stats_log_file: Optional path to a file where stats will be logged.
+        strict_array_bounds: Optional override for whether dynamic per-batch
+          schemas should include `min_length`/`max_length` array bounds.
+          Defaults to True for OpenAI-compatible GBNF endpoints.
+        max_constrained_enum_chars: Optional maximum combined character length
+          of enum values in a per-batch constrained schema before falling back
+          to an unconstrained schema.
     """
+    super().__init__(
+        strict_array_bounds=strict_array_bounds,
+        max_constrained_enum_chars=max_constrained_enum_chars,
+    )
     self.model = model_name
     self.endpoint_url = endpoint_url
     self.api_key = (
@@ -480,8 +498,6 @@ class OpenAICompatibleModel(BaseModel):
     """Logs a summary of the processing stats to the stats log file."""
     if not self.stats_log_file or not final_stats:
       return
-
-    import logging
 
     total_calls = len(final_stats)
     total_api_calls = sum(s.get("api_calls_made", 0) for s in final_stats)

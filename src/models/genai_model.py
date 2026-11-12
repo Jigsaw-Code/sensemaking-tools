@@ -97,6 +97,10 @@ MAX_RETRY_DELAY_SECONDS = 3600
 TIMEOUT_SECONDS = 601
 # Default thinking level for Gemini.
 THINKING_LEVEL: genai_types.ThinkingLevel | None = None
+# Maximum combined character length of enum values in a per-batch constrained
+# schema before falling back to an unconstrained schema on Gemini, whose
+# server-side FST constraint compiler has a state-count limit (5888 states).
+MAX_CONSTRAINED_ENUM_CHARS = 2500
 
 
 COMPLETED_BATCH_JOB_STATES = frozenset({
@@ -110,6 +114,9 @@ COMPLETED_BATCH_JOB_STATES = frozenset({
 class GenaiModel(BaseModel):
   """A wrapper around the Google Generative AI API."""
 
+  DEFAULT_STRICT_ARRAY_BOUNDS: bool = False
+  DEFAULT_MAX_CONSTRAINED_ENUM_CHARS: int | None = MAX_CONSTRAINED_ENUM_CHARS
+
   def __init__(
       self,
       model_name: str | Any,
@@ -118,6 +125,8 @@ class GenaiModel(BaseModel):
       max_llm_retries: int | None = None,
       stats_log_file: str | None = None,
       max_stall_minutes: float = DEFAULT_MAX_STALL_MINUTES,
+      strict_array_bounds: bool | None = None,
+      max_constrained_enum_chars: int | None = MAX_CONSTRAINED_ENUM_CHARS,
   ):
     """Initializes the GenaiModel.
 
@@ -132,7 +141,17 @@ class GenaiModel(BaseModel):
         without any successful call after which the model is declared stalled
         and `ModelStalledError` is raised. Infrastructure errors never consume
         the standard per-job retry budget.
+      strict_array_bounds: Optional override for whether dynamic per-batch
+        schemas should include `min_length`/`max_length` array bounds. Defaults
+        to False on Gemini to avoid OpenFst bounded-array state explosion.
+      max_constrained_enum_chars: Maximum combined character length of enum
+        values in a per-batch constrained schema before falling back to an
+        unconstrained schema (or None for no limit).
     """
+    super().__init__(
+        strict_array_bounds=strict_array_bounds,
+        max_constrained_enum_chars=max_constrained_enum_chars,
+    )
     if not isinstance(model_name, str):
       self.client = model_name
       self.model = "fake-model"
@@ -264,14 +283,12 @@ class GenaiModel(BaseModel):
         or getattr(e, "code", None)
         or getattr(e, "status_code", None)
     )
-
     err_str = str(e)
     is_quota_error = (
         (
             isinstance(e, google_genai_errors.ClientError)
             and (
                 realized_status == 429
-                or "429" in err_str
                 or "RESOURCE_EXHAUSTED" in err_str
                 or "Quota exceeded" in err_str
             )
@@ -282,11 +299,7 @@ class GenaiModel(BaseModel):
     is_service_unavailable = (
         (
             isinstance(e, google_genai_errors.ServerError)
-            and (
-                realized_status == 503
-                or "503" in err_str
-                or "UNAVAILABLE" in err_str
-            )
+            and (realized_status == 503 or "UNAVAILABLE" in err_str)
         )
         or isinstance(e, google_exceptions.ServiceUnavailable)
         or realized_status == 503

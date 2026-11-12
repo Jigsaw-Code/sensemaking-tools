@@ -32,6 +32,7 @@ from src.tasks.topic_modeling_util import parse_response
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from src import prompts
 from src import run_health
+from src.models import base_model
 from src.models import decision
 from src.models import genai_model
 from src.models import systemone
@@ -107,7 +108,9 @@ def strip_other_opinions(opinions: list[Topic]) -> list[Topic]:
 
 
 def _build_topic_categorization_schema(
-    batch: list[Statement], target_topics: list[Topic]
+    batch: list[Statement],
+    target_topics: list[Topic],
+    model: base_model.BaseModel,
 ) -> Any:
   """Builds a per-batch constrained Pydantic schema for topic categorization."""
   valid_ids = list(dict.fromkeys(s.id for s in batch))
@@ -116,6 +119,12 @@ def _build_topic_categorization_schema(
   valid_topic_names = list(
       dict.fromkeys([t.name for t in target_topics] + ["Other"])
   )
+  max_enum_chars = model.max_constrained_enum_chars()
+  enum_chars = sum(len(s) for s in valid_ids) + sum(
+      len(t) for t in valid_topic_names
+  )
+  if max_enum_chars is not None and enum_chars > max_enum_chars:
+    return StatementRecordList
 
   id_enum = enum.Enum(
       "StatementIdEnum",
@@ -132,22 +141,35 @@ def _build_topic_categorization_schema(
     model_config = ConfigDict(use_enum_values=True)
     name: topic_enum  # type: ignore[valid-type]
 
-  class ConstrainedStatementRecord(BaseModel):
+  if model.strict_array_bounds():
+
+    class ConstrainedStatementRecord(BaseModel):
+      model_config = ConfigDict(use_enum_values=True)
+      id: id_enum  # type: ignore[valid-type]
+      topics: list[ConstrainedFlatTopic] = Field(min_length=1, max_length=3)
+
+    class ConstrainedStatementRecordList(BaseModel):
+      items: list[ConstrainedStatementRecord] = Field(
+          min_length=len(batch), max_length=len(batch)
+      )
+
+    return ConstrainedStatementRecordList
+
+  class UnboundedConstrainedStatementRecord(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     id: id_enum  # type: ignore[valid-type]
-    topics: list[ConstrainedFlatTopic] = Field(min_length=1, max_length=3)
+    topics: list[ConstrainedFlatTopic]
 
-  class ConstrainedStatementRecordList(BaseModel):
-    items: list[ConstrainedStatementRecord] = Field(
-        min_length=len(batch), max_length=len(batch)
-    )
+  class UnboundedConstrainedStatementRecordList(BaseModel):
+    items: list[UnboundedConstrainedStatementRecord]
 
-  return ConstrainedStatementRecordList
+  return UnboundedConstrainedStatementRecordList
 
 
 def _build_opinion_categorization_schema(
     expected_statement_quote_pairs: list[tuple[str, str]],
     target_opinions: list[Topic],
+    model: base_model.BaseModel,
 ) -> Any:
   """Builds a per-batch constrained Pydantic schema for opinion categorization."""
   valid_ids = list(
@@ -163,6 +185,14 @@ def _build_opinion_categorization_schema(
   valid_opinion_names = list(
       dict.fromkeys([t.name for t in target_opinions] + ["Other"])
   )
+  max_enum_chars = model.max_constrained_enum_chars()
+  enum_chars = (
+      sum(len(s) for s in valid_ids)
+      + sum(len(q) for q in valid_quote_ids)
+      + sum(len(o) for o in valid_opinion_names)
+  )
+  if max_enum_chars is not None and enum_chars > max_enum_chars:
+    return QuoteOpinionRecordList
 
   id_enum = enum.Enum(
       "OpinionStatementIdEnum",
@@ -184,19 +214,32 @@ def _build_opinion_categorization_schema(
     model_config = ConfigDict(use_enum_values=True)
     name: opinion_enum  # type: ignore[valid-type]
 
-  class ConstrainedQuoteOpinionRecord(BaseModel):
+  if model.strict_array_bounds():
+
+    class ConstrainedQuoteOpinionRecord(BaseModel):
+      model_config = ConfigDict(use_enum_values=True)
+      id: id_enum  # type: ignore[valid-type]
+      quote_id: quote_id_enum  # type: ignore[valid-type]
+      topics: list[ConstrainedFlatOpinion] = Field(min_length=1, max_length=3)
+
+    class ConstrainedQuoteOpinionRecordList(BaseModel):
+      items: list[ConstrainedQuoteOpinionRecord] = Field(
+          min_length=len(expected_statement_quote_pairs),
+          max_length=len(expected_statement_quote_pairs),
+      )
+
+    return ConstrainedQuoteOpinionRecordList
+
+  class UnboundedConstrainedQuoteOpinionRecord(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     id: id_enum  # type: ignore[valid-type]
     quote_id: quote_id_enum  # type: ignore[valid-type]
-    topics: list[ConstrainedFlatOpinion] = Field(min_length=1, max_length=3)
+    topics: list[ConstrainedFlatOpinion]
 
-  class ConstrainedQuoteOpinionRecordList(BaseModel):
-    items: list[ConstrainedQuoteOpinionRecord] = Field(
-        min_length=len(expected_statement_quote_pairs),
-        max_length=len(expected_statement_quote_pairs),
-    )
+  class UnboundedConstrainedQuoteOpinionRecordList(BaseModel):
+    items: list[UnboundedConstrainedQuoteOpinionRecord]
 
-  return ConstrainedQuoteOpinionRecordList
+  return UnboundedConstrainedQuoteOpinionRecordList
 
 
 def _normalize_topic_records(
@@ -990,6 +1033,7 @@ async def categorize_opinions(
         attempt,
         opinion_matching=opinion_matching,
         offer_other_opinion=offer_other_opinion,
+        model=model,
     )
 
     if not all_prompts:
@@ -1208,6 +1252,7 @@ def _prepare_opinion_prompts_for_pending_work(
     input_statements_map: dict[str, Statement],
     additional_context: str | None,
     attempt: int,
+    model: base_model.BaseModel,
     opinion_matching: str = prompts.OPINION_MATCHING_SUPPORTS,
     offer_other_opinion: bool = False,
 ) -> list[dict[str, Any]]:
@@ -1220,6 +1265,7 @@ def _prepare_opinion_prompts_for_pending_work(
     input_statements_map: Statement id -> Statement.
     additional_context: Optional additional prompt context.
     attempt: 1-based attempt number (used for job naming).
+    model: BaseModel instance used to determine schema constraints.
     opinion_matching: Matching rules mode for the prompt.
     offer_other_opinion: If False, remove 'Other' from each menu. Topics left
       with an empty menu are skipped.
@@ -1273,7 +1319,8 @@ def _prepare_opinion_prompts_for_pending_work(
             opinion_matching=opinion_matching,
         ),
         QuoteOpinionRecordList,
-        additional_context,
+        model=model,
+        additional_context=additional_context,
         parent_topic_name=topic.name,
         is_opinion_categorization=True,
         attempt=attempt,
@@ -1991,6 +2038,7 @@ def _prepare_categorization_prompts(
     target_topics_or_opinions: list[Topic],
     instructions: str,
     output_schema: Any,
+    model: base_model.BaseModel,
     additional_context: str | None = None,
     parent_topic_name: str | None = None,
     is_opinion_categorization: bool = False,
@@ -2049,11 +2097,13 @@ def _prepare_categorization_prompts(
     batch_schema = output_schema
     if is_opinion_categorization and expected_statement_quote_pairs:
       batch_schema = _build_opinion_categorization_schema(
-          expected_statement_quote_pairs, target_topics_or_opinions
+          expected_statement_quote_pairs,
+          target_topics_or_opinions,
+          model=model,
       )
     elif output_schema is StatementRecordList:
       batch_schema = _build_topic_categorization_schema(
-          batch, target_topics_or_opinions
+          batch, target_topics_or_opinions, model=model
       )
 
     prompt_jobs.append({
@@ -2266,7 +2316,9 @@ async def _process_topic_categorization(
           instructions, statements_for_model_prompt_data, additional_context
       )
 
-      batch_schema = _build_topic_categorization_schema(batch, target_topics)
+      batch_schema = _build_topic_categorization_schema(
+          batch, target_topics, model=model
+      )
 
       prompt_jobs.append({
           "prompt": prompt_str,
