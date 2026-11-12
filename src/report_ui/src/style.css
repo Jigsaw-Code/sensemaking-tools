@@ -1487,7 +1487,7 @@ article.topic {
 
 .legend-item {
 	display: flex;
-	align-items: center;
+	align-items: baseline;
 	margin-inline-end: 0.5rem;
 	margin-bottom: 0.25rem;
 }
@@ -1496,6 +1496,7 @@ article.topic {
 	display: inline-block;
 	width: 0.75rem;
 	height: 0.75rem;
+	flex-shrink: 0;
 	border-radius: 0.25rem;
 	margin-inline-end: 0.25rem;
 }
@@ -1503,6 +1504,8 @@ article.topic {
 .legend-text {
 	font-size: var(--12px);
 	text-transform: capitalize;
+	line-height: 1.2;
+	margin: 0 .5em .5em;
 }
 
 

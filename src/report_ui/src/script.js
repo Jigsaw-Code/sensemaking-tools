@@ -208,9 +208,29 @@ function createDemographicChart({ id, data }) {
       ).toLowerCase();
       const isOther = (val) =>
         val.toLowerCase() === "other" || val.toLowerCase() === otherCategory;
+      const demographicValueOrder =
+        window.PAYLOAD.options?.demographicValueOrder || {};
+      const customOrder = Object.hasOwn(
+        demographicValueOrder,
+        demographic.label,
+      )
+        ? demographicValueOrder[demographic.label]
+        : null;
+      const customOrderIndex = Array.isArray(customOrder)
+        ? new Map(customOrder.map((v, idx) => [String(v), idx]))
+        : null;
       const sortedValues = [...demographic.values].sort((a, b) => {
         if (isOther(a.value)) return 1;
         if (isOther(b.value)) return -1;
+        if (customOrderIndex) {
+          const ia = customOrderIndex.has(a.value)
+            ? customOrderIndex.get(a.value)
+            : Number.MAX_SAFE_INTEGER;
+          const ib = customOrderIndex.has(b.value)
+            ? customOrderIndex.get(b.value)
+            : Number.MAX_SAFE_INTEGER;
+          if (ia !== ib) return ia - ib;
+        }
         return d3.ascending(a.value.toLowerCase(), b.value.toLowerCase());
       });
 
@@ -943,10 +963,10 @@ function createQuotesDrawerParticipantChart() {
       .filter(({ value, count }) => count > 0 && value !== "0")
       .sort((a, b) => b.count - a.count);
 
-    if (values.length > 6) {
-      const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
+    if (values.length > 8) {
+      const otherCount = values.slice(7).reduce((acc, v) => acc + v.count, 0);
       const otherText = i18n.chart?.otherCategory || "Other";
-      values = [...values.slice(0, 5), { value: otherText, count: otherCount }];
+      values = [...values.slice(0, 7), { value: otherText, count: otherCount }];
     }
     return { label, values };
   });

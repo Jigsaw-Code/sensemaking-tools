@@ -1054,3 +1054,167 @@ describe("createTopicChart comparison topic headers", () => {
     assert.equal(wrappers[1].queryAll(".topic-group").length, 2);
   });
 });
+
+describe("processReportData demographic category cap", () => {
+  it("preserves up to 8 distinct demographic categories without collapsing into Other", () => {
+    const countries = [
+      ["South Africa", 8],
+      ["United Kingdom", 7],
+      ["Australia", 6],
+      ["Nigeria", 5],
+      ["Ireland", 4],
+      ["Singapore", 3],
+      ["India", 2],
+      ["United States", 1],
+    ];
+    const rows = [];
+    let idx = 1;
+    for (const [country, count] of countries) {
+      for (let i = 0; i < count; i++) {
+        rows.push(
+          row(`q${idx}`, `p${idx}`, {
+            AVERAGE_OF_3_BRIDGING: "0.5",
+            "demo:Country": country,
+          }),
+        );
+        idx++;
+      }
+    }
+
+    const { result } = runReport(rows);
+    const countryDemo = result.dataStatic.demographics.find(
+      (d) => d.label === "Country",
+    );
+    assert.deepEqual(countryDemo.values, [
+      { value: "South Africa", count: 8 },
+      { value: "United Kingdom", count: 7 },
+      { value: "Australia", count: 6 },
+      { value: "Nigeria", count: 5 },
+      { value: "Ireland", count: 4 },
+      { value: "Singapore", count: 3 },
+      { value: "India", count: 2 },
+      { value: "United States", count: 1 },
+    ]);
+  });
+
+  it("collapses 9+ demographic categories into the top 7 plus Other", () => {
+    const countries = [
+      ["C1", 9],
+      ["C2", 8],
+      ["C3", 7],
+      ["C4", 6],
+      ["C5", 5],
+      ["C6", 4],
+      ["C7", 3],
+      ["C8", 2],
+      ["C9", 1],
+    ];
+    const rows = [];
+    let idx = 1;
+    for (const [country, count] of countries) {
+      for (let i = 0; i < count; i++) {
+        rows.push(
+          row(`q${idx}`, `p${idx}`, {
+            AVERAGE_OF_3_BRIDGING: "0.5",
+            "demo:Country": country,
+          }),
+        );
+        idx++;
+      }
+    }
+
+    const { result } = runReport(rows);
+    const countryDemo = result.dataStatic.demographics.find(
+      (d) => d.label === "Country",
+    );
+    assert.deepEqual(countryDemo.values, [
+      { value: "C1", count: 9 },
+      { value: "C2", count: 8 },
+      { value: "C3", count: 7 },
+      { value: "C4", count: 6 },
+      { value: "C5", count: 5 },
+      { value: "C6", count: 4 },
+      { value: "C7", count: 3 },
+      { value: "Other", count: 3 },
+    ]);
+  });
+});
+
+describe("processReportData demographic_value_order", () => {
+  it("orders configured demographic values in logical scale order while leaving others sorted by count", () => {
+    const likertOrder = [
+      "Excited about the possibilities",
+      "Mostly excited about the possibilities, but somewhat concerned about the risks",
+      "Mostly concerned about the risks, but somewhat excited about the possibilities",
+      "Concerned about the risks",
+    ];
+    const rows = [
+      row("q1", "p1", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[1],
+        "demo:Country": "Nigeria",
+      }),
+      row("q2", "p2", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[1],
+        "demo:Country": "Nigeria",
+      }),
+      row("q3", "p3", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[1],
+        "demo:Country": "Ireland",
+      }),
+      row("q4", "p4", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[3],
+        "demo:Country": "Nigeria",
+      }),
+      row("q5", "p5", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[3],
+        "demo:Country": "Ireland",
+      }),
+      row("q6", "p6", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[0],
+        "demo:Country": "Australia",
+      }),
+      row("q7", "p7", {
+        AVERAGE_OF_3_BRIDGING: "0.5",
+        "demo:AI Attitude": likertOrder[2],
+        "demo:Country": "Nigeria",
+      }),
+    ];
+
+    const { result } = runReport(rows, {
+      config: {
+        demographic_value_order: {
+          "AI Attitude": likertOrder,
+        },
+      },
+    });
+
+    const attitudeDemo = result.dataStatic.demographics.find(
+      (d) => d.label === "AI Attitude",
+    );
+    assert.deepEqual(attitudeDemo.values, [
+      { value: likertOrder[0], count: 1 },
+      { value: likertOrder[1], count: 3 },
+      { value: likertOrder[2], count: 1 },
+      { value: likertOrder[3], count: 2 },
+    ]);
+    assert.deepEqual(
+      JSON.parse(result.dataStatic.payload).options.demographicValueOrder,
+      { "AI Attitude": likertOrder },
+    );
+
+    const countryDemo = result.dataStatic.demographics.find(
+      (d) => d.label === "Country",
+    );
+    assert.deepEqual(countryDemo.values, [
+      { value: "Nigeria", count: 4 },
+      { value: "Ireland", count: 2 },
+      { value: "Australia", count: 1 },
+    ]);
+  });
+});

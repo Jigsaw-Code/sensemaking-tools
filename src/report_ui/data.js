@@ -355,6 +355,14 @@ export function processReportData({
   const excludedOpinions = new Set(
     config.excluded_opinions ?? config.excludedOpinions ?? [],
   );
+  const rawDemographicValueOrder =
+    config.demographic_value_order ?? config.demographicValueOrder;
+  const demographicValueOrder =
+    rawDemographicValueOrder &&
+    typeof rawDemographicValueOrder === "object" &&
+    !Array.isArray(rawDemographicValueOrder)
+      ? rawDemographicValueOrder
+      : {};
   const options = {
     logo: config.logo || "",
     overviewChart,
@@ -379,6 +387,7 @@ export function processReportData({
       "#8C564B",
     ],
     demographicColors: resolveDemographicColors(config.demographic_colors),
+    demographicValueOrder,
   };
 
   /**
@@ -812,12 +821,31 @@ export function processReportData({
       count,
     })).sort((a, b) => b.count - a.count);
 
-    if (values.length > 6) {
-      const otherCount = values.slice(5).reduce((acc, v) => acc + v.count, 0);
+    if (values.length > 8) {
+      const otherCount = values.slice(7).reduce((acc, v) => acc + v.count, 0);
       values = [
-        ...values.slice(0, 5),
+        ...values.slice(0, 7),
         { value: otherCategory, count: otherCount },
       ];
+    }
+
+    const customOrder = Object.hasOwn(demographicValueOrder, label)
+      ? demographicValueOrder[label]
+      : null;
+    if (Array.isArray(customOrder)) {
+      const orderIndex = new Map(customOrder.map((v, idx) => [String(v), idx]));
+      values.sort((a, b) => {
+        if (isOtherLabel(a.value)) return 1;
+        if (isOtherLabel(b.value)) return -1;
+        const ia = orderIndex.has(a.value)
+          ? orderIndex.get(a.value)
+          : Number.MAX_SAFE_INTEGER;
+        const ib = orderIndex.has(b.value)
+          ? orderIndex.get(b.value)
+          : Number.MAX_SAFE_INTEGER;
+        if (ia !== ib) return ia - ib;
+        return b.count - a.count;
+      });
     }
 
     return { label, values };

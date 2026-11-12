@@ -47,7 +47,7 @@ describe("isHexColor", () => {
 });
 
 describe("generateSequentialPalette", () => {
-  it("returns six CSS oklch(from ...) strings by default", () => {
+  it("returns eight CSS oklch(from ...) strings by default", () => {
     const palette = generateSequentialPalette("#4886f7");
     assert.equal(palette.length, DEMOGRAPHIC_PALETTE_STEPS);
     for (const color of palette) {

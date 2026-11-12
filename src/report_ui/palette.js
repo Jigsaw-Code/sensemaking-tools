@@ -8,10 +8,10 @@
 
 /**
  * Number of colors generated for the demographic chart. The chart shows at
- * most five values plus "Other" (see data.js), so six colors are enough.
+ * most seven values plus "Other" (see data.js), so eight colors are enough.
  * @type {number}
  */
-export const DEMOGRAPHIC_PALETTE_STEPS = 6;
+export const DEMOGRAPHIC_PALETTE_STEPS = 8;
 
 /**
  * Base color for the default demographic palette.

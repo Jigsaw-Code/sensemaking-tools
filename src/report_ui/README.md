@@ -34,7 +34,8 @@ In config.json, optionally add these properties
 | `number_of_sample_quotes` | `number` | `4` | The number of quote previews to display for each opinion. |
 | `low_sample_warning_threshold` | `number` | `30` | The number at which to warn user of a low sample count. |
 | `chart_colors` | `array` | `["#0072B2", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#E69F00", "#2B3E50", "#8C564B"]` | Array of color codes for overview chart. |
-| `demographic_colors` | `string` or `array` | `"#4886f7"` | Colors for the participant chart, lightest to darkest. Either a single hex color (e.g. `"#00885F"`), from which a six-step light-to-dark palette is generated, or an explicit array of six color codes. |
+| `demographic_colors` | `string` or `array` | `"#4886f7"` | Colors for the participant chart, lightest to darkest. Either a single hex color (e.g. `"#00885F"`), from which an eight-step light-to-dark palette is generated, or an explicit array of eight color codes. |
+| `demographic_value_order` | `object` | `{}` | Optional mapping of demographic label (without the `demo:` prefix) to an ordered array of values for logical scale ordering (e.g., `{"Age": ["18-24", "25-34", "35+"]}`). |
 | `excluded_topics` | `array` | `[]` | Topic names (exact match to CSV `topic` column) to hide from the report. |
 | `excluded_opinions` | `array` | `[]` | Opinion names (exact match to CSV `opinion` column or `propositions.csv` proposition/opinion) to hide from the report. |
 
