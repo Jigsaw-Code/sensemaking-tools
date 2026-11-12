@@ -277,7 +277,7 @@ section > *:not(hr) {
 /* header */
 body > header {
 	background: var(--color-card-bg);
-	padding: 0 1rem;
+	padding: 0;
 	height: var(--header-height);
 	position: sticky;
 	top: 0;
@@ -291,13 +291,20 @@ body > header {
 
 body > header .logo {
 	height: calc(var(--header-height) - 2rem);
+	width: auto;
+	max-width: 144px;
+	object-fit: contain;
+	object-position: left center;
 }
 
-body > header div {
+body > header > div {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	width: 100%;
+	max-width: 1256px;
+	margin: 0 auto;
+	padding: 0 2rem;
 }
 
 body > header button {
@@ -1538,6 +1545,10 @@ article.topic {
 	[dir="rtl"] .sidebar.is-open {
 		pointer-events: auto;
 		transform: translate(0, 0);
+	}
+
+	body > header > div {
+		padding: 0 1rem;
 	}
 
 	body > header button {
