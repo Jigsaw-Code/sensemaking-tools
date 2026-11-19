@@ -46,6 +46,10 @@ SKIP_REASON_EMPTY = "empty_text"
 SKIP_REASON_TOO_SHORT = "too_short"
 SKIP_REASON_FAILED = "scoring_failed"
 
+DEFAULT_TEXT_COLUMN = "quote"
+DEFAULT_SCORER_TYPE = "GEMINI"
+DEFAULT_MODEL_NAME = "gemini-3.1-flash-lite-preview"
+
 
 def _score_texts(
     texts: pd.Series,
@@ -105,11 +109,11 @@ def _score_texts(
 
 def get_bridging_scores(
     df: pd.DataFrame,
-    text_column: str,
-    gemini_api_key: str,
-    gcloud_api_key: str,
-    scorer_type: str,
-    model_name: str,
+    text_column: str = DEFAULT_TEXT_COLUMN,
+    gemini_api_key: str | None = None,
+    gcloud_api_key: str | None = None,
+    scorer_type: str = DEFAULT_SCORER_TYPE,
+    model_name: str = DEFAULT_MODEL_NAME,
     force_rerun: bool = False,
     min_text_length: int = 0,
 ) -> pd.DataFrame:
@@ -133,8 +137,10 @@ def get_bridging_scores(
     df: DataFrame containing the texts to score.
     text_column: Name of the column in df containing the texts.
     gemini_api_key: API key for Gemini, used when scorer_type is "GEMINI".
+      Defaults to the ``GEMINI_API_KEY`` environment variable if omitted.
     gcloud_api_key: API key for Perspective, used when scorer_type is
-      "PERSPECTIVE".
+      "PERSPECTIVE". Defaults to the ``GCLOUD_API_KEY`` environment variable if
+      omitted.
     scorer_type: Backend to use, either "GEMINI" or "PERSPECTIVE".
     model_name: Gemini model name, used when scorer_type is "GEMINI".
     force_rerun: If True, ignore any scores already in df and rescore every
@@ -155,6 +161,17 @@ def get_bridging_scores(
     raise ValueError(f"Unknown scorer_type: {scorer_type}")
   if min_text_length < 0:
     raise ValueError(f"min_text_length must be >= 0, got {min_text_length}")
+
+  resolved_gemini_key = (
+      gemini_api_key
+      if gemini_api_key is not None
+      else (os.getenv("GEMINI_API_KEY") or "")
+  )
+  resolved_gcloud_key = (
+      gcloud_api_key
+      if gcloud_api_key is not None
+      else (os.getenv("GCLOUD_API_KEY") or "")
+  )
 
   raw_texts = df[text_column]
   texts = raw_texts.where(raw_texts.notna(), "").astype(str)
@@ -202,7 +219,11 @@ def get_bridging_scores(
 
   if len(to_score):
     new_df = _score_texts(
-        to_score, gemini_api_key, gcloud_api_key, scorer_type, model_name
+        to_score,
+        resolved_gemini_key,
+        resolved_gcloud_key,
+        scorer_type,
+        model_name,
     )
   else:
     new_df = pd.DataFrame(columns=BRIDGING_ATTRIBUTES, dtype=float)
@@ -248,18 +269,18 @@ if __name__ == "__main__":
   )
   parser.add_argument(
       "--text_column",
-      default="quote",
+      default=DEFAULT_TEXT_COLUMN,
       help="Text column in CSV to score.",
   )
   parser.add_argument(
       "--scorer_type",
       choices=["GEMINI", "PERSPECTIVE"],
-      default="GEMINI",
+      default=DEFAULT_SCORER_TYPE,
       help="Backend to use for generating bridging scores.",
   )
   parser.add_argument(
       "--model_name",
-      default="gemini-3.1-flash-lite-preview",
+      default=DEFAULT_MODEL_NAME,
       help="Gemini model name to use when scorer_type is GEMINI.",
   )
   parser.add_argument(
