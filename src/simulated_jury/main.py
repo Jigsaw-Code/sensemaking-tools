@@ -134,6 +134,14 @@ def main():
       ],
       help="The scale of approval voting to use.",
   )
+  runner_utils.add_additional_context_args(
+      parser,
+      help_str=(
+          "Optional additional context added to simulated jury voting prompts."
+          " Treated as privileged prompt framing; provide only trusted author"
+          " or researcher content and do not expose to untrusted public input."
+      ),
+  )
   parser.add_argument(
       "--percent",
       action="store_true",
@@ -148,6 +156,10 @@ def main():
 
   if args.batch_size is not None:
     args.approval_batch_size = args.batch_size
+
+  additional_context = runner_utils.get_additional_context(args)
+  if additional_context is not None:
+    additional_context = additional_context.strip() or None
 
   # --- Load Data ---
   try:
@@ -225,6 +237,7 @@ def main():
             batch_size=args.approval_batch_size,
             approval_scale=approval_scale,
             max_concurrent_calls=args.max_concurrent_calls,
+            additional_context=additional_context,
         )
     )
 
@@ -271,6 +284,7 @@ def main():
               model=model,
               topic_name=str(group_name) if args.group_by else "All Statements",
               max_concurrent_calls=args.max_concurrent_calls,
+              additional_context=additional_context,
           )
       )
 

@@ -245,6 +245,44 @@ class SimulatedJuryTest(unittest.TestCase):
     self.assertEqual(approvals, {'Statement A': True, 'Statement B': False})
     mock_warn.assert_called_once()
 
+  def test_generate_approval_vote_prompt_with_additional_context(self):
+    prompt = simulated_jury.generate_vote_prompt(
+        '123',
+        'I want better bike lanes.',
+        ['Statement A'],
+        simulated_jury.VotingMode.APPROVAL,
+        additional_context='Evaluate these as municipal capital proposals.',
+    )
+    self.assertIn(
+        '<additionalContext>\n'
+        'Evaluate these as municipal capital proposals.\n'
+        '</additionalContext>',
+        prompt,
+    )
+
+  def test_generate_vote_prompt_omits_empty_additional_context(self):
+    prompt = simulated_jury.generate_vote_prompt(
+        '123',
+        'I want better bike lanes.',
+        ['Statement A'],
+        simulated_jury.VotingMode.APPROVAL,
+        additional_context='',
+    )
+    self.assertNotIn('<additionalContext>', prompt)
+
+  def test_generate_rank_vote_prompt_with_additional_context(self):
+    prompt = simulated_jury.generate_vote_prompt(
+        '123',
+        'I want better bike lanes.',
+        ['Statement A', 'Statement B'],
+        simulated_jury.VotingMode.RANK,
+        additional_context='Rank these by urgency.',
+    )
+    self.assertIn(
+        '<additionalContext>\nRank these by urgency.\n</additionalContext>',
+        prompt,
+    )
+
   def test_build_approval_matrix_with_errors(self):
     import pandas as pd
 

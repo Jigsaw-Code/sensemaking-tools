@@ -333,14 +333,20 @@ def generate_vote_prompt(
     statements: list[str],
     voting_mode: VotingMode,
     approval_scale: ApprovalScale = ApprovalScale.AGREE_DISAGREE,
+    additional_context: str | None = None,
 ) -> str:
   """Generates a prompt for a simulated jury vote."""
+  additional_context_block = (
+      f"\n<additionalContext>\n{additional_context}\n</additionalContext>\n"
+      if additional_context
+      else ""
+  )
   prompt = f"""A participant in a public deliberation expressed the following opinions:
 
 <participant id="{participant_id}">
 {participation_record}
 </participant>
-
+{additional_context_block}
 Statements:
 """
   mapper = StatementMapper(statements)
@@ -386,6 +392,7 @@ async def run_simulated_jury(
     batch_size: int = None,
     approval_scale: ApprovalScale = ApprovalScale.AGREE_DISAGREE,
     max_concurrent_calls: int | None = None,
+    additional_context: str | None = None,
 ):
   """Runs a simulated jury for a set of participants and statements."""
   num_participants = len(participants_df)
@@ -393,6 +400,8 @@ async def run_simulated_jury(
       "--- Running simulated jury with %d participants ---", num_participants
   )
   print(f"--- Running simulated jury with {num_participants} participants ---")
+  if additional_context is not None:
+    additional_context = additional_context.strip() or None
   decision_model = decision.decision_client()
   if voting_mode == VotingMode.APPROVAL and decision_model is not None:
     logging.info(
@@ -407,6 +416,7 @@ async def run_simulated_jury(
         approval_scale,
         topic_name,
         opinion_name,
+        additional_context=additional_context,
     )
   jobs = []
 
@@ -481,6 +491,7 @@ async def run_simulated_jury(
           shuffled_batch,
           voting_mode,
           approval_scale,
+          additional_context=additional_context,
       )
 
       valid_letters = list(STATEMENT_MAPPING_CHARS[: len(shuffled_batch)])
@@ -599,14 +610,24 @@ async def _run_approval_with_decision(
     approval_scale: ApprovalScale,
     topic_name: str,
     opinion_name: str,
+    additional_context: str | None = None,
 ) -> tuple[pd.DataFrame, dict]:
   """Predicts approval votes without asking the model to write JSON."""
   options = ApprovalScale.get_options(approval_scale)
   rows = []
+  additional_context_prefix = (
+      f"<additionalContext>\n{additional_context}\n</additionalContext>\n\n"
+      if additional_context
+      else ""
+  )
   for _, row in participants_df.iterrows():
+    participant_state = (
+        f"{additional_context_prefix}"
+        f"{participation.get_prompt_representation(row)}"
+    )
     votes = await decision.approval_votes(
         client,
-        participation.get_prompt_representation(row),
+        participant_state,
         statements,
         options,
     )

@@ -509,6 +509,32 @@ class DecisionTests(unittest.TestCase):
     self.assertTrue(results.iloc[0]["result"]["Add bus lanes."])
     self.assertIn("participant_id", results.iloc[0]["data_row"])
 
+  def test_approval_votes_include_additional_context(self):
+    """Tests that additional context is passed to System One approval votes."""
+    client, transport = _client()
+    frame = pd.DataFrame(
+        [{"participant_id": "p1", "survey_text": "I want more buses."}]
+    )
+    asyncio.run(
+        simulated_jury._run_approval_with_decision(
+            client,
+            frame,
+            ["Add bus lanes."],
+            simulated_jury.ApprovalScale.AGREE_DISAGREE,
+            "Transit",
+            "",
+            additional_context="Evaluate as local transit proposals.",
+        )
+    )
+
+    state = transport.bodies[0]["state"]
+    self.assertIn(
+        "<additionalContext>\n"
+        "Evaluate as local transit proposals.\n"
+        "</additionalContext>",
+        state,
+    )
+
   def test_choice_question_round_trips(self):
     """Tests a choice question round trip."""
     client, _ = _client()

@@ -274,6 +274,49 @@ class MainTest(unittest.TestCase):
     passed_df = kwargs['participants_df']
     self.assertEqual(passed_df['survey_text'].tolist(), ['None', 'N/A'])
 
+  @mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'test_key'})
+  @mock.patch(
+      'src.simulated_jury.simulated_jury.run_simulated_jury',
+      new_callable=mock.AsyncMock,
+  )
+  def test_main_forwards_additional_context(self, mock_run):
+    context_file = os.path.join(self.temp_dir.name, 'context.txt')
+    with open(context_file, 'w') as context_fp:
+      context_fp.write('Evaluate as municipal proposals.')
+
+    mock_run.return_value = (
+        pd.DataFrame([
+            {
+                'data_row': {'participant_id': 'p1'},
+                'result': {'A': True, 'B': False},
+            },
+            {
+                'data_row': {'participant_id': 'p2'},
+                'result': {'A': True, 'B': True},
+            },
+        ]),
+        {},
+    )
+
+    test_args = [
+        'main.py',
+        '--participants_csv',
+        self.participants_csv,
+        '--statements_csv',
+        self.statements_csv,
+        '--output_csv',
+        self.output_csv,
+        '--additional_context_file',
+        context_file,
+    ]
+    with mock.patch.object(sys, 'argv', test_args):
+      main.main()
+
+    _, kwargs = mock_run.call_args
+    self.assertEqual(
+        kwargs['additional_context'], 'Evaluate as municipal proposals.'
+    )
+
 
 if __name__ == '__main__':
   unittest.main()
