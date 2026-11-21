@@ -7,7 +7,8 @@ from unittest import mock
 
 import pandas as pd
 
-from src.propositions import proposition_generator, prompts_util
+from src.propositions import prompts_util
+from src.propositions import proposition_generator
 
 
 class WorldModelBuilderTest(unittest.TestCase):
@@ -210,6 +211,227 @@ class WorldModelBuilderTest(unittest.TestCase):
               self.df_r1, self.df_r2, "topic", "non_existent_col", 5, True
           )
       )
+
+  def test_analyze_and_allocate_by_opinion_missing_topic_column(self):
+    """Tests that a ValueError is raised if the topic column is missing."""
+    with self.assertRaises(ValueError):
+      asyncio.run(
+          proposition_generator.analyze_and_allocate_by_opinion(
+              self.df_r1, self.df_r2, "non_existent_topic", "opinion", 5, True
+          )
+      )
+
+  def test_analyze_and_allocate_by_opinion_keys_by_topic_and_opinion(self):
+    """Tests identical opinion labels under different topics stay separate."""
+    df_r1 = pd.DataFrame({
+        "participant_id": [1, 2, 3, 4, 5],
+        "topic": ["Topic A", "Topic A", "Topic A", "Topic B", "Topic B"],
+        "opinion": [
+            "Shared Opinion",
+            "Shared Opinion",
+            "Shared Opinion",
+            "Shared Opinion",
+            "Unique Opinion",
+        ],
+        "quote": ["a1", "a2", "a3", "b1", "b2"],
+    })
+
+    weighted_df = asyncio.run(
+        proposition_generator.analyze_and_allocate_by_opinion(
+            df_r1,
+            pd.DataFrame(),
+            "topic",
+            "opinion",
+            num_propositions_to_allocate=10,
+            make_every_opinion_same=False,
+        )
+    )
+    self.assertCountEqual(
+        list(zip(weighted_df["topic"], weighted_df["opinion"])),
+        [
+            ("Topic A", "Shared Opinion"),
+            ("Topic B", "Shared Opinion"),
+            ("Topic B", "Unique Opinion"),
+        ],
+    )
+    # Weighted allocations must sum to the requested total without colliding
+    # identical opinion strings across topics.
+    self.assertEqual(weighted_df["allocations"].sum(), 10)
+    self.assertEqual(
+        list(weighted_df.columns),
+        [
+            "topic",
+            "opinion",
+            "r1_df_length",
+            "r2_df_length",
+            "allocations",
+            "r1_df",
+            "r2_df",
+        ],
+    )
+
+    topic_a_row = weighted_df[
+        (weighted_df["topic"] == "Topic A")
+        & (weighted_df["opinion"] == "Shared Opinion")
+    ].iloc[0]
+    topic_b_row = weighted_df[
+        (weighted_df["topic"] == "Topic B")
+        & (weighted_df["opinion"] == "Shared Opinion")
+    ].iloc[0]
+    self.assertEqual(topic_a_row["r1_df_length"], 3)
+    self.assertCountEqual(
+        topic_a_row["r1_df"]["quote"].tolist(), ["a1", "a2", "a3"]
+    )
+    self.assertEqual(topic_b_row["r1_df_length"], 1)
+    self.assertCountEqual(topic_b_row["r1_df"]["quote"].tolist(), ["b1"])
+
+  def test_analyze_and_allocate_excludes_other_and_nan_by_default(self):
+    """Tests default filtering drops NaN opinions and case-insensitive Other."""
+    df_r1 = pd.DataFrame({
+        "participant_id": [1, 2, 3, 4, 5, 6, 7],
+        "topic": [
+            "Topic A",
+            "Topic A",
+            "Topic B",
+            "Topic B",
+            "Topic A",
+            "Topic B",
+            "Topic B",
+        ],
+        "opinion": [
+            "Opinion A1",
+            "Other",
+            " other ",
+            "OTHER",
+            None,
+            float("nan"),
+            "Opinion B1",
+        ],
+        "quote": ["q1", "q2", "q3", "q4", "q5", "q6", "q7"],
+    })
+
+    result_df = asyncio.run(
+        proposition_generator.analyze_and_allocate_by_opinion(
+            df_r1,
+            pd.DataFrame(),
+            "topic",
+            "opinion",
+            num_propositions_to_allocate=5,
+            make_every_opinion_same=True,
+        )
+    )
+    self.assertCountEqual(
+        list(zip(result_df["topic"], result_df["opinion"])),
+        [("Topic A", "Opinion A1"), ("Topic B", "Opinion B1")],
+    )
+
+    all_nan_df = pd.DataFrame({
+        "participant_id": [1, 2],
+        "topic": ["Topic A", "Topic B"],
+        "opinion": [float("nan"), float("nan")],
+        "quote": ["q1", "q2"],
+    })
+    empty_result = asyncio.run(
+        proposition_generator.analyze_and_allocate_by_opinion(
+            all_nan_df, pd.DataFrame(), "topic", "opinion", 5, True
+        )
+    )
+    self.assertTrue(empty_result.empty)
+
+  def test_analyze_and_allocate_includes_other_opinions_per_topic(self):
+    """Tests include_other_opinions=True keeps each topic's Other separately."""
+    df_r1 = pd.DataFrame({
+        "participant_id": [1, 2, 3, 4, 5],
+        "topic": ["Topic A", "Topic A", "Topic B", "Topic A", "Topic B"],
+        "opinion": ["Other", "Other", "Other", "Opinion A1", None],
+        "quote": ["a_other_1", "a_other_2", "b_other_1", "a1", "missing"],
+    })
+
+    result_df = asyncio.run(
+        proposition_generator.analyze_and_allocate_by_opinion(
+            df_r1,
+            pd.DataFrame(),
+            "topic",
+            "opinion",
+            num_propositions_to_allocate=6,
+            make_every_opinion_same=False,
+            include_other_opinions=True,
+        )
+    )
+    self.assertCountEqual(
+        list(zip(result_df["topic"], result_df["opinion"])),
+        [
+            ("Topic A", "Other"),
+            ("Topic B", "Other"),
+            ("Topic A", "Opinion A1"),
+        ],
+    )
+    self.assertEqual(result_df["allocations"].sum(), 6)
+
+    topic_a_other = result_df[
+        (result_df["topic"] == "Topic A") & (result_df["opinion"] == "Other")
+    ].iloc[0]
+    topic_b_other = result_df[
+        (result_df["topic"] == "Topic B") & (result_df["opinion"] == "Other")
+    ].iloc[0]
+    self.assertEqual(topic_a_other["r1_df_length"], 2)
+    self.assertCountEqual(
+        topic_a_other["r1_df"]["quote"].tolist(), ["a_other_1", "a_other_2"]
+    )
+    self.assertEqual(topic_b_other["r1_df_length"], 1)
+    self.assertCountEqual(
+        topic_b_other["r1_df"]["quote"].tolist(), ["b_other_1"]
+    )
+
+  def test_is_other_opinion(self):
+    """Tests _is_other_opinion matches case- and whitespace-insensitively."""
+    opinions = pd.Series([
+        "Other",
+        " other ",
+        "OTHER",
+        "Other topic",
+        "Opinion A1",
+        None,
+        float("nan"),
+    ])
+    mask = proposition_generator._is_other_opinion(opinions)
+    self.assertEqual(
+        mask.tolist(), [True, True, True, False, False, False, False]
+    )
+    empty_mask = proposition_generator._is_other_opinion(
+        pd.Series([], dtype=object)
+    )
+    self.assertTrue(empty_mask.empty)
+
+  def test_analyze_and_allocate_stable_order_and_zero_allocations(self):
+    """Tests stable within-topic ordering and zero weighted allocations."""
+    df_r1 = pd.DataFrame({
+        "participant_id": [1, 2, 3, 4, 5],
+        "topic": ["Topic A", "Topic A", "Topic A", "Topic B", "Topic B"],
+        "opinion": ["First", "Second", "Third", "B First", "B Second"],
+        "quote": ["q1", "q2", "q3", "q4", "q5"],
+    })
+    result_df = asyncio.run(
+        proposition_generator.analyze_and_allocate_by_opinion(
+            df_r1,
+            pd.DataFrame(),
+            "topic",
+            "opinion",
+            num_propositions_to_allocate=0,
+            make_every_opinion_same=False,
+        )
+    )
+    self.assertEqual(
+        list(zip(result_df["topic"], result_df["opinion"])),
+        [
+            ("Topic B", "B First"),
+            ("Topic B", "B Second"),
+            ("Topic A", "First"),
+            ("Topic A", "Second"),
+            ("Topic A", "Third"),
+        ],
+    )
+    self.assertTrue((result_df["allocations"] == 0).all())
 
   def _setup_main_mocks(
       self,
@@ -589,6 +811,149 @@ class WorldModelBuilderTest(unittest.TestCase):
     for props_df in final_df["propositions"]:
       self.assertIsInstance(props_df, pd.DataFrame)
       self.assertIn("proposition", props_df.columns)
+
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
+  @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
+  @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
+  @mock.patch(
+      "src.propositions.input_csv_validation.is_r1_df_missing_required_column",
+      return_value=None,
+  )
+  def test_main_merges_shared_opinions_by_topic_and_opinion(
+      self,
+      mock_is_r1_valid,
+      mock_read_csv,
+      mock_save_csv,
+      mock_save_pickle,
+      mock_get_model,
+  ):
+    """Tests main merges identical opinions across topics without colliding."""
+    del mock_is_r1_valid, mock_save_csv
+    mock_read_csv.return_value = pd.DataFrame({
+        "participant_id": [1, 2, 3, 4],
+        "topic": ["Topic A", "Topic B", "Topic A", "Topic B"],
+        "opinion": ["Other", "Other", "Shared Label", "Shared Label"],
+        "quote": ["a_other", "b_other", "a_shared", "b_shared"],
+    })
+
+    mock_model_instance = mock.MagicMock()
+    mock_model_instance.estimate_token_count_needed.return_value = 50
+
+    async def mock_process(prompts, parser, *args, **kwargs):
+      del parser, args, kwargs
+      response_df = pd.DataFrame({
+          "topic": [p["topic"] for p in prompts],
+          "opinion": [p["opinion"] for p in prompts],
+          "propositions": [
+              pd.DataFrame(
+                  {"proposition": [f"Prop for {p['topic']}::{p['opinion']}"]}
+              )
+              for p in prompts
+          ],
+          "total_token_used": [10] * len(prompts),
+          "prompt_token_count": [8] * len(prompts),
+          "candidates_token_count": [2] * len(prompts),
+          "tool_use_prompt_token_count": [0] * len(prompts),
+          "thoughts_token_count": [0] * len(prompts),
+      })
+      stats_df = pd.DataFrame({"combined_tokens": [50 * len(prompts)]})
+      return (response_df, stats_df, 0.0, 1.0)
+
+    mock_model_instance.process_prompts_concurrently.side_effect = mock_process
+    mock_get_model.return_value = mock_model_instance
+
+    test_args = [
+        "proposition_generator.py",
+        "--r1_input_file",
+        self.r1_file,
+        "--output_dir",
+        self.output_dir,
+        "--gemini_api_key",
+        "test_key",
+        "--include_other_opinions",
+        "--no-include_opinion",
+    ]
+    with mock.patch.object(sys, "argv", test_args):
+      asyncio.run(proposition_generator.main())
+
+    final_df = mock_save_pickle.call_args[0][0]
+    self.assertEqual(len(final_df), 4)
+    expected_pairs = [
+        ("Topic A", "Other"),
+        ("Topic B", "Other"),
+        ("Topic A", "Shared Label"),
+        ("Topic B", "Shared Label"),
+    ]
+    self.assertCountEqual(
+        list(zip(final_df["topic"], final_df["opinion"])), expected_pairs
+    )
+    for topic, opinion in expected_pairs:
+      row = final_df[
+          (final_df["topic"] == topic) & (final_df["opinion"] == opinion)
+      ].iloc[0]
+      self.assertEqual(
+          row["propositions"]["proposition"].tolist(),
+          [f"Prop for {topic}::{opinion}"],
+      )
+
+  @mock.patch("src.propositions.proposition_generator.model_factory.get_model")
+  @mock.patch("src.propositions.world_model_util.save_dataframe_to_pickle")
+  @mock.patch("src.propositions.world_model_util.save_propositions_as_csv")
+  @mock.patch("src.propositions.world_model_util.read_csv_to_dataframe")
+  @mock.patch(
+      "src.propositions.input_csv_validation.is_r1_df_missing_required_column",
+      return_value=None,
+  )
+  def test_main_optimization_prop_count_1_preserves_topic(
+      self,
+      mock_is_r1_valid,
+      mock_read_csv,
+      mock_save_csv,
+      mock_save_pickle,
+      mock_get_model,
+  ):
+    """Tests prop_count=1 fast path preserves topic without merge collision."""
+    del mock_is_r1_valid, mock_save_csv
+    mock_read_csv.return_value = pd.DataFrame({
+        "participant_id": [1, 2, 3],
+        "topic": ["Topic A", "Topic B", "Topic A"],
+        "opinion": ["Other", "Other", "Opinion A1"],
+        "quote": ["a_other", "b_other", "a1"],
+    })
+
+    test_args = [
+        "proposition_generator.py",
+        "--r1_input_file",
+        self.r1_file,
+        "--output_dir",
+        self.output_dir,
+        "--gemini_api_key",
+        "test_key",
+        "--prop_count=1",
+        "--include_opinion",
+        "--include_other_opinions",
+    ]
+    with mock.patch.object(sys, "argv", test_args):
+      asyncio.run(proposition_generator.main())
+
+    mock_get_model.assert_not_called()
+    final_df = mock_save_pickle.call_args[0][0]
+    self.assertEqual(len(final_df), 3)
+    expected_pairs = [
+        ("Topic A", "Other"),
+        ("Topic B", "Other"),
+        ("Topic A", "Opinion A1"),
+    ]
+    self.assertCountEqual(
+        list(zip(final_df["topic"], final_df["opinion"])), expected_pairs
+    )
+    for topic, opinion in expected_pairs:
+      row = final_df[
+          (final_df["topic"] == topic) & (final_df["opinion"] == opinion)
+      ].iloc[0]
+      self.assertEqual(row["propositions"]["proposition"].tolist(), [opinion])
+      self.assertEqual(row["r1_df"]["topic"].unique().tolist(), [topic])
 
 
 if __name__ == "__main__":

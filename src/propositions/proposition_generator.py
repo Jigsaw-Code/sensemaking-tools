@@ -32,12 +32,10 @@ Example Usage:
 
 import argparse
 import asyncio
-import collections
 import csv
 import logging
 import os
 import pickle
-import random
 import re
 import typing
 
@@ -111,6 +109,14 @@ async def _get_r2_data_by_opinion(
   return pd.DataFrame(restructured_data)
 
 
+def _is_other_opinion(opinions: pd.Series) -> pd.Series:
+  """Returns a boolean mask for opinions matching 'other' (case-insensitive).
+
+  Leading and trailing whitespace is ignored when matching opinion labels.
+  """
+  return opinions.astype(str).str.strip().str.lower() == "other"
+
+
 async def analyze_and_allocate_by_opinion(
     r1_df: pd.DataFrame,
     r2_df: pd.DataFrame,
@@ -118,65 +124,56 @@ async def analyze_and_allocate_by_opinion(
     opinion_column_name: str,
     num_propositions_to_allocate: int = 5,
     make_every_opinion_same: bool = False,
+    include_other_opinions: bool = False,
 ) -> pd.DataFrame:
-  """
-  Splits a DataFrame by a specified opinion column, calculates weighted
-  allocations for each resulting child DataFrame, and returns a single
-  DataFrame containing the opinion, child DataFrame length, calculated
-  allocations, and the child DataFrame itself.
+  """Splits R1 data by (topic, opinion) pairs and allocates proposition counts.
 
   Args:
-      r1_df (pd.DataFrame): The input pandas DataFrame.
-      r2_df (pd.DataFrame): The input pandas DataFrame for round 2.
-      topic_column_name (str): The name of the column from R1 data containing
-        the topics.
-      opinion_column_name (str): The name of the column from R1 data containing
-        the opinions to split by.
-      num_propositions_to_allocate (int): The total number of propositions to
-        allocate across all opinions, allocated proportionately by child
-        DataFrame length.
-      make_every_opinion_same (bool): Should give every opinion
-        {num_propositions_to_allocate} allocations.
+      r1_df: The input pandas DataFrame for round 1.
+      r2_df: The input pandas DataFrame for round 2.
+      topic_column_name: The name of the column from R1 data containing the
+        topics.
+      opinion_column_name: The name of the column from R1 data containing the
+        opinions to split by.
+      num_propositions_to_allocate: The total number of propositions to allocate
+        across all (topic, opinion) pairs, allocated proportionately by child
+        DataFrame length unless `make_every_opinion_same` is True.
+      make_every_opinion_same: Whether to give every (topic, opinion) pair
+        `num_propositions_to_allocate` allocations.
+      include_other_opinions: Whether to include opinions named 'Other'
+        (case-insensitive, ignoring surrounding whitespace).
 
   Returns:
-      pd.DataFrame: A DataFrame with the following columns:
-        - 'topic': The unique value from the topic_column_name.
-        - 'opinion': The unique value from the opinion_column_name.
-        - 'r1_df_length': The number of rows in the R1 DataFrame for that
-          opinion.
-        - 'r2_df_length': The number of rows in the R2 DataFrame for that
-          opinion.
-        - 'allocations': The number of propositions allocated to this opinion
-          based on its length.
-        - 'r1_df': The actual pandas DataFrame containing rows for that opinion
-          from R1.
-        - 'r2_df': The actual pandas DataFrame containing rows for that opinion
-          from R2.
-  Raises:
-      ValueError: If the opinion_column_name is not found in the DataFrame.
-  """
+      A DataFrame with columns 'topic', 'opinion', 'r1_df_length',
+      'r2_df_length', 'allocations', 'r1_df', and 'r2_df'.
 
+  Raises:
+      ValueError: If `topic_column_name` or `opinion_column_name` is not found
+        in `r1_df`.
+  """
+  if topic_column_name not in r1_df.columns:
+    raise ValueError(
+        f"Column '{topic_column_name}' not found in the DataFrame."
+    )
   if opinion_column_name not in r1_df.columns:
     raise ValueError(
         f"Column '{opinion_column_name}' not found in the DataFrame."
     )
 
-  unique_opinions = (
-      r1_df[opinion_column_name]
-      .dropna()
-      .loc[lambda s: s.str.lower() != "other"]
-      .loc[lambda s: ~s.str.lower().duplicated()]
-      .tolist()
-  )
+  r1_df_filtered = r1_df.dropna(subset=[topic_column_name, opinion_column_name])
+  if not include_other_opinions and not r1_df_filtered.empty:
+    r1_df_filtered = r1_df_filtered[
+        ~_is_other_opinion(r1_df_filtered[opinion_column_name])
+    ]
 
-  # Split DataFrame and gather initial info
-  temp_df_info: typing.List[typing.Dict] = []
+  # Group by (topic, opinion) pairs so identically named opinions under
+  # different topics are allocated independently.
+  temp_df_info: list[dict[str, typing.Any]] = []
 
-  for opinion in unique_opinions:
-    r1_filtered_df = r1_df[r1_df[opinion_column_name] == opinion].copy()
-
-    # For a given opinion, find all topics it belongs to in R1 data
-    topics_for_opinion = r1_filtered_df[topic_column_name].unique()[0]
+  for (topic, opinion), group_df in r1_df_filtered.groupby(
+      [topic_column_name, opinion_column_name], sort=False
+  ):
+    r1_filtered_df = group_df.copy()
 
     r2_filtered_df = await _get_r2_data_by_opinion(
         r2_df.copy(),
@@ -184,77 +181,64 @@ async def analyze_and_allocate_by_opinion(
     )
 
     temp_df_info.append({
-        "topic": topics_for_opinion,
+        "topic": topic,
         "opinion": opinion,
-        "r1_filtered_df": r1_filtered_df,
-        "r1_length": len(r1_filtered_df),
-        "r2_filtered_df": r2_filtered_df,
-        "r2_length": len(r2_filtered_df),
+        "r1_df_length": len(r1_filtered_df),
+        "r2_df_length": len(r2_filtered_df),
+        "r1_df": r1_filtered_df,
+        "r2_df": r2_filtered_df,
     })
 
   if not temp_df_info:
     logging.warning("No valid DataFrames found after splitting by opinion.")
     return pd.DataFrame()
 
-  # Prepare for weighted sampling
-  population_opinions = [item["opinion"] for item in temp_df_info]
-  weights = [item["r1_length"] for item in temp_df_info]
+  result_df = pd.DataFrame(temp_df_info)
 
-  if sum(weights) == 0:
-    logging.warning(
-        "All child DataFrames have a length of 0. Cannot perform weighted"
-        " sampling."
-    )
-    # Fallback to uniform sampling if no lengths, or return empty if no examples
-    if num_propositions_to_allocate > 0:
-      logging.warning(
-          "Falling back to uniform random sampling as all weights are zero."
-      )
-      sampled_opinions = random.choices(
-          population=population_opinions, k=num_propositions_to_allocate
-      )
-    else:
-      return pd.DataFrame()
+  if make_every_opinion_same:
+    result_df["allocations"] = num_propositions_to_allocate
   else:
-    sampled_opinions = random.choices(
-        population=population_opinions,
-        weights=weights,
-        k=num_propositions_to_allocate,
+    if result_df["r1_df_length"].sum() == 0:
+      logging.warning(
+          "All child DataFrames have a length of 0. Cannot perform weighted"
+          " sampling."
+      )
+      # Fallback to uniform sampling if no lengths, or return empty if no
+      # examples.
+      if num_propositions_to_allocate > 0:
+        logging.warning(
+            "Falling back to uniform random sampling as all weights are zero."
+        )
+        sampled_indices = result_df.sample(
+            n=num_propositions_to_allocate, replace=True
+        ).index
+      else:
+        return pd.DataFrame()
+    else:
+      sampled_indices = result_df.sample(
+          n=num_propositions_to_allocate,
+          weights="r1_df_length",
+          replace=True,
+      ).index
+
+    # Tally the allocations.
+    allocation_counts = sampled_indices.value_counts()
+    result_df["allocations"] = (
+        result_df.index.map(allocation_counts).fillna(0).astype(int)
     )
 
-  # Tally the allocations
-  allocation_counts = collections.Counter(sampled_opinions)
+  result_df = result_df[[
+      "topic",
+      "opinion",
+      "r1_df_length",
+      "r2_df_length",
+      "allocations",
+      "r1_df",
+      "r2_df",
+  ]]
 
-  # Combine all information into the final DataFrame
-  final_results_data = []
-  for item in temp_df_info:
-    topic = item["topic"]
-    opinion = item["opinion"]
-    r1_filtered_df = item["r1_filtered_df"]
-    r1_length = item["r1_length"]
-    r2_filtered_df = item["r2_filtered_df"]
-    r2_length = item["r2_length"]
-
-    allocations = (
-        allocation_counts.get(opinion, 0)
-        if not make_every_opinion_same
-        else num_propositions_to_allocate
-    )
-
-    final_results_data.append({
-        "topic": topic,
-        "opinion": opinion,
-        "r1_df_length": r1_length,
-        "r2_df_length": r2_length,
-        "allocations": allocations,
-        "r1_df": r1_filtered_df,
-        "r2_df": r2_filtered_df,
-    })
-
-  result_df = pd.DataFrame(final_results_data)
-
-  # Sort for better readability
-  result_df = result_df.sort_values(by="topic", ascending=False)
+  # Sort for better readability.
+  result_df = result_df.sort_values(by="topic", ascending=False, kind="stable")
 
   logging.info(
       "Generated %d total examples, distributed by opinion length.",
@@ -265,10 +249,10 @@ async def analyze_and_allocate_by_opinion(
       " Descending):"
   )
   logging.info(
-      "\n"
-      + result_df[
-          ["opinion", "r1_df_length", "r2_df_length", "allocations"]
-      ].to_string(index=False)
+      "\n%s",
+      result_df[
+          ["topic", "opinion", "r1_df_length", "r2_df_length", "allocations"]
+      ].to_string(index=False),
   )
 
   # Verify total allocations
@@ -424,6 +408,14 @@ async def main():
           " set of statements generated."
       ),
   )
+  parser.add_argument(
+      "--include_other_opinions",
+      action="store_true",
+      help=(
+          "Whether to include opinions named 'Other' when generating"
+          " propositions."
+      ),
+  )
   runner_utils.add_additional_context_args(
       parser,
       help_str="Optional additional context to be added to the prompt.",
@@ -475,7 +467,8 @@ async def main():
       "topic",
       "opinion",
       args.prop_count,
-      True,
+      make_every_opinion_same=True,
+      include_other_opinions=args.include_other_opinions,
   )
 
   print_shard_count = args.sample_print_shard_count
@@ -489,7 +482,7 @@ async def main():
     llm_response_rows = []
     for _, row in split_dfs.iterrows():
       opinion = row["opinion"]
-      # Create propositions DataFrame
+      # Create propositions DataFrame.
       props_data = [{"proposition": opinion}]
       if turn_on_reasoning:
         props_data[0][
@@ -498,6 +491,7 @@ async def main():
       props_df = pd.DataFrame(props_data)
 
       llm_response_rows.append({
+          "topic": row["topic"],
           "opinion": opinion,
           "propositions": props_df,
           "total_token_used": 0,
@@ -638,6 +632,7 @@ async def main():
   merged_df = pd.merge(
       split_dfs,
       llm_response[[
+          "topic",
           "opinion",
           "propositions",
           "total_token_used",
@@ -646,7 +641,7 @@ async def main():
           "tool_use_prompt_token_count",
           "thoughts_token_count",
       ]],
-      on="opinion",
+      on=["topic", "opinion"],
       how="left",
   )
 
