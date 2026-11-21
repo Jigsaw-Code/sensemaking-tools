@@ -640,6 +640,228 @@ class PropositionRefinementMainTest(unittest.TestCase):
         passed_jury_pool = args[2]
         self.assertEqual(len(passed_jury_pool), 100)
 
+  @patch(
+      "src.proposition_refinement.main.simulated_jury.run_simulated_jury",
+      new_callable=AsyncMock,
+  )
+  @patch("src.proposition_refinement.main.schulze.get_schulze_ranking")
+  def test_run_jury_by_opinion_with_bridging(self, mock_schulze, mock_run_jury):
+    """Tests bridging ranking and score recording in opinion-level jury."""
+    self.mock_args.segment_column = "region"
+    self.mock_args.bridging_metric = "minmax"
+    self.mock_args.min_segment_size = 1
+
+    jury_pool_df = pd.DataFrame({
+        "participant_id": ["r1", "r2", "r3", "r4"],
+        "region": ["North", "North", "South", "South"],
+    })
+    world_model = {
+        "world_model": self.sample_by_opinion_df.copy(),
+        "simulated_jury_stats": [],
+        # T1O1_P1 is polarizing (North=1.0, South=0.0 -> minmax=0.0).
+        # T1O1_P2 bridges both regions (North=0.5, South=1.0 -> minmax=0.5).
+        # T1O1_P3 bridges at 100% (North=1.0, South=1.0 -> minmax=1.0).
+        "initial_approval_matrix": pd.DataFrame(
+            {
+                "T1O1_P1": [True, True, False, False],
+                "T1O1_P2": [True, False, True, True],
+                "T1O1_P3": [True, True, True, True],
+                "T2O3_P1": [True, False, False, False],
+                "T2O3_P2": [True, False, True, False],
+                "T2O3_P3": [False, False, False, False],
+            },
+            index=["r1", "r2", "r3", "r4"],
+        ),
+    }
+
+    mock_run_jury.return_value = (
+        pd.DataFrame(
+            {"result": [{"ranking": ["T1O1_P1", "T1O1_P2", "T1O1_P3"]}]}
+        ),
+        {},
+    )
+    mock_schulze.return_value = {
+        "top_propositions": ["T1O1_P1", "T1O1_P2", "T1O1_P3"]
+    }
+
+    result_wm = asyncio.run(
+        proposition_refinement_main.run_jury_by_opinion(
+            world_model, self.mock_args, jury_pool_df, MagicMock()
+        )
+    )
+
+    by_opinion_df = result_wm["world_model"]
+    self.assertEqual(
+        by_opinion_df.loc[0, "opinion_level_bridging_ranking"],
+        ["T1O1_P3", "T1O1_P2", "T1O1_P1"],
+    )
+    scores_df = by_opinion_df.loc[0, "opinion_level_bridging_scores"]
+    self.assertAlmostEqual(scores_df.loc[0, "minmax_approval"], 1.0)
+    self.assertAlmostEqual(scores_df.loc[1, "minmax_approval"], 0.5)
+    self.assertEqual(scores_df.loc[2, "bottleneck_segment"], "South")
+
+  @patch(
+      "src.proposition_refinement.main.deduplication.run_deduplication",
+      new_callable=AsyncMock,
+  )
+  @patch(
+      "src.proposition_refinement.main.simulated_jury.run_simulated_jury",
+      new_callable=AsyncMock,
+  )
+  @patch("src.proposition_refinement.main.schulze.get_schulze_ranking")
+  def test_run_jury_by_topic_and_deduplication_with_bridging(
+      self, mock_schulze, mock_run_jury, mock_run_dedup
+  ):
+    """Tests topic-level bridging selection, metric recording, and dedup."""
+    self.mock_args.segment_column = "region"
+    self.mock_args.bridging_metric = "minmax"
+    self.mock_args.min_segment_size = 1
+
+    jury_pool_df = pd.DataFrame({
+        "participant_id": ["r1", "r2", "r3", "r4"],
+        "region": ["North", "North", "South", "South"],
+    })
+    by_opinion_df = self.sample_by_opinion_df.copy()
+    by_opinion_df["opinion_level_schulze_ranking"] = [
+        ["T1O1_P1", "T1O1_P2", "T1O1_P3"],
+        ["T1O2_P1", "T1O2_P2"],
+        ["T2O3_P1", "T2O3_P2", "T2O3_P3"],
+    ]
+    by_opinion_df["opinion_level_bridging_ranking"] = [
+        ["T1O1_P3", "T1O1_P2", "T1O1_P1"],
+        ["T1O2_P2", "T1O2_P1"],
+        ["T2O3_P2", "T2O3_P1", "T2O3_P3"],
+    ]
+    world_model = {
+        "world_model": by_opinion_df,
+        "simulated_jury_stats": [],
+        "initial_approval_matrix": pd.DataFrame(
+            {
+                "T1O1_P3": [True, True, True, True],
+                "T1O1_P2": [True, False, True, False],
+                "T1O1_P1": [True, True, False, False],
+                "T1O2_P2": [True, True, False, False],
+                "T1O2_P1": [False, False, False, False],
+                "T2O3_P2": [True, True, True, False],
+                "T2O3_P1": [True, True, False, False],
+                "T2O3_P3": [False, False, False, False],
+            },
+            index=["r1", "r2", "r3", "r4"],
+        ),
+    }
+
+    mock_run_jury.return_value = (
+        pd.DataFrame({"result": [{"ranking": ["T1O2_P2", "T1O1_P3"]}]}),
+        {},
+    )
+    mock_schulze.side_effect = lambda prefs: {"top_propositions": prefs[0]}
+
+    topic_wm = asyncio.run(
+        proposition_refinement_main.run_jury_by_topic(
+            world_model, self.mock_args, jury_pool_df, MagicMock()
+        )
+    )
+
+    # Opinion-to-topic aggregation must pull top candidates from bridging ranks.
+    t1_call_props = mock_run_jury.call_args_list[0].args[1]
+    self.assertEqual(
+        t1_call_props, ["T1O1_P3", "T1O1_P2", "T1O2_P2", "T1O2_P1"]
+    )
+
+    topic_df = topic_wm["topic_level_results"]
+    t1_row = topic_df[topic_df["topic"] == "T1"].iloc[0]
+    self.assertEqual(
+        t1_row["topic_level_bridging_ranking"],
+        ["T1O1_P3", "T1O1_P2", "T1O2_P2", "T1O2_P1"],
+    )
+    t1_props_df = t1_row["propositions"].set_index("proposition")
+    self.assertAlmostEqual(t1_props_df.loc["T1O1_P3", "minmax_approval"], 1.0)
+    self.assertEqual(t1_props_df.loc["T1O1_P3", "bridging_rank"], 1)
+    self.assertEqual(t1_props_df.loc["T1O2_P2", "bottleneck_segment"], "South")
+
+    # Deduplication stage must select from topic_level_bridging_ranking.
+    mock_run_dedup.return_value = (topic_df, {})
+    asyncio.run(
+        proposition_refinement_main.run_deduplication_stage(
+            topic_wm, self.mock_args, MagicMock()
+        )
+    )
+    _, dedup_kwargs = mock_run_dedup.call_args
+    self.assertEqual(
+        dedup_kwargs["ranking_column"], "topic_level_bridging_ranking"
+    )
+
+  @patch("src.proposition_refinement.main.schulze.get_schulze_ranking")
+  def test_rank_nuanced_propositions_with_bridging(self, mock_schulze):
+    """Tests final nuanced proposition selection and metrics under bridging."""
+    self.mock_args.segment_columns = ["seg_a,seg_b"]
+    self.mock_args.bridging_metric = "gic_geomean"
+    self.mock_args.min_segment_size = 1
+    self.mock_args.num_nuanced_propositions = 2
+
+    jury_pool_df = pd.DataFrame({
+        "participant_id": ["r1", "r2", "r3", "r4"],
+        "seg_a": [1, 1, 0, 0],
+        "seg_b": [1, 0, 1, 1],
+    })
+    # N1: Polarized (seg_a=1.0, seg_b=1/3 -> geomean=sqrt(1/3)~0.577)
+    # N2: Strong bridge (seg_a=1.0, seg_b=1.0 -> geomean=1.0)
+    # N3: Moderate bridge (seg_a=0.5, seg_b=1.0 -> geomean=sqrt(0.5)~0.707)
+    world_model = {
+        "nuanced_jury_results": pd.DataFrame(
+            {"result": [{"ranking": ["N1", "N3", "N2"]}]}
+        ),
+        "nuanced_approval_matrix": pd.DataFrame(
+            {
+                "N1": [True, True, False, False],
+                "N2": [True, True, True, True],
+                "N3": [True, False, True, True],
+            },
+            index=["r1", "r2", "r3", "r4"],
+        ),
+    }
+    mock_schulze.return_value = {"top_propositions": ["N1", "N3", "N2"]}
+
+    result_wm = asyncio.run(
+        proposition_refinement_main.rank_nuanced_propositions(
+            world_model, self.mock_args, jury_pool_df=jury_pool_df
+        )
+    )
+
+    self.assertEqual(result_wm["nuanced_bridging_ranking"], ["N2", "N3", "N1"])
+    top_df = result_wm["top_nuanced_propositions"]
+    self.assertEqual(top_df["proposition"].tolist(), ["N2", "N3"])
+    self.assertAlmostEqual(top_df.loc[0, "gic_geomean"], 1.0)
+    self.assertAlmostEqual(top_df.loc[1, "minmax_approval"], 0.5)
+    self.assertEqual(top_df.loc[1, "bottleneck_segment"], "seg_a")
+    self.assertEqual(top_df.loc[0, "bridging_rank"], 1)
+    self.assertEqual(top_df.loc[1, "bridging_rank"], 2)
+
+  def test_main_fails_fast_on_invalid_bridging_segment_column(self):
+    """Tests that misconfigured segment flags fail before running stages."""
+    jury_pool = pd.DataFrame({"participant_id": ["r1", "r2"]})
+    self.mock_args.input_pkl = "dummy.pkl"
+    self.mock_args.processed_r2_data = None
+    self.mock_args.gemini_api_key = "dummy_key"
+    self.mock_args.simulated_jury_model_name = "dummy-model"
+    self.mock_args.nuanced_propositions_model_name = "dummy-model"
+    self.mock_args.additional_context_file = None
+    self.mock_args.approval_batch_size = 15
+    self.mock_args.segment_column = "nonexistent_segment"
+
+    with patch(
+        "src.proposition_refinement.main.get_jury_pool",
+        return_value=(jury_pool, self.sample_world_model),
+    ), patch(
+        "argparse.ArgumentParser.parse_args", return_value=self.mock_args
+    ), patch(
+        "src.proposition_refinement.main.pickle.load",
+        return_value=self.sample_world_model,
+    ), self.mock_pipeline_stages() as mock_stage_1:
+      with self.assertRaisesRegex(ValueError, "nonexistent_segment"):
+        asyncio.run(proposition_refinement_main.main())
+      mock_stage_1.assert_not_called()
+
 
 if __name__ == "__main__":
   unittest.main()

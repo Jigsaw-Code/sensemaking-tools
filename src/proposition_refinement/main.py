@@ -21,6 +21,7 @@ from src.social_choice import schulze
 from src.proposition_refinement import nuanced_propositions
 from src.proposition_refinement import topic_deduplication
 from src.proposition_refinement import deduplication
+from src.social_choice import bridging
 from src.social_choice import proportional_approval_voting
 from src import participation
 from src import runner_utils
@@ -466,6 +467,24 @@ async def run_jury_by_opinion(world_model, args, jury_pool_df, sim_jury_model):
   if "opinion_level_approval_results" not in by_opinion_df.columns:
     by_opinion_df["opinion_level_approval_results"] = pd.Series(dtype="object")
 
+  bridging_config = bridging.bridging_config_from_args(args)
+  has_bridging = bridging_config is not None
+  segment_memberships = None
+  bridging_metric = None
+  min_segment_size = 1
+  if bridging_config is not None:
+    bridging_metric = bridging_config.metric
+    min_segment_size = bridging_config.min_segment_size
+    segment_memberships = bridging.extract_segment_memberships_from_args(
+        jury_pool_df, args
+    )
+    if "opinion_level_bridging_ranking" not in by_opinion_df.columns:
+      by_opinion_df["opinion_level_bridging_ranking"] = pd.Series(
+          dtype="object"
+      )
+    if "opinion_level_bridging_scores" not in by_opinion_df.columns:
+      by_opinion_df["opinion_level_bridging_scores"] = pd.Series(dtype="object")
+
   for index, row in by_opinion_df.iterrows():
     if "propositions" not in row or row["propositions"].empty:
       print(
@@ -563,6 +582,38 @@ async def run_jury_by_opinion(world_model, args, jury_pool_df, sim_jury_model):
       )
       by_opinion_df.at[index, "opinion_level_pav_ranking"] = pav_slate
 
+    if has_bridging:
+      if (
+          "initial_approval_matrix" not in world_model
+          or world_model["initial_approval_matrix"].empty
+      ):
+        logging.warning(
+            "Cannot compute bridging ranking for opinion '%s' due to missing"
+            " approval matrix.",
+            row["opinion"],
+        )
+        continue
+      available_props = [
+          prop
+          for prop in propositions
+          if prop in world_model["initial_approval_matrix"].columns
+      ]
+      if not available_props:
+        continue
+      opinion_approval_matrix = world_model["initial_approval_matrix"][
+          available_props
+      ]
+      bridging_df = bridging.rank_by_bridging(
+          opinion_approval_matrix,
+          segment_memberships,
+          metric=bridging_metric,
+          min_segment_size=min_segment_size,
+      )
+      by_opinion_df.at[index, "opinion_level_bridging_ranking"] = bridging_df[
+          "candidate"
+      ].tolist()
+      by_opinion_df.at[index, "opinion_level_bridging_scores"] = bridging_df
+
   return world_model
 
 
@@ -611,12 +662,32 @@ async def run_jury_by_topic(world_model, args, jury_pool_df, sim_jury_model):
   by_opinion_df = world_model["world_model"]
   topic_results = []
 
+  bridging_config = bridging.bridging_config_from_args(args)
+  has_bridging = bridging_config is not None
+  segment_memberships = None
+  bridging_metric = None
+  min_segment_size = 1
+  if bridging_config is not None:
+    bridging_metric = bridging_config.metric
+    min_segment_size = bridging_config.min_segment_size
+    segment_memberships = bridging.extract_segment_memberships_from_args(
+        jury_pool_df, args
+    )
+
   for topic, group in by_opinion_df.groupby("topic"):
     print(f"\n--- Aggregating and running jury for topic: {topic} ---")
     top_opinion_propositions = []
 
     ranking_column_to_use = "opinion_level_schulze_ranking"
-    if args.run_pav_selection and "opinion_level_pav_ranking" in group.columns:
+    if has_bridging and "opinion_level_bridging_ranking" in group.columns:
+      logging.info(
+          "Using bridging ranking (%s) for opinion-to-topic aggregation.",
+          bridging_metric,
+      )
+      ranking_column_to_use = "opinion_level_bridging_ranking"
+    elif (
+        args.run_pav_selection and "opinion_level_pav_ranking" in group.columns
+    ):
       print(f"  - Using PAV-based ranking for opinion-to-topic aggregation.")
       ranking_column_to_use = "opinion_level_pav_ranking"
 
@@ -710,24 +781,73 @@ async def run_jury_by_topic(world_model, args, jury_pool_df, sim_jury_model):
             )
         )
 
+    topic_bridging_ranking = []
+    topic_bridging_scores = pd.DataFrame()
+    if has_bridging:
+      if (
+          "initial_approval_matrix" not in world_model
+          or world_model["initial_approval_matrix"].empty
+      ):
+        logging.warning(
+            "Cannot compute bridging ranking for topic '%s' due to missing"
+            " approval matrix.",
+            topic,
+        )
+      else:
+        available_props = [
+            prop
+            for prop in unique_propositions
+            if prop in world_model["initial_approval_matrix"].columns
+        ]
+        if available_props:
+          topic_approval_matrix = world_model["initial_approval_matrix"][
+              available_props
+          ]
+          topic_bridging_scores = bridging.rank_by_bridging(
+              topic_approval_matrix,
+              segment_memberships,
+              metric=bridging_metric,
+              min_segment_size=min_segment_size,
+          )
+          topic_bridging_ranking = topic_bridging_scores["candidate"].tolist()
+
     # Find the original, nested proposition data for the final propositions
     all_props_in_topic = _aggregate_propositions_for_topic(
         group, world_model["initial_approval_matrix"]
     )
+    selected_candidate_pool = (
+        set(final_ranking) | set(topic_bridging_ranking)
+        if has_bridging
+        else set(final_ranking)
+    )
     # Use .loc to ensure we are selecting rows from the original DataFrame
     # with all its columns, preventing the 'opinion' column from being dropped.
     final_topic_propositions_df = all_props_in_topic.loc[
-        all_props_in_topic["proposition"].isin(final_ranking)
+        all_props_in_topic["proposition"].isin(selected_candidate_pool)
     ].copy()
+    if has_bridging and not topic_bridging_scores.empty:
+      bridging_cols = list(bridging.BRIDGING_OUTPUT_COLUMNS)
+      final_topic_propositions_df = final_topic_propositions_df.merge(
+          topic_bridging_scores.set_index("candidate")[bridging_cols],
+          left_on="proposition",
+          right_index=True,
+          how="left",
+      )
 
-    topic_results.append({
+    topic_result_entry = {
         "topic": topic,
         "propositions": final_topic_propositions_df,
         "full_schulze_ranking": final_ranking,
         "topic_level_pav_ranking": topic_pav_ranking,
         "simulation_results": jury_results_df,
         "r1_quotes_by_topic": group["r1_df_length"].sum(),
-    })
+    }
+    if has_bridging:
+      topic_result_entry["topic_level_bridging_ranking"] = (
+          topic_bridging_ranking
+      )
+      topic_result_entry["topic_level_bridging_scores"] = topic_bridging_scores
+    topic_results.append(topic_result_entry)
 
   world_model["topic_level_results"] = pd.DataFrame(topic_results)
   return world_model
@@ -758,7 +878,17 @@ async def run_deduplication_stage(world_model, args, nuanced_props_model):
   topic_level_data = world_model["topic_level_results"]
 
   ranking_column = "full_schulze_ranking"
-  if args.run_pav_selection:
+  if bridging.bridging_config_from_args(args) is not None:
+    if "topic_level_bridging_ranking" in topic_level_data.columns:
+      logging.info("Using bridging ranking for deduplication stage.")
+      ranking_column = "topic_level_bridging_ranking"
+    else:
+      raise ValueError(
+          "Bridging ranking was requested, but 'topic_level_bridging_ranking'"
+          " column not found in topic_level_results. Was the topic_level_jury"
+          " stage run with segment columns enabled?"
+      )
+  elif args.run_pav_selection:
     if "topic_level_pav_ranking" in topic_level_data.columns:
       print("\n--- Using PAV-based ranking for deduplication stage ---")
       ranking_column = "topic_level_pav_ranking"
@@ -911,63 +1041,121 @@ async def run_nuanced_ranking_jury(
     check_fn=lambda data: "top_nuanced_propositions" in data
     and not data["top_nuanced_propositions"].empty,
 )
-async def rank_nuanced_propositions(world_model, args):
-  """Performs Schulze and PAV ranking on the nuanced proposition jury results."""
+async def rank_nuanced_propositions(
+    world_model, args, jury_pool_df: pd.DataFrame | None = None
+):
+  """Performs Schulze, PAV, and optional bridging ranking on nuanced juries."""
   world_model = copy.deepcopy(world_model)
-  nuanced_jury_results_df = world_model["nuanced_jury_results"]
-
-  if nuanced_jury_results_df.empty:
-    print("No nuanced jury results to rank.")
-    world_model["top_nuanced_propositions"] = pd.DataFrame()
-    return world_model
+  bridging_config = bridging.bridging_config_from_args(args)
+  has_bridging = bridging_config is not None
+  nuanced_jury_results_df = world_model.get(
+      "nuanced_jury_results", pd.DataFrame()
+  )
+  nuanced_approval_matrix = world_model.get(
+      "nuanced_approval_matrix", pd.DataFrame()
+  )
 
   nuanced_jury_preferences = []
-  for res in nuanced_jury_results_df["result"]:
-    if res and "ranking" in res:
-      ranking = res["ranking"]
-      if ranking:  # Ensure the ranking list is not empty
-        nuanced_jury_preferences.append(ranking)
+  if not nuanced_jury_results_df.empty:
+    for res in nuanced_jury_results_df["result"]:
+      if res and "ranking" in res:
+        ranking = res["ranking"]
+        if ranking:  # Ensure the ranking list is not empty
+          nuanced_jury_preferences.append(ranking)
 
-  if not nuanced_jury_preferences:
-    print("No valid rankings for nuanced propositions.")
+  if not nuanced_jury_preferences and (
+      not has_bridging or nuanced_approval_matrix.empty
+  ):
+    if nuanced_jury_results_df.empty:
+      print("No nuanced jury results to rank.")
+    else:
+      print("No valid rankings for nuanced propositions.")
     world_model["top_nuanced_propositions"] = pd.DataFrame()
     return world_model
 
-  # --- Schulze Ranking ---
-  num_propositions_to_rank = len(nuanced_jury_preferences[0])
-  full_schulze_ranking = schulze.get_schulze_ranking(
-      nuanced_jury_preferences, k=num_propositions_to_rank
-  )
-  world_model["nuanced_schulze_ranking"] = full_schulze_ranking.get(
-      "top_propositions", []
-  )
+  primary_ranking: list[str] = []
 
-  # --- PAV Selection (if enabled) ---
-  primary_ranking = world_model["nuanced_schulze_ranking"]
-  if args.run_pav_selection:
-    if (
-        "nuanced_approval_matrix" not in world_model
-        or world_model["nuanced_approval_matrix"].empty
-    ):
-      print(
-          "  - WARNING: Cannot run PAV selection for nuanced propositions due"
-          " to missing approval matrix."
+  # --- Schulze Ranking ---
+  if nuanced_jury_preferences:
+    num_propositions_to_rank = len(nuanced_jury_preferences[0])
+    full_schulze_ranking = schulze.get_schulze_ranking(
+        nuanced_jury_preferences, k=num_propositions_to_rank
+    )
+    world_model["nuanced_schulze_ranking"] = full_schulze_ranking.get(
+        "top_propositions", []
+    )
+    primary_ranking = world_model["nuanced_schulze_ranking"]
+
+    # --- PAV Selection (if enabled) ---
+    if args.run_pav_selection:
+      if nuanced_approval_matrix.empty:
+        print(
+            "  - WARNING: Cannot run PAV selection for nuanced propositions"
+            " due to missing approval matrix."
+        )
+      else:
+        pav_ranking = proportional_approval_voting.run_schulze_pav_selection(
+            ranked_choice_results=nuanced_jury_preferences,
+            approval_matrix=nuanced_approval_matrix,
+            k=len(nuanced_approval_matrix.columns),  # Get a full ranking
+        )
+        world_model["nuanced_pav_ranking"] = pav_ranking
+        primary_ranking = pav_ranking
+
+  # --- Bridging Consensus Ranking (if segment columns provided) ---
+  if has_bridging:
+    participants_df = (
+        jury_pool_df
+        if jury_pool_df is not None
+        else world_model.get("all_participant_data")
+    )
+    if nuanced_approval_matrix.empty:
+      logging.warning(
+          "Cannot compute bridging ranking for nuanced propositions due to"
+          " missing approval matrix."
+      )
+    elif participants_df is None or participants_df.empty:
+      logging.warning(
+          "Cannot compute bridging ranking for nuanced propositions due to"
+          " missing participant data."
       )
     else:
-      nuanced_approval_matrix = world_model["nuanced_approval_matrix"]
-      pav_ranking = proportional_approval_voting.run_schulze_pav_selection(
-          ranked_choice_results=nuanced_jury_preferences,
-          approval_matrix=nuanced_approval_matrix,
-          k=len(nuanced_approval_matrix.columns),  # Get a full ranking
+      segment_memberships = bridging.extract_segment_memberships_from_args(
+          participants_df, args
       )
-      world_model["nuanced_pav_ranking"] = pav_ranking
-      primary_ranking = pav_ranking
+      nuanced_bridging_df = bridging.rank_by_bridging(
+          nuanced_approval_matrix,
+          segment_memberships,
+          metric=bridging_config.metric,
+          min_segment_size=bridging_config.min_segment_size,
+      )
+      world_model["nuanced_bridging_scores"] = nuanced_bridging_df
+      world_model["nuanced_bridging_ranking"] = nuanced_bridging_df[
+          "candidate"
+      ].tolist()
+      primary_ranking = world_model["nuanced_bridging_ranking"]
 
   top_nuanced_propositions = primary_ranking[: args.num_nuanced_propositions]
+  top_df = pd.DataFrame({"proposition": top_nuanced_propositions})
+  if (
+      has_bridging
+      and "nuanced_bridging_scores" in world_model
+      and not world_model["nuanced_bridging_scores"].empty
+  ):
+    bridging_metric_cols = [
+        *bridging.BRIDGING_OUTPUT_COLUMNS,
+        "overall_approval",
+    ]
+    top_df = top_df.merge(
+        world_model["nuanced_bridging_scores"].set_index("candidate")[
+            bridging_metric_cols
+        ],
+        left_on="proposition",
+        right_index=True,
+        how="left",
+    )
 
-  world_model["top_nuanced_propositions"] = pd.DataFrame(
-      {"proposition": top_nuanced_propositions}
-  )
+  world_model["top_nuanced_propositions"] = top_df
   return world_model
 
 
@@ -1051,6 +1239,7 @@ async def main():
           "Additional context to provide when generating nuanced propositions."
       ),
   )
+  bridging.add_bridging_args(parser)
   parser.add_argument(
       "--nuanced_propositions_model_name",
       type=str,
@@ -1142,6 +1331,10 @@ async def main():
       jury_pool_df, args.jury_size, verbose=args.verbose
   )
 
+  # Fail fast if segment columns or bridging flags are misconfigured.
+  if bridging.bridging_config_from_args(args) is not None:
+    bridging.extract_segment_memberships_from_args(jury_pool_df, args)
+
   print(f"--- Final jury pool contains {len(jury_pool_df)} participants. ---")
 
   if args.verbose:
@@ -1181,7 +1374,9 @@ async def main():
   world_model = await run_nuanced_ranking_jury(
       world_model, args, jury_pool_df, sim_jury_model
   )
-  world_model = await rank_nuanced_propositions(world_model, args)
+  world_model = await rank_nuanced_propositions(
+      world_model, args, jury_pool_df=jury_pool_df
+  )
 
   # --- Final Save and Print ---
   with open(args.output_pkl, "wb") as f:

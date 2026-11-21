@@ -1,5 +1,8 @@
+from collections.abc import Collection
+from collections.abc import Mapping
 import logging
 import sys
+from typing import Any
 
 """
 A command-line utility for running simulated jury analyses.
@@ -25,8 +28,80 @@ from src.models import model_factory
 from src import runner_utils
 from src.models.genai_model import MAX_CONCURRENT_CALLS as GEMINI_DEFAULT
 from src.models.openai_compatible_model import DEFAULT_MAX_CONCURRENT_CALLS as OPEN_MODEL_DEFAULT
+from src.social_choice import bridging
 from src.social_choice import schulze
 from src.social_choice import proportional_approval_voting
+
+# Rate-valued bridging columns formatted as percentages when --percent is set.
+# gic_product remains numeric because products across many segments can be
+# very small.
+_BRIDGING_PERCENT_COLUMNS = ("minmax_approval", "gic_geomean")
+
+
+def _append_bridging_metrics(
+    statements_df: pd.DataFrame,
+    approval_matrix: pd.DataFrame,
+    segment_memberships: Mapping[str, Collection[Any]],
+    *,
+    statement_column: str,
+    group_by: str | None,
+    bridging_metric: str,
+    min_segment_size: int,
+) -> pd.DataFrame:
+  """Computes bridging metrics from approval_matrix and merges into statements_df."""
+  output_cols = list(bridging.BRIDGING_OUTPUT_COLUMNS)
+  existing_cols = [col for col in output_cols if col in statements_df.columns]
+  if existing_cols:
+    logging.warning(
+        "Existing bridging columns %s found in statements CSV. Overwriting.",
+        existing_cols,
+    )
+    statements_df = statements_df.drop(columns=existing_cols)
+
+  if not group_by:
+    bridging_df = bridging.rank_by_bridging(
+        approval_matrix,
+        segment_memberships,
+        metric=bridging_metric,
+        min_segment_size=min_segment_size,
+    )
+    return statements_df.merge(
+        bridging_df.set_index("candidate")[output_cols],
+        left_on=statement_column,
+        right_index=True,
+        how="left",
+    )
+
+  grouped_frames: list[pd.DataFrame] = []
+  for group_name, group_df in statements_df.groupby(group_by, sort=False):
+    group_statements = list(
+        dict.fromkeys(
+            stmt
+            for stmt in group_df[statement_column].tolist()
+            if stmt in approval_matrix.columns
+        )
+    )
+    if not group_statements:
+      continue
+    group_bridging = bridging.rank_by_bridging(
+        approval_matrix[group_statements],
+        segment_memberships,
+        metric=bridging_metric,
+        min_segment_size=min_segment_size,
+    )
+    group_bridging[group_by] = group_name
+    grouped_frames.append(group_bridging[[group_by, "candidate", *output_cols]])
+
+  if not grouped_frames:
+    return statements_df
+
+  combined = pd.concat(grouped_frames, ignore_index=True)
+  return statements_df.merge(
+      combined.set_index([group_by, "candidate"])[output_cols],
+      left_on=[group_by, statement_column],
+      right_index=True,
+      how="left",
+  )
 
 
 def main():
@@ -142,6 +217,7 @@ def main():
           " or researcher content and do not expose to untrusted public input."
       ),
   )
+  bridging.add_bridging_args(parser)
   parser.add_argument(
       "--percent",
       action="store_true",
@@ -187,6 +263,23 @@ def main():
       )
     except ValueError as e:
       logging.fatal("Error: %s", e)
+
+  # --- Validate & Extract Segment Memberships for Bridging ---
+  segment_columns = bridging.parse_segment_columns(args.segment_columns)
+  has_bridging = args.segment_column is not None or segment_columns is not None
+  segment_memberships = None
+  if has_bridging:
+    if args.voting_mode == "ranking":
+      logging.warning(
+          "Bridging metrics require approval voting; ignoring segment flags in"
+          " 'ranking' mode."
+      )
+    else:
+      segment_memberships = bridging.extract_segment_memberships(
+          participants_df,
+          segment_column=args.segment_column,
+          segment_columns=segment_columns,
+      )
 
   # --- Identify Statement Column ---
   statement_column = args.statement_column
@@ -251,6 +344,16 @@ def main():
       statements_df = statements_df.merge(
           agree_rate, left_on=statement_column, right_index=True, how="left"
       )
+      if segment_memberships is not None:
+        statements_df = _append_bridging_metrics(
+            statements_df,
+            approval_matrix,
+            segment_memberships,
+            statement_column=statement_column,
+            group_by=args.group_by,
+            bridging_metric=args.bridging_metric,
+            min_segment_size=args.min_segment_size,
+        )
     else:
       logging.fatal("Error: No results from the simulated approval jury.")
 
@@ -347,6 +450,11 @@ def main():
       results_df["error"] = results_df["error"].apply(
           lambda x: f"{x*100:.1f}%" if pd.notna(x) else x
       )
+    for col in _BRIDGING_PERCENT_COLUMNS:
+      if col in results_df.columns:
+        results_df[col] = results_df[col].apply(
+            lambda x: f"{x*100:.1f}%" if pd.notna(x) else x
+        )
 
   results_df.to_csv(args.output_csv, index=False)
   print(f"Results saved to {args.output_csv}")
