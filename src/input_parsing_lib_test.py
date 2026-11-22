@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import unittest
+
+import numpy as np
+import pandas as pd
+
+from src import input_parsing_lib
 from src.input_parsing_lib import parse_topics_string
 
 
@@ -112,3 +117,61 @@ class TestParseTopicsString(unittest.TestCase):
         },
     ]
     self.assertEqual(parse_topics_string(input_str), expected)
+
+
+class TestParseBinaryIndicator(unittest.TestCase):
+  """Tests for input_parsing_lib.parse_binary_indicator."""
+
+  def test_truthy_values(self):
+    for value in (
+        True,
+        np.bool_(True),
+        1,
+        1.0,
+        np.int64(1),
+        np.float64(1.0),
+        "1",
+        "1.0",
+        " true ",
+        "T",
+        "YES",
+        "y",
+    ):
+      with self.subTest(value=value):
+        self.assertTrue(
+            input_parsing_lib.parse_binary_indicator(value, "seg_a")
+        )
+
+  def test_falsy_and_missing_values(self):
+    for value in (
+        None,
+        np.nan,
+        pd.NA,
+        False,
+        np.bool_(False),
+        0,
+        0.0,
+        np.int64(0),
+        "",
+        "  ",
+        "0",
+        "0.0",
+        "false",
+        "F",
+        "No",
+        "n",
+        "NA",
+        "nan",
+        "None",
+        "null",
+    ):
+      with self.subTest(value=value):
+        self.assertFalse(
+            input_parsing_lib.parse_binary_indicator(value, "seg_a")
+        )
+
+  def test_invalid_values_raise_value_error(self):
+    for value in (2, -1, 0.5, "maybe", "2", ["1"], ["1", "2"]):
+      with self.subTest(value=value):
+        with self.assertRaisesRegex(ValueError, "seg_a"):
+          input_parsing_lib.parse_binary_indicator(value, "seg_a")

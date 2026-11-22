@@ -34,6 +34,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src import input_parsing_lib
+
 BRIDGING_METRICS: tuple[str, ...] = (
     "minmax",
     "gic_product",
@@ -63,20 +65,6 @@ _CORE_RESULT_COLUMNS: tuple[str, ...] = (
     "overall_approval",
     "bridging_rank",
 )
-_TRUTHY_STRINGS = frozenset({"1", "1.0", "true", "t", "yes", "y"})
-_FALSY_STRINGS = frozenset({
-    "",
-    "0",
-    "0.0",
-    "false",
-    "f",
-    "no",
-    "n",
-    "na",
-    "nan",
-    "none",
-    "null",
-})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -267,31 +255,6 @@ def parse_segment_columns(
   return list(dict.fromkeys(parsed))
 
 
-def _is_truthy_indicator(value: Any, column_name: str) -> bool:
-  """Converts a single binary segment indicator cell to a boolean."""
-  if pd.isna(value):
-    return False
-  if isinstance(value, (bool, np.bool_)):
-    return bool(value)
-  if isinstance(value, (int, float, np.integer, np.floating)):
-    if value in (0, 1):
-      return bool(value)
-    raise ValueError(
-        f"Expected binary indicator (0/1 or bool) in column {column_name!r},"
-        f" got {value!r}."
-    )
-  if isinstance(value, str):
-    normalized = value.strip().lower()
-    if normalized in _TRUTHY_STRINGS:
-      return True
-    if normalized in _FALSY_STRINGS:
-      return False
-  raise ValueError(
-      f"Expected binary indicator (0/1 or bool) in column {column_name!r},"
-      f" got {value!r}."
-  )
-
-
 def extract_segment_memberships(
     participants_df: pd.DataFrame,
     *,
@@ -370,7 +333,9 @@ def extract_segment_memberships(
   valid_df = participants_df.dropna(subset=[participant_id_col])
   memberships: dict[str, set[Any]] = {}
   for col in column_list:
-    mask = valid_df[col].map(lambda val, c=col: _is_truthy_indicator(val, c))
+    mask = valid_df[col].map(
+        lambda val, c=col: input_parsing_lib.parse_binary_indicator(val, c)
+    )
     memberships[col] = set(valid_df.loc[mask, participant_id_col])
   return memberships
 

@@ -14,7 +14,62 @@
 
 from typing import Any, Dict, List, Optional
 
+import numpy as np
+import pandas as pd
+
 Topic = Dict[str, Any]
+
+TRUTHY_STRINGS: frozenset[str] = frozenset(
+    {"1", "1.0", "true", "t", "yes", "y"}
+)
+FALSY_STRINGS: frozenset[str] = frozenset({
+    "",
+    "0",
+    "0.0",
+    "false",
+    "f",
+    "no",
+    "n",
+    "na",
+    "nan",
+    "none",
+    "null",
+})
+
+
+def parse_binary_indicator(value: Any, column_name: str = "") -> bool:
+  """Interprets a tabular cell as a boolean membership/indicator flag.
+
+  Accepts missing values (`None`, `NaN`, `pd.NA` -> `False`), booleans, numeric
+  `0`/`1`, and case-insensitive strings in `TRUTHY_STRINGS` or `FALSY_STRINGS`.
+
+  Args:
+    value: Cell value to interpret.
+    column_name: Optional column name included in validation error messages.
+
+  Returns:
+    True for truthy indicators, False for falsy or missing indicators.
+
+  Raises:
+    ValueError: If `value` is not a recognized binary indicator.
+  """
+  if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)):
+    return False
+  if isinstance(value, (bool, np.bool_)):
+    return bool(value)
+  if isinstance(value, (int, float, np.integer, np.floating)):
+    if value in (0, 1):
+      return bool(value)
+  elif isinstance(value, str):
+    normalized = value.strip().lower()
+    if normalized in TRUTHY_STRINGS:
+      return True
+    if normalized in FALSY_STRINGS:
+      return False
+  column_desc = f" in column {column_name!r}" if column_name else ""
+  raise ValueError(
+      f"Expected binary indicator (0/1 or bool){column_desc}, got {value!r}."
+  )
 
 
 def parse_topics_string(topics_string: str) -> List[Topic]:
