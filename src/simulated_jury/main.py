@@ -33,6 +33,8 @@ from src.social_choice import bridging
 from src.social_choice import proportional_approval_voting
 from src.social_choice import schulze
 
+DEFAULT_MODEL_NAME = "gemini-3.5-flash-lite"
+
 _VOTING_MODES: tuple[str, ...] = ("approval", "ranking", "schulze_pav")
 _DEFAULT_APPROVAL_BATCH_SIZE = 15
 
@@ -199,7 +201,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
   )
   parser.add_argument(
       "--model_name",
-      default="gemini-2.5-flash-lite",
+      default=DEFAULT_MODEL_NAME,
       type=str,
       help="Name of the model to use.",
   )
@@ -262,16 +264,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
   parser.add_argument(
       "--approval_scale",
       type=str,
-      default="agree_disagree",
-      choices=[
-          "agree_disagree",
-          "agree_disagree_neither",
-          "likert_5",
-          "likert_5_somewhat",
-          "likert_4",
-          "likert_4_somewhat",
-      ],
-      help="The scale of approval voting to use.",
+      default=None,
+      choices=simulated_jury.ApprovalScale.values(),
+      help=(
+          "The scale of approval voting to use (default:"
+          f" {simulated_jury.ApprovalScale.default_value()})."
+      ),
   )
   runner_utils.add_additional_context_args(
       parser,
@@ -421,11 +419,6 @@ async def run_analysis(
     )
     working_statements_df = working_statements_df.drop(columns=["agree_rate"])
 
-  approval_scale = (
-      config.approval_scale
-      if config.approval_scale is not None
-      else simulated_jury.ApprovalScale.AGREE_DISAGREE
-  )
   approval_matrix = pd.DataFrame()
 
   if config.voting_mode in ("approval", "schulze_pav"):
@@ -439,7 +432,7 @@ async def run_analysis(
         voting_mode=simulated_jury.VotingMode.APPROVAL,
         model=model,
         batch_size=config.approval_batch_size,
-        approval_scale=approval_scale,
+        approval_scale=config.approval_scale,
         max_concurrent_calls=config.max_concurrent_calls,
         additional_context=config.additional_context,
     )
@@ -448,7 +441,7 @@ async def run_analysis(
       raise RuntimeError("No results from the simulated approval jury.")
 
     approval_matrix = simulated_jury.build_approval_matrix(
-        approval_results_df, approval_scale=approval_scale
+        approval_results_df, approval_scale=config.approval_scale
     )
     agree_rate = approval_matrix.mean().rename("agree_rate")
     working_statements_df = working_statements_df.merge(

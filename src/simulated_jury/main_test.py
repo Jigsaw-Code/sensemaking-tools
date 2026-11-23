@@ -49,6 +49,8 @@ class ArgParsingAndConfigTest(unittest.TestCase):
     ])
     config = main.config_from_args(args)
 
+    self.assertEqual(args.model_name, main.DEFAULT_MODEL_NAME)
+    self.assertIsNone(config.approval_scale)
     self.assertEqual(config.approval_batch_size, 7)
     self.assertEqual(config.max_concurrent_calls, 42)
     self.assertEqual(
@@ -104,6 +106,7 @@ class RunAnalysisTest(unittest.IsolatedAsyncioTestCase):
 
     _, kwargs = mock_run.call_args
     self.assertIs(kwargs["model"], self.fake_model)
+    self.assertIsNone(kwargs["approval_scale"])
     self.assertIsNone(kwargs["max_concurrent_calls"])
 
     self.assertEqual(df.shape[0], 2)

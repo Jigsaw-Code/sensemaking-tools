@@ -62,44 +62,67 @@ class ApprovalScale(Enum):
   LIKERT_4 = "likert_4"
   LIKERT_4_SOMEWHAT = "likert_4_somewhat"
 
-  _mapping = {
-      "agree_disagree": ["Agree", "Disagree"],
-      "agree_disagree_neither": [
-          "Agree",
-          "Disagree",
-          "Neither Agree nor Disagree",
-      ],
-      "likert_5": [
-          "Strongly Agree",
-          "Agree",
-          "Neither Agree nor Disagree",
-          "Disagree",
-          "Strongly Disagree",
-      ],
-      "likert_5_somewhat": [
-          "Strongly Agree",
-          "Somewhat Agree",
-          "Neither Agree nor Disagree",
-          "Somewhat Disagree",
-          "Strongly Disagree",
-      ],
-      "likert_4": [
-          "Strongly Agree",
-          "Agree",
-          "Disagree",
-          "Strongly Disagree",
-      ],
-      "likert_4_somewhat": [
-          "Strongly Agree",
-          "Somewhat Agree",
-          "Somewhat Disagree",
-          "Strongly Disagree",
-      ],
-  }
+  @classmethod
+  def get_options(cls, scale: "ApprovalScale") -> list[str]:
+    """Returns the allowed vote labels for the given approval scale."""
+    return _APPROVAL_SCALE_OPTIONS[scale]
 
   @classmethod
-  def get_options(cls, scale: "ApprovalScale") -> List[str]:
-    return cls._mapping.value[scale.value]
+  def values(cls) -> list[str]:
+    """Returns all valid approval scale identifiers for CLI/config selection."""
+    return [scale.value for scale in cls]
+
+  @classmethod
+  def default_value(cls) -> str:
+    """Returns the canonical default approval scale identifier."""
+    return DEFAULT_APPROVAL_SCALE.value
+
+
+_APPROVAL_SCALE_OPTIONS: dict[ApprovalScale, list[str]] = {
+    ApprovalScale.AGREE_DISAGREE: ["Agree", "Disagree"],
+    ApprovalScale.AGREE_DISAGREE_NEITHER: [
+        "Agree",
+        "Disagree",
+        "Neither Agree nor Disagree",
+    ],
+    ApprovalScale.LIKERT_5: [
+        "Strongly Agree",
+        "Agree",
+        "Neither Agree nor Disagree",
+        "Disagree",
+        "Strongly Disagree",
+    ],
+    ApprovalScale.LIKERT_5_SOMEWHAT: [
+        "Strongly Agree",
+        "Somewhat Agree",
+        "Neither Agree nor Disagree",
+        "Somewhat Disagree",
+        "Strongly Disagree",
+    ],
+    ApprovalScale.LIKERT_4: [
+        "Strongly Agree",
+        "Agree",
+        "Disagree",
+        "Strongly Disagree",
+    ],
+    ApprovalScale.LIKERT_4_SOMEWHAT: [
+        "Strongly Agree",
+        "Somewhat Agree",
+        "Somewhat Disagree",
+        "Strongly Disagree",
+    ],
+}
+
+
+# Canonical approval scale matching the participant deliberation interface.
+DEFAULT_APPROVAL_SCALE = ApprovalScale.AGREE_DISAGREE_NEITHER
+
+
+def _resolve_approval_scale(
+    approval_scale: ApprovalScale | None,
+) -> ApprovalScale:
+  """Returns the provided approval scale or the canonical default if None."""
+  return DEFAULT_APPROVAL_SCALE if approval_scale is None else approval_scale
 
 
 def _compute_stats_summary(
@@ -332,10 +355,11 @@ def generate_vote_prompt(
     participation_record: str,
     statements: list[str],
     voting_mode: VotingMode,
-    approval_scale: ApprovalScale = ApprovalScale.AGREE_DISAGREE,
+    approval_scale: ApprovalScale | None = None,
     additional_context: str | None = None,
 ) -> str:
   """Generates a prompt for a simulated jury vote."""
+  approval_scale = _resolve_approval_scale(approval_scale)
   additional_context_block = (
       f"\n<additionalContext>\n{additional_context}\n</additionalContext>\n"
       if additional_context
@@ -390,11 +414,12 @@ async def run_simulated_jury(
     topic_name: str = "",
     opinion_name: str = "",
     batch_size: int = None,
-    approval_scale: ApprovalScale = ApprovalScale.AGREE_DISAGREE,
+    approval_scale: ApprovalScale | None = None,
     max_concurrent_calls: int | None = None,
     additional_context: str | None = None,
 ):
   """Runs a simulated jury for a set of participants and statements."""
+  approval_scale = _resolve_approval_scale(approval_scale)
   num_participants = len(participants_df)
   logging.info(
       "--- Running simulated jury with %d participants ---", num_participants
@@ -402,6 +427,16 @@ async def run_simulated_jury(
   print(f"--- Running simulated jury with {num_participants} participants ---")
   if additional_context is not None:
     additional_context = additional_context.strip() or None
+  if (
+      voting_mode == VotingMode.APPROVAL
+      and approval_scale != DEFAULT_APPROVAL_SCALE
+  ):
+    logging.warning(
+        "Running approval simulated jury with non-canonical scale %s; default"
+        " is %s.",
+        approval_scale.value,
+        DEFAULT_APPROVAL_SCALE.value,
+    )
   decision_model = decision.decision_client()
   if voting_mode == VotingMode.APPROVAL and decision_model is not None:
     logging.info(
@@ -653,9 +688,10 @@ async def _run_approval_with_decision(
 
 def build_approval_matrix(
     approval_results_df: pd.DataFrame,
-    approval_scale: ApprovalScale = ApprovalScale.AGREE_DISAGREE,
+    approval_scale: ApprovalScale | None = None,
 ) -> pd.DataFrame:
   """Builds a participant-by-proposition approval matrix from raw results."""
+  del approval_scale
   approvals = []
   for _, row in approval_results_df.iterrows():
     participant_id = row["data_row"]["participant_id"]

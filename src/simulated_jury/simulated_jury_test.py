@@ -2,9 +2,49 @@
 Tests for the simulated jury.
 """
 
+import asyncio
+import logging
 import unittest
 from unittest import mock
+
+import pandas as pd
+
+from src.models import decision
+from src.models import fake_base_model
 from src.simulated_jury import simulated_jury
+
+
+class _FakeModel(fake_base_model.FakeBaseModel):
+  """Minimal async model stub for simulated_jury unit tests."""
+
+  async def process_prompts_concurrently(
+      self,
+      jobs,
+      response_parser=None,
+      max_concurrent_calls=None,
+      retry_attempts=0,
+  ):
+    del response_parser, max_concurrent_calls, retry_attempts
+    rows = [
+        {
+            'job_id': job['job_id'],
+            'participant_rid': job['participant_rid'],
+            'data_row': job['data_row'],
+            'result': {stmt: True for stmt in job['shuffled_statements']},
+            'topic': job['topic'],
+            'opinion': job['opinion'],
+        }
+        for job in jobs
+    ]
+    stats = pd.DataFrame([
+        {
+            'job_id': job['job_id'],
+            'is_complete_failure': False,
+            'non_quota_failures': 0,
+        }
+        for job in jobs
+    ])
+    return pd.DataFrame(rows), stats, None, None
 
 
 class SimulatedJuryTest(unittest.TestCase):
@@ -62,6 +102,7 @@ class SimulatedJuryTest(unittest.TestCase):
         ' vote on each of the following statements based on their opinion.',
         prompt,
     )
+    self.assertIn('"Neither Agree nor Disagree"', prompt)
 
   def test_parse_llm_ranking_responses(self):
     results = [
@@ -283,6 +324,49 @@ class SimulatedJuryTest(unittest.TestCase):
         prompt,
     )
 
+  def test_run_simulated_jury_warns_on_non_canonical_scale(self):
+    previous_level = logging.root.manager.disable
+    logging.disable(logging.NOTSET)
+    self.addCleanup(logging.disable, previous_level)
+
+    participants_df = pd.DataFrame(
+        [{'participant_id': 'p1', 'survey_text': 'I support transit.'}]
+    )
+    with decision.use_decision_client(None):
+      with self.assertLogs(level='WARNING') as captured_logs:
+        asyncio.run(
+            simulated_jury.run_simulated_jury(
+                participants_df=participants_df,
+                statements=['Expand bus routes.'],
+                voting_mode=simulated_jury.VotingMode.APPROVAL,
+                model=_FakeModel(),
+                approval_scale=simulated_jury.ApprovalScale.AGREE_DISAGREE,
+            )
+        )
+
+    self.assertTrue(
+        any('non-canonical scale' in entry for entry in captured_logs.output)
+    )
+
+  def test_approval_scale_values_and_options(self):
+    scale_values = simulated_jury.ApprovalScale.values()
+    self.assertTrue(all(isinstance(v, str) for v in scale_values))
+    self.assertEqual(
+        scale_values,
+        [
+            'agree_disagree',
+            'agree_disagree_neither',
+            'likert_5',
+            'likert_5_somewhat',
+            'likert_4',
+            'likert_4_somewhat',
+        ],
+    )
+    for scale in simulated_jury.ApprovalScale:
+      options = simulated_jury.ApprovalScale.get_options(scale)
+      self.assertIsInstance(options, list)
+      self.assertGreaterEqual(len(options), 2)
+
   def test_build_approval_matrix_with_errors(self):
     import pandas as pd
 
@@ -291,7 +375,10 @@ class SimulatedJuryTest(unittest.TestCase):
             'data_row': {'participant_id': 'p1'},
             'result': {'error': 'Failed after 4 attempts'},
         },
-        {'data_row': {'participant_id': 'p2'}, 'result': {'Prop1': True, 'Prop2': False}},
+        {
+            'data_row': {'participant_id': 'p2'},
+            'result': {'Prop1': True, 'Prop2': False},
+        },
         {
             'data_row': {'participant_id': 'p3'},
             'result': {
