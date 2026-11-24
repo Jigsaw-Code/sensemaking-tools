@@ -169,6 +169,25 @@ Locally, Clef and `pplx-decider:27b-q4_K_M` have been tested on Ollama 0.40.11. 
 
 Assignment asks one yes/no question per label, and Other is not asked: it is assigned only when no other label clears the threshold. Labels beyond the question limit are split across requests. Equivalence is pairwise, then joined in code. Approval votes use the existing scale. Autorater verdicts are a score question on the 0-4 rubric, read at its most likely level, with no written explanation; a level below `autorater_min_score` is finalized as Other without retry, because the decision is deterministic. Ranking still needs a generative model.
 
+##### Extracting quotes as exact spans
+
+By default the generative model writes each quote, and it may lightly edit the participant's words in brackets. An extraction model can instead mark the participant's own sentences, so every quote is verbatim text from the response. Two kinds are supported: a System One host that answers `extract` questions (of the hosts above, Inception Mercury Decide does; the others answer only choice, yes/no and score questions), or Cloudflare's Clairic extraction model on Workers AI. Quote extraction therefore has its own settings, apart from `DECISION_*`:
+
+```shell
+# Inception Mercury Decide
+export QUOTE_ENDPOINT_TYPE="systemone"
+export QUOTE_MODEL="mercury-decide"
+export QUOTE_MODEL_HOST="https://api.inceptionlabs.ai/v1/decisions"
+export QUOTE_MODEL_API_KEY="<INCEPTION_API_KEY>"
+
+# or Cloudflare Clairic (the host defaults to the Workers AI URL for CLOUDFLARE_ACCOUNT_ID)
+export QUOTE_ENDPOINT_TYPE="clairic"
+export CLOUDFLARE_ACCOUNT_ID="<ACCOUNT_ID>"
+export QUOTE_MODEL_API_KEY="<CLOUDFLARE_API_TOKEN>"
+```
+
+`QUOTE_MAX_CONCURRENT` limits requests in flight for either kind; with `systemone`, `QUOTE_MODEL_KEEP_ALIVE` and `QUOTE_MAX_QUESTIONS` work like their `DECISION_*` counterparts. Every span either model returns is checked against the response before it is used. For each topic the model marks the sentences where the participant gives a view on it. Marked spans are widened to whole sentences, sentences that are not adjacent are joined with " ... ", and a topic with nothing marked gets the whole response. `<response>` segments are joined first, as `--skip_quote_extraction` does, and `--skip_quote_extraction` still takes precedence.
+
 ##### Understanding the Outputs:
 
 #### Running this script generates several files in your output directory. Here is how they differ:
