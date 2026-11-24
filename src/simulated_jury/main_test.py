@@ -1,5 +1,6 @@
 """Tests for src.simulated_jury.main."""
 
+import logging
 import os
 import tempfile
 import unittest
@@ -33,6 +34,8 @@ class ArgParsingAndConfigTest(unittest.TestCase):
         "statements.csv",
         "--output_csv",
         "output.csv",
+        "--output_approval_matrix_csv",
+        "approval_matrix.csv",
         "--batch_size",
         "7",
         "--max_concurrent_calls",
@@ -45,11 +48,13 @@ class ArgParsingAndConfigTest(unittest.TestCase):
         "gic_geomean",
         "--min_segment_size",
         "5",
+        "--include_segment_rates",
         "--percent",
     ])
     config = main.config_from_args(args)
 
     self.assertEqual(args.model_name, main.DEFAULT_MODEL_NAME)
+    self.assertEqual(args.output_approval_matrix_csv, "approval_matrix.csv")
     self.assertIsNone(config.approval_scale)
     self.assertEqual(config.approval_batch_size, 7)
     self.assertEqual(config.max_concurrent_calls, 42)
@@ -65,7 +70,9 @@ class ArgParsingAndConfigTest(unittest.TestCase):
             min_segment_size=5,
         ),
     )
+    self.assertTrue(config.include_segment_rates)
     self.assertTrue(config.percent)
+    self.assertFalse(main.SimulatedJuryConfig().include_segment_rates)
 
 
 class RunAnalysisTest(unittest.IsolatedAsyncioTestCase):
@@ -73,6 +80,10 @@ class RunAnalysisTest(unittest.IsolatedAsyncioTestCase):
 
   def setUp(self):
     super().setUp()
+    # Other test modules disable logging at import time; assertLogs needs it.
+    previous_disable = logging.root.manager.disable
+    logging.disable(logging.NOTSET)
+    self.addCleanup(logging.disable, previous_disable)
     self.participants_df = pd.DataFrame({"participant_id": ["p1", "p2"]})
     self.statements_df = pd.DataFrame({"statement": ["A", "B"]})
     self.fake_model = fake_base_model.FakeBaseModel()
@@ -363,6 +374,11 @@ class RunAnalysisTest(unittest.IsolatedAsyncioTestCase):
     self.assertAlmostEqual(row_b["gic_product"], 0.25)
     self.assertAlmostEqual(row_b["gic_geomean"], 0.5)
     self.assertEqual(row_b["bridging_rank"], 1)
+    # Default include_segment_rates=False preserves only standard columns.
+    self.assertEqual(
+        list(df.columns),
+        ["statement", "agree_rate", *bridging.BRIDGING_OUTPUT_COLUMNS],
+    )
 
   @mock.patch.object(
       simulated_jury,
@@ -553,6 +569,298 @@ class RunAnalysisTest(unittest.IsolatedAsyncioTestCase):
       )
 
     mock_run.assert_not_called()
+
+  @mock.patch.object(
+      simulated_jury,
+      "run_simulated_jury",
+      new_callable=mock.AsyncMock,
+  )
+  async def test_run_analysis_approval_with_include_segment_rates(
+      self, mock_run
+  ):
+    participants_df = pd.DataFrame({
+        "participant_id": ["p1", "p2", "p3", "p4"],
+        "region": ["North", "North", "South", "South"],
+    })
+    # Include a pre-existing colliding segment_North column and an unrelated
+    # segment_notes column to verify only computed segment rates are replaced.
+    statements_df = pd.DataFrame({
+        "statement": ["A", "B"],
+        "segment_North": [0.123, 0.456],
+        "segment_notes": ["note_a", "note_b"],
+    })
+    mock_run.return_value = (
+        pd.DataFrame([
+            {
+                "data_row": {"participant_id": "p1"},
+                "result": {"A": True, "B": True},
+            },
+            {
+                "data_row": {"participant_id": "p2"},
+                "result": {"A": True, "B": False},
+            },
+            {
+                "data_row": {"participant_id": "p3"},
+                "result": {"A": False, "B": True},
+            },
+            {
+                "data_row": {"participant_id": "p4"},
+                "result": {"A": False, "B": False},
+            },
+        ]),
+        {},
+    )
+
+    with self.assertLogs(level="WARNING") as logs:
+      df = await main.run_analysis(
+          participants_df,
+          statements_df,
+          model=self.fake_model,
+          config=main.SimulatedJuryConfig(
+              bridging_config=bridging.BridgingConfig(
+                  segment_column="region",
+                  segment_columns=None,
+                  metric=bridging.DEFAULT_BRIDGING_METRIC,
+                  min_segment_size=1,
+              ),
+              include_segment_rates=True,
+          ),
+      )
+
+    self.assertTrue(any("segment_North" in msg for msg in logs.output))
+    self.assertNotIn("segment_North_x", df.columns)
+    self.assertNotIn("segment_North_y", df.columns)
+    by_stmt = df.set_index("statement")
+    self.assertAlmostEqual(by_stmt.loc["A", "segment_North"], 1.0)
+    self.assertAlmostEqual(by_stmt.loc["A", "segment_South"], 0.0)
+    self.assertAlmostEqual(by_stmt.loc["B", "segment_North"], 0.5)
+    self.assertAlmostEqual(by_stmt.loc["B", "segment_South"], 0.5)
+    self.assertEqual(by_stmt.loc["A", "segment_notes"], "note_a")
+    self.assertEqual(by_stmt.loc["B", "segment_notes"], "note_b")
+
+  @mock.patch.object(
+      simulated_jury,
+      "run_simulated_jury",
+      new_callable=mock.AsyncMock,
+  )
+  async def test_run_analysis_include_segment_rates_with_percent(
+      self, mock_run
+  ):
+    participants_df = pd.DataFrame({
+        "participant_id": ["p1", "p2", "p3", "p4", "p5"],
+        "region": ["North", "North", "South", "South", "Small"],
+    })
+    statements_df = pd.DataFrame({
+        "statement": ["A", "B"],
+        "segment_notes": ["keep_a", "keep_b"],
+    })
+    mock_run.return_value = (
+        pd.DataFrame([
+            {
+                "data_row": {"participant_id": "p1"},
+                "result": {"A": True, "B": True},
+            },
+            {
+                "data_row": {"participant_id": "p2"},
+                "result": {"A": True, "B": False},
+            },
+            {
+                "data_row": {"participant_id": "p3"},
+                "result": {"A": False, "B": True},
+            },
+            {
+                "data_row": {"participant_id": "p4"},
+                "result": {"A": False, "B": False},
+            },
+            {
+                "data_row": {"participant_id": "p5"},
+                "result": {"A": True, "B": True},
+            },
+        ]),
+        {},
+    )
+
+    df = await main.run_analysis(
+        participants_df,
+        statements_df,
+        model=self.fake_model,
+        config=main.SimulatedJuryConfig(
+            bridging_config=bridging.BridgingConfig(
+                segment_column="region",
+                segment_columns=None,
+                metric=bridging.DEFAULT_BRIDGING_METRIC,
+                min_segment_size=2,
+            ),
+            include_segment_rates=True,
+            percent=True,
+        ),
+    )
+
+    by_stmt = df.set_index("statement")
+    self.assertEqual(by_stmt.loc["A", "segment_North"], "100.0%")
+    self.assertEqual(by_stmt.loc["A", "segment_South"], "0.0%")
+    self.assertTrue(pd.isna(by_stmt.loc["A", "segment_Small"]))
+    self.assertEqual(by_stmt.loc["B", "segment_North"], "50.0%")
+    self.assertEqual(by_stmt.loc["B", "segment_South"], "50.0%")
+    self.assertTrue(pd.isna(by_stmt.loc["B", "segment_Small"]))
+    # Unrelated string columns starting with segment_ must remain untouched.
+    self.assertEqual(by_stmt.loc["A", "segment_notes"], "keep_a")
+    self.assertEqual(by_stmt.loc["B", "segment_notes"], "keep_b")
+
+  @mock.patch.object(
+      simulated_jury,
+      "run_simulated_jury",
+      new_callable=mock.AsyncMock,
+  )
+  async def test_run_analysis_group_by_with_include_segment_rates(
+      self, mock_run
+  ):
+    participants_df = pd.DataFrame({
+        "participant_id": ["p1", "p2"],
+        "seg_a": [1, 0],
+        "seg_b": [0, 1],
+    })
+    statements_df = pd.DataFrame({
+        "statement": ["A", "B", "C", "D"],
+        "topic": ["t1", "t1", "t2", "t2"],
+        "segment_seg_a": [9.9, 9.9, 9.9, 9.9],
+    })
+    mock_run.return_value = (
+        pd.DataFrame([
+            {
+                "data_row": {"participant_id": "p1"},
+                "result": {"A": True, "B": True, "C": False, "D": True},
+            },
+            {
+                "data_row": {"participant_id": "p2"},
+                "result": {"A": False, "B": True, "C": True, "D": True},
+            },
+        ]),
+        {},
+    )
+
+    with self.assertLogs(level="WARNING") as logs:
+      df = await main.run_analysis(
+          participants_df,
+          statements_df,
+          model=self.fake_model,
+          config=main.SimulatedJuryConfig(
+              group_by="topic",
+              bridging_config=bridging.BridgingConfig(
+                  segment_column=None,
+                  segment_columns=("seg_a", "seg_b"),
+                  metric=bridging.DEFAULT_BRIDGING_METRIC,
+                  min_segment_size=1,
+              ),
+              include_segment_rates=True,
+          ),
+      )
+
+    self.assertTrue(any("segment_seg_a" in msg for msg in logs.output))
+    by_stmt = df.set_index("statement")
+    self.assertAlmostEqual(by_stmt.loc["A", "segment_seg_a"], 1.0)
+    self.assertAlmostEqual(by_stmt.loc["A", "segment_seg_b"], 0.0)
+    self.assertAlmostEqual(by_stmt.loc["B", "segment_seg_a"], 1.0)
+    self.assertAlmostEqual(by_stmt.loc["B", "segment_seg_b"], 1.0)
+    self.assertAlmostEqual(by_stmt.loc["C", "segment_seg_a"], 0.0)
+    self.assertAlmostEqual(by_stmt.loc["C", "segment_seg_b"], 1.0)
+    self.assertAlmostEqual(by_stmt.loc["D", "segment_seg_a"], 1.0)
+    self.assertAlmostEqual(by_stmt.loc["D", "segment_seg_b"], 1.0)
+    self.assertEqual(by_stmt.loc["B", "bridging_rank"], 1)
+    self.assertEqual(by_stmt.loc["D", "bridging_rank"], 1)
+
+  @mock.patch.object(
+      simulated_jury,
+      "run_simulated_jury",
+      new_callable=mock.AsyncMock,
+  )
+  async def test_run_from_csv_writes_approval_matrix_csv(self, mock_run):
+    with tempfile.TemporaryDirectory() as temp_dir:
+      participants_csv = os.path.join(temp_dir, "participants.csv")
+      statements_csv = os.path.join(temp_dir, "statements.csv")
+      output_csv = os.path.join(temp_dir, "output.csv")
+      matrix_csv = os.path.join(temp_dir, "approval_matrix.csv")
+      self.participants_df.to_csv(participants_csv, index=False)
+      self.statements_df.to_csv(statements_csv, index=False)
+
+      mock_run.return_value = (
+          pd.DataFrame([
+              {
+                  "data_row": {"participant_id": "p1"},
+                  "result": {"A": True, "B": False},
+              },
+              {
+                  "data_row": {"participant_id": "p2"},
+                  "result": {"A": True, "B": True},
+              },
+          ]),
+          {},
+      )
+
+      await main.run_from_csv(
+          participants_csv,
+          statements_csv,
+          output_csv,
+          model=self.fake_model,
+          config=main.SimulatedJuryConfig(),
+          output_approval_matrix_csv=matrix_csv,
+      )
+
+      self.assertTrue(os.path.exists(matrix_csv))
+      matrix_df = pd.read_csv(matrix_csv)
+      self.assertEqual(list(matrix_df.columns), ["participant_id", "A", "B"])
+      by_pid = matrix_df.set_index("participant_id")
+      self.assertAlmostEqual(by_pid.loc["p1", "A"], 1.0)
+      self.assertAlmostEqual(by_pid.loc["p1", "B"], 0.0)
+      self.assertAlmostEqual(by_pid.loc["p2", "A"], 1.0)
+      self.assertAlmostEqual(by_pid.loc["p2", "B"], 1.0)
+
+  @mock.patch.object(
+      simulated_jury,
+      "run_simulated_jury",
+      new_callable=mock.AsyncMock,
+  )
+  async def test_run_from_csv_ranking_mode_warns_without_writing_matrix(
+      self, mock_run
+  ):
+    with tempfile.TemporaryDirectory() as temp_dir:
+      participants_csv = os.path.join(temp_dir, "participants.csv")
+      statements_csv = os.path.join(temp_dir, "statements.csv")
+      output_csv = os.path.join(temp_dir, "output.csv")
+      matrix_csv = os.path.join(temp_dir, "approval_matrix.csv")
+      self.participants_df.to_csv(participants_csv, index=False)
+      self.statements_df.to_csv(statements_csv, index=False)
+
+      mock_run.return_value = (
+          pd.DataFrame([
+              {
+                  "data_row": {"participant_id": "p1"},
+                  "result": {"ranking": ["A", "B"]},
+              },
+              {
+                  "data_row": {"participant_id": "p2"},
+                  "result": {"ranking": ["A", "B"]},
+              },
+          ]),
+          {},
+      )
+
+      with self.assertLogs(level="WARNING") as logs:
+        await main.run_from_csv(
+            participants_csv,
+            statements_csv,
+            output_csv,
+            model=self.fake_model,
+            config=main.SimulatedJuryConfig(voting_mode="ranking"),
+            output_approval_matrix_csv=matrix_csv,
+        )
+
+      self.assertTrue(
+          any("ranking" in msg.lower() for msg in logs.output),
+          f"Expected ranking warning, got: {logs.output}",
+      )
+      self.assertTrue(os.path.exists(output_csv))
+      self.assertFalse(os.path.exists(matrix_csv))
 
 
 if __name__ == "__main__":

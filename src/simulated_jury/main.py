@@ -44,6 +44,43 @@ _DEFAULT_APPROVAL_BATCH_SIZE = 15
 _BRIDGING_PERCENT_COLUMNS: tuple[str, ...] = ("minmax_approval", "gic_geomean")
 
 
+def _format_percent(value: Any) -> Any:
+  """Formats a numeric rate as a percentage string, preserving missing values."""
+  return f"{value * 100:.1f}%" if pd.notna(value) else value
+
+
+# Non-segment columns emitted by bridging.rank_by_bridging.
+_BRIDGING_CORE_COLUMNS: frozenset[str] = frozenset((
+    "candidate",
+    "overall_approval",
+    *bridging.BRIDGING_OUTPUT_COLUMNS,
+))
+
+
+def _extract_segment_rate_columns(
+    bridging_df: pd.DataFrame,
+) -> tuple[str, ...]:
+  """Returns per-segment rate columns emitted by `bridging.rank_by_bridging`."""
+  return tuple(
+      col for col in bridging_df.columns if col not in _BRIDGING_CORE_COLUMNS
+  )
+
+
+def _drop_existing_bridging_columns(
+    statements_df: pd.DataFrame,
+    columns: Sequence[str],
+) -> pd.DataFrame:
+  """Drops pre-existing bridging columns before merging fresh outputs."""
+  existing_cols = [col for col in columns if col in statements_df.columns]
+  if not existing_cols:
+    return statements_df
+  logging.warning(
+      "Existing bridging columns %s found in statements CSV. Overwriting.",
+      existing_cols,
+  )
+  return statements_df.drop(columns=existing_cols)
+
+
 def _append_bridging_metrics(
     statements_df: pd.DataFrame,
     approval_matrix: pd.DataFrame,
@@ -53,32 +90,39 @@ def _append_bridging_metrics(
     group_by: str | None,
     bridging_metric: str | None,
     min_segment_size: int,
-) -> pd.DataFrame:
-  """Computes bridging metrics from approval_matrix and merges into statements_df."""
-  output_cols = list(bridging.BRIDGING_OUTPUT_COLUMNS)
-  existing_cols = [col for col in output_cols if col in statements_df.columns]
-  if existing_cols:
-    logging.warning(
-        "Existing bridging columns %s found in statements CSV. Overwriting.",
-        existing_cols,
-    )
-    statements_df = statements_df.drop(columns=existing_cols)
+    include_segment_rates: bool = False,
+) -> tuple[pd.DataFrame, tuple[str, ...]]:
+  """Computes bridging metrics from approval_matrix and merges into statements_df.
 
+  Returns:
+    Tuple of ``(merged_df, segment_rate_columns)``, where
+    ``segment_rate_columns`` names any per-segment approval rate columns
+    appended when ``include_segment_rates`` is True.
+  """
   if not group_by:
     bridging_df = bridging.rank_by_bridging(
         approval_matrix,
         segment_memberships,
         metric=bridging_metric,
         min_segment_size=min_segment_size,
+        include_segment_rates=include_segment_rates,
     )
-    return statements_df.merge(
+    segment_rate_cols = _extract_segment_rate_columns(bridging_df)
+    output_cols = [*bridging.BRIDGING_OUTPUT_COLUMNS, *segment_rate_cols]
+    cleaned_statements_df = _drop_existing_bridging_columns(
+        statements_df, output_cols
+    )
+    merged_df = cleaned_statements_df.merge(
         bridging_df.set_index("candidate")[output_cols],
         left_on=statement_column,
         right_index=True,
         how="left",
     )
+    return merged_df, segment_rate_cols
 
   grouped_frames: list[pd.DataFrame] = []
+  segment_rate_cols: tuple[str, ...] = ()
+  output_cols: list[str] = list(bridging.BRIDGING_OUTPUT_COLUMNS)
   for group_name, group_df in statements_df.groupby(group_by, sort=False):
     group_statements = list(
         dict.fromkeys(
@@ -94,20 +138,28 @@ def _append_bridging_metrics(
         segment_memberships,
         metric=bridging_metric,
         min_segment_size=min_segment_size,
+        include_segment_rates=include_segment_rates,
     )
+    if not grouped_frames:
+      segment_rate_cols = _extract_segment_rate_columns(group_bridging)
+      output_cols = [*bridging.BRIDGING_OUTPUT_COLUMNS, *segment_rate_cols]
     group_bridging[group_by] = group_name
     grouped_frames.append(group_bridging[[group_by, "candidate", *output_cols]])
 
   if not grouped_frames:
-    return statements_df
+    return statements_df, ()
 
+  cleaned_statements_df = _drop_existing_bridging_columns(
+      statements_df, output_cols
+  )
   combined = pd.concat(grouped_frames, ignore_index=True)
-  return statements_df.merge(
+  merged_df = cleaned_statements_df.merge(
       combined.set_index([group_by, "candidate"])[output_cols],
       left_on=[group_by, statement_column],
       right_index=True,
       how="left",
   )
+  return merged_df, segment_rate_cols
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -132,6 +184,8 @@ class SimulatedJuryConfig:
     approval_scale: Approval voting scale, or None to use the library default.
     additional_context: Optional trusted prompt framing context.
     bridging_config: Optional normalized bridging configuration.
+    include_segment_rates: Whether to include per-segment approval rate columns
+      when bridging metrics are enabled.
     percent: Whether to format rate columns as percentage strings.
     true_agree_rate_column: Optional ground-truth rate column for error
       calculation.
@@ -147,6 +201,7 @@ class SimulatedJuryConfig:
   approval_scale: simulated_jury.ApprovalScale | None = None
   additional_context: str | None = None
   bridging_config: bridging.BridgingConfig | None = None
+  include_segment_rates: bool = False
   percent: bool = False
   true_agree_rate_column: str | None = None
 
@@ -189,6 +244,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
       required=True,
       type=str,
       help="Path to the output CSV file for the results.",
+  )
+  parser.add_argument(
+      "--output_approval_matrix_csv",
+      default=None,
+      type=str,
+      help=(
+          "Optional path to save the participant-by-statement binary approval"
+          " matrix CSV (requires 'approval' or 'schulze_pav' voting mode)."
+      ),
   )
   parser.add_argument(
       "--statement_column",
@@ -281,6 +345,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
   )
   bridging.add_bridging_args(parser)
   parser.add_argument(
+      "--include_segment_rates",
+      action="store_true",
+      help=(
+          "Include per-segment approval rate columns (segment_<name>) in the"
+          " output CSV when bridging segment flags are enabled."
+      ),
+  )
+  parser.add_argument(
       "--percent",
       action="store_true",
       help="Output the results as a percentage.",
@@ -319,6 +391,7 @@ def config_from_args(args: argparse.Namespace) -> SimulatedJuryConfig:
       approval_scale=approval_scale,
       additional_context=additional_context,
       bridging_config=bridging.bridging_config_from_args(args),
+      include_segment_rates=args.include_segment_rates,
       percent=args.percent,
       true_agree_rate_column=args.true_agree_rate_column,
   )
@@ -344,32 +417,17 @@ def _resolve_statement_column(
   )
 
 
-async def run_analysis(
+async def _run_analysis_with_matrix(
     participants_df: pd.DataFrame,
     statements_df: pd.DataFrame,
     *,
     model: base_model.BaseModel,
     config: SimulatedJuryConfig,
-) -> pd.DataFrame:
-  """Executes simulated jury analysis on in-memory DataFrames.
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+  """Runs simulated jury analysis and returns `(results_df, approval_matrix)`.
 
-  Does not mutate caller-supplied DataFrames, read environment variables, or
-  touch the filesystem.
-
-  Args:
-    participants_df: DataFrame of participant records.
-    statements_df: DataFrame of candidate statements to evaluate.
-    model: Explicit `BaseModel` instance used for all jury LLM calls.
-    config: Immutable algorithmic and formatting configuration.
-
-  Returns:
-    Aggregated results DataFrame with approval, ranking, PAV, and/or bridging
-    columns appended.
-
-  Raises:
-    ValueError: If required columns, jury size, or bridging segments are
-      invalid.
-    RuntimeError: If approval voting produces no results when required.
+  `approval_matrix` is empty when approval voting does not run (e.g., in
+  ``"ranking"`` mode).
   """
   working_statements_df = statements_df.copy()
 
@@ -400,6 +458,11 @@ async def run_analysis(
           segment_column=config.bridging_config.segment_column,
           segment_columns=config.bridging_config.segment_columns,
       )
+  elif config.include_segment_rates:
+    logging.warning(
+        "include_segment_rates requires bridging segments (--segment_column or"
+        " --segment_columns); ignoring."
+    )
 
   statement_column = _resolve_statement_column(
       working_statements_df, config.statement_column
@@ -420,6 +483,7 @@ async def run_analysis(
     working_statements_df = working_statements_df.drop(columns=["agree_rate"])
 
   approval_matrix = pd.DataFrame()
+  segment_rate_cols: tuple[str, ...] = ()
 
   if config.voting_mode in ("approval", "schulze_pav"):
     logging.info(
@@ -448,7 +512,7 @@ async def run_analysis(
         agree_rate, left_on=statement_column, right_index=True, how="left"
     )
     if segment_memberships is not None and config.bridging_config is not None:
-      working_statements_df = _append_bridging_metrics(
+      working_statements_df, segment_rate_cols = _append_bridging_metrics(
           working_statements_df,
           approval_matrix,
           segment_memberships,
@@ -456,14 +520,14 @@ async def run_analysis(
           group_by=config.group_by,
           bridging_metric=config.bridging_config.metric,
           min_segment_size=config.bridging_config.min_segment_size,
+          include_segment_rates=config.include_segment_rates,
       )
 
   if config.voting_mode in ("ranking", "schulze_pav"):
-    grouped_statements = (
-        working_statements_df.groupby(config.group_by)
-        if config.group_by
-        else [("All Statements", working_statements_df)]
-    )
+    if config.group_by:
+      grouped_statements = working_statements_df.groupby(config.group_by)
+    else:
+      grouped_statements = [("All Statements", working_statements_df)]
 
     for group_name, group_df in grouped_statements:
       group_statements = group_df[statement_column].tolist()
@@ -538,20 +602,58 @@ async def run_analysis(
     )
 
   if config.percent and "agree_rate" in working_statements_df.columns:
-    working_statements_df["agree_rate"] = working_statements_df[
-        "agree_rate"
-    ].apply(lambda x: f"{x * 100:.1f}%" if pd.notna(x) else x)
-    if "error" in working_statements_df.columns:
-      working_statements_df["error"] = working_statements_df["error"].apply(
-          lambda x: f"{x * 100:.1f}%" if pd.notna(x) else x
-      )
-    for col in _BRIDGING_PERCENT_COLUMNS:
-      if col in working_statements_df.columns:
-        working_statements_df[col] = working_statements_df[col].apply(
-            lambda x: f"{x * 100:.1f}%" if pd.notna(x) else x
-        )
+    percent_cols = (
+        "agree_rate",
+        "error",
+        *_BRIDGING_PERCENT_COLUMNS,
+        *segment_rate_cols,
+    )
+    present_percent_cols = [
+        col for col in percent_cols if col in working_statements_df.columns
+    ]
+    formatted_percent_df = working_statements_df[present_percent_cols].map(
+        _format_percent
+    )
+    for col in present_percent_cols:
+      working_statements_df[col] = formatted_percent_df[col]
 
-  return working_statements_df
+  return working_statements_df, approval_matrix
+
+
+async def run_analysis(
+    participants_df: pd.DataFrame,
+    statements_df: pd.DataFrame,
+    *,
+    model: base_model.BaseModel,
+    config: SimulatedJuryConfig,
+) -> pd.DataFrame:
+  """Executes simulated jury analysis on in-memory DataFrames.
+
+  Does not mutate caller-supplied DataFrames, read environment variables, or
+  touch the filesystem.
+
+  Args:
+    participants_df: DataFrame of participant records.
+    statements_df: DataFrame of candidate statements to evaluate.
+    model: Explicit `BaseModel` instance used for all jury LLM calls.
+    config: Immutable algorithmic and formatting configuration.
+
+  Returns:
+    Aggregated results DataFrame with approval, ranking, PAV, and/or bridging
+    columns appended.
+
+  Raises:
+    ValueError: If required columns, jury size, or bridging segments are
+      invalid.
+    RuntimeError: If approval voting produces no results when required.
+  """
+  results_df, _ = await _run_analysis_with_matrix(
+      participants_df,
+      statements_df,
+      model=model,
+      config=config,
+  )
+  return results_df
 
 
 async def run_from_csv(
@@ -561,15 +663,29 @@ async def run_from_csv(
     *,
     model: base_model.BaseModel,
     config: SimulatedJuryConfig,
+    output_approval_matrix_csv: str | None = None,
 ) -> pd.DataFrame:
-  """Loads CSV inputs preserving literal strings, runs analysis, writes CSV."""
+  """Loads CSV inputs preserving literal strings, runs analysis, writes CSVs.
+
+  Args:
+    participants_csv: Path to the input participants CSV file.
+    statements_csv: Path to the input statements CSV file.
+    output_csv: Path to write the aggregated results CSV file.
+    model: Explicit `BaseModel` instance used for all jury LLM calls.
+    config: Immutable algorithmic and formatting configuration.
+    output_approval_matrix_csv: Optional path to write the participant-by-
+      statement binary approval matrix CSV when approval voting runs.
+
+  Returns:
+    Aggregated results DataFrame written to `output_csv`.
+  """
   participants_df = pd.read_csv(
       participants_csv, keep_default_na=False, na_values=[""]
   )
   statements_df = pd.read_csv(
       statements_csv, keep_default_na=False, na_values=[""]
   )
-  results_df = await run_analysis(
+  results_df, approval_matrix = await _run_analysis_with_matrix(
       participants_df,
       statements_df,
       model=model,
@@ -577,6 +693,24 @@ async def run_from_csv(
   )
   results_df.to_csv(output_csv, index=False)
   logging.info("Results saved to %s.", output_csv)
+  if output_approval_matrix_csv:
+    if config.voting_mode == "ranking":
+      logging.warning(
+          "Approval matrix output requires approval voting; ignoring"
+          " --output_approval_matrix_csv in 'ranking' mode."
+      )
+    elif approval_matrix.empty:
+      logging.warning(
+          "Approval matrix is empty; skipping write to %s.",
+          output_approval_matrix_csv,
+      )
+    else:
+      approval_matrix.to_csv(
+          output_approval_matrix_csv,
+          index=True,
+          index_label=approval_matrix.index.name or "participant_id",
+      )
+      logging.info("Approval matrix saved to %s.", output_approval_matrix_csv)
   return results_df
 
 
@@ -599,6 +733,7 @@ def main(argv: Sequence[str] | None = None) -> None:
           args.output_csv,
           model=model,
           config=config,
+          output_approval_matrix_csv=args.output_approval_matrix_csv,
       )
   )
 
