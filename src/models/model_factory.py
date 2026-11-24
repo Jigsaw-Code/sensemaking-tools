@@ -90,6 +90,8 @@ def get_decision_model() -> systemone.SystemOneClient | None:
         because other servers reject the field.
       DECISION_MAX_QUESTIONS: Most questions per request (optional, default
         64, Ollama's limit).
+      DECISION_MAX_BODY_BYTES: Largest request body in bytes, which bounds
+        the state (optional, default 65536, Ollama's limit).
       DECISION_MAX_CONCURRENT: Maximum requests in flight (optional, default
         1, since a local runner has one slot).
 
@@ -138,6 +140,9 @@ def get_decision_model() -> systemone.SystemOneClient | None:
           "DECISION_MAX_QUESTIONS", systemone.MAX_QUESTIONS
       ),
       max_concurrent=_positive_int_env("DECISION_MAX_CONCURRENT", 1),
+      max_body_bytes=_positive_int_env(
+          "DECISION_MAX_BODY_BYTES", systemone.MAX_BODY_BYTES
+      ),
   )
 
 

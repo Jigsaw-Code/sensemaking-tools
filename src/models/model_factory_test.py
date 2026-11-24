@@ -104,6 +104,7 @@ class ModelFactoryTest(unittest.TestCase):
     self.assertEqual(client.endpoint, "http://127.0.0.1:11434/v1/systemone")
     self.assertEqual(client._max_concurrent, 1)
     self.assertEqual(client._max_questions, 64)
+    self.assertEqual(client._max_body_bytes, 64 * 1024)
     self.assertEqual(client._keep_alive, "30m")
 
   @patch.dict(
@@ -130,6 +131,7 @@ class ModelFactoryTest(unittest.TestCase):
           "DECISION_MODEL_HOST": "https://api.inceptionlabs.ai/v1/decisions",
           "DECISION_MODEL_API_KEY": "secret",
           "DECISION_MAX_QUESTIONS": "16",
+          "DECISION_MAX_BODY_BYTES": "1000000",
       },
       clear=True,
   )
@@ -140,6 +142,7 @@ class ModelFactoryTest(unittest.TestCase):
         client.endpoint, "https://api.inceptionlabs.ai/v1/decisions"
     )
     self.assertEqual(client._max_questions, 16)
+    self.assertEqual(client._max_body_bytes, 1000000)
     self.assertIsNone(client._keep_alive)
 
   def test_get_decision_model_keep_alive(self):
