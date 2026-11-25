@@ -13,12 +13,50 @@
 # limitations under the License.
 
 import asyncio
+import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 from src.models.genai_model import GenaiModel
 from src.models import custom_types
+from src.models import extraction
+from src.models import systemone
 from src.quote_extraction import quote_extraction_lib
 import pandas as pd
+
+
+def _span(text: str, phrase: str) -> dict[str, object]:
+  """Returns a wire span for the first occurrence of phrase in text."""
+  start = text.index(phrase)
+  return {
+      "text": phrase,
+      "start": start,
+      "end": start + len(phrase),
+      "confidence": 0.9,
+  }
+
+
+class _ExtractTransport:
+  """Fake extract host: marks the given phrases for each question id."""
+
+  def __init__(self, phrases_by_question: dict[str, list[str]]):
+    """Stores the phrases to mark, keyed by question id."""
+    self.phrases_by_question = phrases_by_question
+    self.bodies = []
+
+  def __call__(self, url: str, body: bytes) -> bytes:
+    """Records the request and marks the phrases in its state."""
+    payload = json.loads(body)
+    self.bodies.append(payload)
+    state = payload["state"]
+    answers = {}
+    for key in payload["questions"]:
+      phrases = self.phrases_by_question.get(key, [])
+      answers[key] = {
+          "type": "extract",
+          "spans": {key: [_span(state, phrase) for phrase in phrases]},
+          "not_stated": {key: 0.0 if phrases else 0.99},
+      }
+    return json.dumps({"model": "mercury-decide", "answers": answers}).encode()
 
 
 class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
@@ -169,6 +207,143 @@ class QuoteExtractionLibTest(unittest.IsolatedAsyncioTestCase):
 
     _, kwargs = mock_model.process_prompts_concurrently.call_args
     self.assertIsNone(kwargs.get("max_concurrent_calls"))
+
+  def test_assemble_span_quote_widens_and_joins_sentences(self):
+    """Tests sentence widening, adjacent runs, and the ellipsis join."""
+    text = "One two. Three four! Five six? Seven eight."
+    spans = [
+        systemone.Span(text="two", start=4, end=7, confidence=1.0),
+        systemone.Span(text="Three", start=9, end=14, confidence=1.0),
+        systemone.Span(text="eight", start=37, end=42, confidence=1.0),
+    ]
+
+    quote = quote_extraction_lib.assemble_span_quote(text, spans)
+
+    self.assertEqual(quote, "One two. Three four! ... Seven eight.")
+    self.assertEqual(quote_extraction_lib.assemble_span_quote(text, []), "")
+    crossing = [systemone.Span(text="four! Five", start=15, end=25, confidence=1.0)]
+    self.assertEqual(
+        quote_extraction_lib.assemble_span_quote(text, crossing),
+        "Three four! Five six?",
+    )
+
+  def test_sentence_bounds_cover_every_sentence(self):
+    """Tests sentence splitting on punctuation and line breaks."""
+    text = 'He said "stop." Then\nleft.  Done'
+    bounds = quote_extraction_lib.sentence_bounds(text)
+    self.assertEqual(
+        [text[b:e] for b, e in bounds],
+        ['He said "stop."', "Then", "left.", "Done"],
+    )
+
+  async def test_span_client_extracts_verbatim_quotes(self):
+    """Tests the span path: verbatim sentences, fallback, no LLM call."""
+    statement = custom_types.Statement(
+        id="s1",
+        text=(
+            "<response>I bike to work</response><response>The painted lanes are"
+            " scary and cars park in them. Please build protected"
+            " lanes.</response>"
+        ),
+        topics=[
+            custom_types.FlatTopic(name="Cycling"),
+            custom_types.FlatTopic(name="Taxes"),
+        ],
+    )
+    transport = _ExtractTransport(
+        {"t0": ["painted lanes are scary", "protected lanes"]}
+    )
+    client = systemone.SystemOneClient(
+        model="mercury-decide", transport=transport
+    )
+    model = MagicMock()
+    model.process_prompts_concurrently = AsyncMock()
+
+    with patch.object(
+        quote_extraction_lib.model_factory,
+        "get_extractor",
+        return_value=extraction.SystemOneExtractor(client),
+    ):
+      result = await quote_extraction_lib.extract_quotes_from_text(
+          statements=[statement], model=model
+      )
+
+    cleaned = "I bike to work. The painted lanes are scary and cars park in them. Please build protected lanes."
+    self.assertIsNotNone(result[0].quotes)
+    quotes = {quote.topic.name: quote for quote in result[0].quotes or []}
+    self.assertEqual(
+        quotes["Cycling"].text,
+        "The painted lanes are scary and cars park in them. Please build"
+        " protected lanes.",
+    )
+    self.assertEqual(quotes["Cycling"].id, "s1-Cycling")
+    self.assertEqual(quotes["Taxes"].text, cleaned)
+    self.assertEqual(transport.bodies[0]["state"], cleaned)
+    self.assertEqual(
+        [q["type"] for q in transport.bodies[0]["questions"].values()],
+        ["extract", "extract"],
+    )
+    model.process_prompts_concurrently.assert_not_called()
+
+  async def test_span_quotes_work_with_any_extractor(self):
+    """Tests the span path over a non-System-One extractor, as for Clairic."""
+
+    class _FakeExtractor:
+      """Marks the phrase 'protected lanes' for every field."""
+
+      model = "fake-clairic"
+
+      async def extract(self, text, fields):
+        """Returns one span per field."""
+        start = text.index("protected lanes")
+        span = systemone.Span(
+            text="protected lanes", start=start, end=start + 15, confidence=0.5
+        )
+        return {
+            name: extraction.Extraction(spans=(span,)) for name in fields
+        }
+
+    statement = custom_types.Statement(
+        id="s1",
+        text="Cars park in the lanes. Please build protected lanes.",
+        topics=[custom_types.FlatTopic(name="Cycling")],
+    )
+    with patch.object(
+        quote_extraction_lib.model_factory,
+        "get_extractor",
+        return_value=_FakeExtractor(),
+    ):
+      result = await quote_extraction_lib.extract_quotes_from_text(
+          statements=[statement], model=MagicMock()
+      )
+    quotes = result[0].quotes or []
+    self.assertEqual(
+        [q.text for q in quotes], ["Please build protected lanes."]
+    )
+
+  async def test_span_host_error_fails_the_stage(self):
+    """Tests that a host rejecting extract questions is not papered over."""
+
+    def transport(url: str, body: bytes) -> bytes:
+      """Rejects the request the way a judgment-only host does."""
+      raise systemone.SystemOneError(
+          systemone.FailureKind.HTTP,
+          'question "t0": type must be choice, noul, or score',
+          status=400,
+      )
+
+    client = systemone.SystemOneClient(model="clef", transport=transport)
+    statements, model = self._make_single_statement_and_mock_model()
+    with patch.object(
+        quote_extraction_lib.model_factory,
+        "get_extractor",
+        return_value=extraction.SystemOneExtractor(client),
+    ):
+      with self.assertRaises(systemone.SystemOneError):
+        await quote_extraction_lib.extract_quotes_from_text(
+            statements=statements, model=model
+        )
+    model.process_prompts_concurrently.assert_not_called()
 
   def test_join_response_text(self):
     self.assertEqual(
